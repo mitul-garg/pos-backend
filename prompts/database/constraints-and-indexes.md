@@ -93,9 +93,14 @@ Standard parent → child, all named `fk_<child>_<parent>`. `order_line` and
 `return_line` cascade on delete from their parent; nothing else cascades — orders
 and returns are financial records and are never deleted, only status-transitioned.
 
-**Check your hosting provider supports foreign keys before relying on them.** Some
-free-tier MySQL platforms (notably PlanetScale) don't, which would move referential
-integrity into the application layer. Worth confirming before C2 rather than after.
+**The deployment target is assumed to support foreign keys** (decided 2026-08-02),
+so these are real database-enforced constraints, not documentation.
+
+Noted only because some free-tier MySQL platforms — PlanetScale being the notable
+one — don't support them. If the provider turns out to be one of those, the FK
+declarations become inert: nothing errors, but orphaned rows become possible and
+the integrity has to move into the service layer. Worth re-checking at deploy time
+rather than assuming the assumption held.
 
 ## `SchemaConstraintsIT` — the test that guards this file
 
