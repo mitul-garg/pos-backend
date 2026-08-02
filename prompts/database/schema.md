@@ -1,0 +1,208 @@
+# Schema — table by table
+
+Full column definitions. Diagram in [er-diagram.md](./er-diagram.md); keys and
+indexes in [constraints-and-indexes.md](./constraints-and-indexes.md); conventions
+(naming, types, the `tenant_id` rule) in [README.md](./README.md).
+
+Every table has `id BIGINT AUTO_INCREMENT PRIMARY KEY` unless stated. Money is
+`DECIMAL(12,2)`. Timestamps are `DATETIME(6)` in UTC.
+
+Maps to `requirements.md` §3.
+
+---
+
+## `tenant`
+
+The tenant boundary. A tenant is a single store.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `name` | `VARCHAR(120)` | no | Display name, e.g. "MG Road Store" |
+| `code` | `VARCHAR(64)` | no | **Globally unique.** The login discriminator |
+| `status` | `VARCHAR(16)` | no | `ACTIVE` \| `SUSPENDED` |
+| `is_platform` | `BOOLEAN` | no | `TRUE` for exactly one reserved row — see below |
+| `created_at` | `DATETIME(6)` | no | |
+
+**The reserved platform row** (`code = 'platform'`, `is_platform = TRUE`) exists so
+`SUPER_ADMIN` users have a non-null `tenant_id` and the composite unique key on
+`app_user` actually constrains them. It is excluded from `GET /api/tenants`, cannot
+be suspended, and owns no products or orders. The API still reports
+`tenantId: null` for platform users — storage detail, not wire contract.
+
+Reserved codes (`platform`, `admin`, `super`, `system`) are rejected at the
+application layer, mirroring the frontend's `validateTenantCode`. Without that, a
+tenant could register `platform` and shadow the platform login.
+
+---
+
+## `app_user`
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `tenant_id` | `BIGINT` | no | FK → `tenant`. Platform users point at the reserved row |
+| `username` | `VARCHAR(64)` | no | Unique **per tenant** — two stores can both have `admin` |
+| `password_hash` | `VARCHAR(100)` | no | BCrypt (60 chars; headroom for cost/algorithm changes) |
+| `display_name` | `VARCHAR(120)` | no | |
+| `role` | `VARCHAR(16)` | no | `SUPER_ADMIN` \| `ADMIN` \| `CASHIER` |
+| `is_active` | `BOOLEAN` | no | Default `TRUE`. Soft delete — deactivation, never row removal |
+| `created_at` | `DATETIME(6)` | no | |
+
+`password_hash` must never leave the service layer. The frontend's mock stores
+plaintext; that does not carry over.
+
+---
+
+## `product`
+
+The parent concept ("Amul Milk"). Not the thing that gets scanned — see `variant`.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `tenant_id` | `BIGINT` | no | FK → `tenant` |
+| `name` | `VARCHAR(200)` | no | |
+| `brand` | `VARCHAR(120)` | yes | |
+| `category` | `VARCHAR(80)` | yes | Free text; the filter dropdown is `DISTINCT` over this |
+| `description` | `VARCHAR(500)` | yes | |
+| `hsn_code` | `VARCHAR(16)` | yes | India GST HSN |
+| `tax_rate_percent` | `DECIMAL(5,2)` | no | GST slab: 0 / 5 / 12 / 18 / 28. `DECIMAL` not `INT`, so a half-percent slab wouldn't need a schema change |
+| `is_active` | `BOOLEAN` | no | Default `TRUE`. Soft delete |
+| `created_at` | `DATETIME(6)` | no | |
+
+Tax lives on the **product**, not the variant — every variant of a product shares
+its GST slab.
+
+---
+
+## `variant`
+
+The SKU: what actually gets scanned, priced and stocked. **The QR code lives here,
+never on the product** (`requirements.md` §2).
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `tenant_id` | `BIGINT` | no | FK → `tenant` |
+| `product_id` | `BIGINT` | no | FK → `product` |
+| `variant_label` | `VARCHAR(120)` | no | "500 ml", "Large / Red" |
+| `attributes` | `JSON` | yes | Flexible key/values, e.g. `{"size":"500ml"}` |
+| `sku` | `VARCHAR(64)` | no | Unique **per tenant** |
+| `qr_code` | `VARCHAR(64)` | no | `POS-QR-{tenantId}-{seq}`. Unique **per tenant**; the tenant segment makes printed labels globally distinct |
+| `mrp` | `DECIMAL(12,2)` | no | Tax-inclusive ceiling |
+| `selling_price` | `DECIMAL(12,2)` | no | `CHECK (selling_price <= mrp)` |
+| `stock_quantity` | `INT` | no | Default 0. Decremented on payment, restored on refund |
+| `unit_of_measure` | `VARCHAR(8)` | no | Default `EACH`. `KG`/`LITRE` are future scope |
+| `is_active` | `BOOLEAN` | no | Default `TRUE`. Inactive variants stay scannable but aren't sellable |
+
+The `CHECK` needs MySQL 8.0.16+; below that it parses and is ignored, so the
+application-level validation is not redundant.
+
+**Stock is authoritative here and nowhere else.** The client only warns; the
+backend rejects — via an atomic conditional update, not read-check-write.
+
+---
+
+## `pos_order`
+
+`order` is a SQL reserved word.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `tenant_id` | `BIGINT` | no | FK → `tenant` |
+| `order_number` | `VARCHAR(32)` | no | `ORD-YYYY-NNNN`. Unique **per tenant**, from `tenant_sequence` |
+| `status` | `VARCHAR(16)` | no | `DRAFT` \| `HELD` \| `COMPLETED` \| `CANCELLED` |
+| `subtotal` | `DECIMAL(12,2)` | no | |
+| `total_tax` | `DECIMAL(12,2)` | no | GST contained within the inclusive prices |
+| `order_discount` | `DECIMAL(12,2)` | no | Default 0 |
+| `round_off` | `DECIMAL(12,2)` | no | Delta from rounding the grand total to the rupee |
+| `grand_total` | `DECIMAL(12,2)` | no | |
+| `payment_method` | `VARCHAR(16)` | yes | `CASH` \| `CARD` \| `UPI`. Null until paid |
+| `payment_amount` | `DECIMAL(12,2)` | yes | Equals `grand_total` |
+| `amount_tendered` | `DECIMAL(12,2)` | yes | Cash only |
+| `change_due` | `DECIMAL(12,2)` | yes | Cash only |
+| `payment_reference` | `VARCHAR(64)` | yes | Txn / UPI ref |
+| `cashier_id` | `BIGINT` | no | FK → `app_user`. **From the JWT subject, never the request body** |
+| `created_at` | `DATETIME(6)` | no | |
+
+Payment is **embedded**, not a child table: v1 is a single payment covering the
+full amount, no split tender. All totals are **recomputed server-side** — never
+trust client-sent amounts.
+
+A `COMPLETED` order is immutable.
+
+---
+
+## `order_line`
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `tenant_id` | `BIGINT` | no | Denormalised so the tenant filter applies uniformly |
+| `order_id` | `BIGINT` | no | FK → `pos_order`, `ON DELETE CASCADE` |
+| `variant_id` | `BIGINT` | no | FK → `variant`. *What* was sold |
+| `name` | `VARCHAR(255)` | no | **Snapshot** — product name + variant label at sale time |
+| `qr_code` | `VARCHAR(64)` | yes | **Snapshot** |
+| `quantity` | `INT` | no | |
+| `unit_price` | `DECIMAL(12,2)` | no | **Snapshot** of the selling price applied |
+| `tax_rate_percent` | `DECIMAL(5,2)` | no | **Snapshot** |
+| `line_discount` | `DECIMAL(12,2)` | no | Default 0 |
+| `line_total` | `DECIMAL(12,2)` | no | |
+
+The snapshot columns are the point of this table. A later price change must not
+rewrite history, and refunds read these back verbatim.
+
+---
+
+## `sales_return`
+
+`return` is a SQL reserved word.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `tenant_id` | `BIGINT` | no | Always equals the original order's tenant |
+| `return_number` | `VARCHAR(32)` | no | `RET-YYYY-NNNN`. Unique **per tenant** |
+| `original_order_id` | `BIGINT` | no | FK → `pos_order` |
+| `original_order_number` | `VARCHAR(32)` | no | **Snapshot**, so a credit note prints standalone |
+| `refund_subtotal` | `DECIMAL(12,2)` | no | |
+| `refund_tax` | `DECIMAL(12,2)` | no | |
+| `round_off` | `DECIMAL(12,2)` | no | |
+| `refund_total` | `DECIMAL(12,2)` | no | |
+| `refund_method` | `VARCHAR(16)` | no | Defaults to the original payment method |
+| `reason` | `VARCHAR(500)` | yes | |
+| `processed_by` | `BIGINT` | no | FK → `app_user`. **From the JWT subject** |
+| `created_at` | `DATETIME(6)` | no | |
+
+Partial and repeated returns are allowed; the sum across returns for a line can
+never exceed what was purchased.
+
+---
+
+## `return_line`
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `tenant_id` | `BIGINT` | no | |
+| `return_id` | `BIGINT` | no | FK → `sales_return`, `ON DELETE CASCADE` |
+| `variant_id` | `BIGINT` | no | FK → `variant` |
+| `name` | `VARCHAR(255)` | no | **Snapshot** |
+| `quantity` | `INT` | no | |
+| `unit_price` | `DECIMAL(12,2)` | no | **Snapshot from the original sale**, not the current price |
+| `tax_rate_percent` | `DECIMAL(5,2)` | no | **Snapshot** |
+| `line_refund` | `DECIMAL(12,2)` | no | |
+
+---
+
+## `tenant_sequence`
+
+Per-tenant counters. No surrogate `id` — the primary key is `(tenant_id, kind)`.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `tenant_id` | `BIGINT` | no | PK part 1, FK → `tenant` |
+| `kind` | `VARCHAR(16)` | no | PK part 2. `ORDER` \| `RETURN` \| `QR` |
+| `next_value` | `BIGINT` | no | Default 1 |
+
+This table exists because per-tenant numbering meant giving up `AUTO_INCREMENT`.
+Read it with `SELECT … FOR UPDATE` **in the same transaction** as the insert it
+numbers, so two terminals in one store can't mint the same `ORD-2026-0007`. The
+`UNIQUE(tenant_id, order_number)` key is the backstop if that logic is ever wrong.
+
+A tenant with no row for a `kind` starts at 1 — matching the frontend, where a
+newly created tenant simply has no counter entry yet.
