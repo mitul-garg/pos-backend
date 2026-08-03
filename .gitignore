@@ -1,0 +1,17 @@
+target/
+*.class
+*.war
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# OS
+.DS_Store
+
+# Local overrides (never commit credentials or the JWT signing key)
+src/main/resources/application-local.properties

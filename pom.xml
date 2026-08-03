@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.pos</groupId>
+  <artifactId>pos-backend</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+  <packaging>war</packaging>
+  <name>PoS Backend</name>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.release>17</maven.compiler.release>
+
+    <spring.version>6.2.8</spring.version>
+    <jakarta.servlet.version>6.0.0</jakarta.servlet.version>
+    <jackson.version>2.18.3</jackson.version>
+    <slf4j.version>2.0.17</slf4j.version>
+    <log4j2.version>2.24.3</log4j2.version>
+    <hibernate.validator.version>8.0.2.Final</hibernate.validator.version>
+    <expressly.version>5.0.0</expressly.version>
+    <junit.version>5.11.4</junit.version>
+    <jsonpath.version>2.9.0</jsonpath.version>
+    <hamcrest.version>3.0</hamcrest.version>
+    <jetty.version>12.0.16</jetty.version>
+  </properties>
+
+  <dependencies>
+    <!--
+      Spring MVC. Pulls spring-core/beans/context/web/aop/expression transitively,
+      which is the whole DI container plus DispatcherServlet. No Spring Boot:
+      everything Boot would auto-configure is written by hand in com.pos.config.
+    -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-webmvc</artifactId>
+      <version>${spring.version}</version>
+    </dependency>
+
+    <!--
+      Servlet 6.0 (Jakarta EE 10) — the namespace Spring 6 and Jetty 12's ee10
+      module both speak. `provided` because the container supplies it; shipping a
+      second copy in the WAR causes classloader conflicts with Jetty's.
+    -->
+    <dependency>
+      <groupId>jakarta.servlet</groupId>
+      <artifactId>jakarta.servlet-api</artifactId>
+      <version>${jakarta.servlet.version}</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <!-- JSON. Spring ships no mapper; this is what MappingJackson2HttpMessageConverter needs. -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>${jackson.version}</version>
+    </dependency>
+    <!-- Without this, java.time values serialize as numeric arrays instead of ISO-8601. -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.datatype</groupId>
+      <artifactId>jackson-datatype-jsr310</artifactId>
+      <version>${jackson.version}</version>
+    </dependency>
+
+    <!--
+      Bean Validation, so @Valid on a Form DTO raises MethodArgumentNotValidException
+      and the @ControllerAdvice can answer 400 with field -> message.
+      (Hibernate Validator is unrelated to Hibernate ORM, which arrives in C2.)
+    -->
+    <dependency>
+      <groupId>org.hibernate.validator</groupId>
+      <artifactId>hibernate-validator</artifactId>
+      <version>${hibernate.validator.version}</version>
+    </dependency>
+    <!-- Validator ships only the EL *API*; message interpolation needs an implementation. -->
+    <dependency>
+      <groupId>org.glassfish.expressly</groupId>
+      <artifactId>expressly</artifactId>
+      <version>${expressly.version}</version>
+    </dependency>
+
+    <!--
+      Logging (requirements.md 1). Spring logs via spring-jcl, which delegates to
+      SLF4J when present, so this trio routes framework output into Log4j2:
+      slf4j-api is the facade, log4j-slf4j2-impl the binding, log4j-core the engine
+      that reads log4j2.xml. Omit the binding and Spring's logs vanish into JUL.
+    -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <version>${slf4j.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.logging.log4j</groupId>
+      <artifactId>log4j-slf4j2-impl</artifactId>
+      <version>${log4j2.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.logging.log4j</groupId>
+      <artifactId>log4j-core</artifactId>
+      <version>${log4j2.version}</version>
+    </dependency>
+
+    <!-- Tests -->
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <!-- MockMvc: exercises the real WebConfig and @ControllerAdvice without booting Jetty. -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-test</artifactId>
+      <version>${spring.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <!-- jsonPath(..) assertions on MockMvc responses; spring-test treats both as optional. -->
+    <dependency>
+      <groupId>com.jayway.jsonpath</groupId>
+      <artifactId>json-path</artifactId>
+      <version>${jsonpath.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.hamcrest</groupId>
+      <artifactId>hamcrest</artifactId>
+      <version>${hamcrest.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>pos-backend</finalName>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+        <configuration>
+          <!--
+            Required, not cosmetic. Spring 6 dropped bytecode-based parameter name
+            discovery, so without -parameters an unnamed @PathVariable/@RequestParam
+            fails at runtime — and OpenApiGenerator could not name them either.
+          -->
+          <parameters>true</parameters>
+        </configuration>
+      </plugin>
+
+      <!-- No web.xml — WebAppInitializer bootstraps the DispatcherServlet instead. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-war-plugin</artifactId>
+        <version>3.4.0</version>
+        <configuration>
+          <failOnMissingWebXml>false</failOnMissingWebXml>
+        </configuration>
+      </plugin>
+
+      <!-- Surefire 2.x cannot run JUnit 5; 3.x does so natively. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.5.2</version>
+      </plugin>
+
+      <!--
+        `mvn jetty:run` resolves this prefix from the POM. Jetty 12 splits by EE
+        version and ee10 is the jakarta.servlet 6.0 one; the plain
+        jetty-maven-plugin coordinate is the older javax build.
+      -->
+      <plugin>
+        <groupId>org.eclipse.jetty.ee10</groupId>
+        <artifactId>jetty-ee10-maven-plugin</artifactId>
+        <version>${jetty.version}</version>
+        <configuration>
+          <webApp>
+            <contextPath>/</contextPath>
+          </webApp>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>
