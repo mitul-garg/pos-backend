@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Test logging. Takes precedence over src/main/resources/log4j2.xml on the test
+  classpath, so a green run stays readable.
+-->
+<Configuration status="WARN">
+
+  <Appenders>
+    <Console name="Console" target="SYSTEM_OUT">
+      <PatternLayout pattern="%-5level %logger{36} - %msg%n"/>
+    </Console>
+  </Appenders>
+
+  <Loggers>
+    <!--
+      ApiExceptionHandlerTest deliberately throws to prove the 500 path hides its
+      detail, and the handler correctly logs that at ERROR with a stack trace. In a
+      test run it is expected noise, and printing it trains people to ignore real
+      stack traces.
+    -->
+    <Logger name="com.pos.controller.ApiExceptionHandler" level="OFF"/>
+
+    <Logger name="com.pos" level="INFO"/>
+
+    <Root level="WARN">
+      <AppenderRef ref="Console"/>
+    </Root>
+  </Loggers>
+</Configuration>
