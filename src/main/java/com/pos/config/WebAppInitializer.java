@@ -1,5 +1,6 @@
 package com.pos.config;
 
+import jakarta.servlet.ServletRegistration;
 import org.springframework.web.servlet.support.AbstractAnnotationConfigDispatcherServletInitializer;
 
 /**
@@ -31,5 +32,13 @@ public class WebAppInitializer extends AbstractAnnotationConfigDispatcherServlet
     @Override
     protected String[] getServletMappings() {
         return new String[] { "/" };
+    }
+
+    @Override
+    protected void customizeRegistration(ServletRegistration.Dynamic registration) {
+        // Without this an unmapped URL yields an empty 404 with no body. We want it
+        // to raise NoHandlerFoundException so ApiExceptionHandler can answer with the
+        // same JSON error envelope as everything else.
+        registration.setInitParameter("throwExceptionIfNoHandlerFound", "true");
     }
 }
