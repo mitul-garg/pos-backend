@@ -24,6 +24,27 @@ an uncommitted step means a manual-testing session that goes sideways has no cle
 point to fall back to. Small commits also keep the diff reviewable — a whole
 C-step in one commit is unreviewable by the time it's written.
 
+### A size check to make that concrete (learned from C1)
+
+"Commit often" gave nothing to check against, and it didn't bind: **C1 was built
+and then offered as a single 32-file commit**, exactly the unreviewable thing this
+section exists to prevent. It was retroactively split into six.
+
+Soft guidance, not a hard gate:
+
+> **Once uncommitted work passes roughly 10 files or 500 lines, stop and look for
+> a commit boundary.** Past that, a diff stops being reviewable in one sitting.
+
+It's a smell, not a limit — a genuinely atomic change that runs long is fine, and
+so is committing at three files. The point is to notice, rather than discover at
+the end that there were five commits in there all along.
+
+When splitting after the fact, **build each commit rather than just splitting the
+`git add`.** Doing that for C1 immediately surfaced a real ordering bug:
+`HealthController` carried an annotation whose dependency arrived two commits
+later, so the "health endpoint" commit didn't compile on its own. A split that is
+only a staging exercise produces history that has never been verified.
+
 **Offer the commit message** (subject + body, `Cn: <what>` for build steps), and
 say *why*, plus any deliberate deviation from `../../backend-plan.md`. **Don't run
 `git commit` unless asked.**
