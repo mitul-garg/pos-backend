@@ -21,6 +21,8 @@
     <log4j2.version>2.24.3</log4j2.version>
     <hibernate.validator.version>8.0.2.Final</hibernate.validator.version>
     <expressly.version>5.0.0</expressly.version>
+    <swagger.version>2.2.30</swagger.version>
+    <swagger.ui.version>5.20.1</swagger.ui.version>
     <junit.version>5.11.4</junit.version>
     <jsonpath.version>2.9.0</jsonpath.version>
     <hamcrest.version>3.0</hamcrest.version>
@@ -79,6 +81,23 @@
       <groupId>org.glassfish.expressly</groupId>
       <artifactId>expressly</artifactId>
       <version>${expressly.version}</version>
+    </dependency>
+
+    <!--
+      OpenAPI. swagger-core builds the spec model and derives JSON Schema from our
+      DTOs; the webjar is the UI. Both are Boot-free — deliberately NOT springdoc,
+      which hard-depends on spring-boot-autoconfigure. The Spring-MVC-to-OpenAPI
+      step that springdoc would provide is OpenApiGenerator instead.
+    -->
+    <dependency>
+      <groupId>io.swagger.core.v3</groupId>
+      <artifactId>swagger-core-jakarta</artifactId>
+      <version>${swagger.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.webjars</groupId>
+      <artifactId>swagger-ui</artifactId>
+      <version>${swagger.ui.version}</version>
     </dependency>
 
     <!--

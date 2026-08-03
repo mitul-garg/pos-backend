@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<!--
+  Our own entry point for Swagger UI. Everything else under /swagger-ui/ falls
+  through to the webjar (see OpenApiConfig#addResourceHandlers); only this file is
+  overridden, so the spec URL can point at our generated document.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PoS API</title>
+  <link rel="stylesheet" href="./swagger-ui.css">
+  <link rel="icon" href="./favicon-32x32.png" sizes="32x32">
+</head>
+<body>
+<div id="swagger-ui"></div>
+<script src="./swagger-ui-bundle.js" crossorigin></script>
+<script src="./swagger-ui-standalone-preset.js" crossorigin></script>
+<script>
+  window.onload = function () {
+    window.ui = SwaggerUIBundle({
+      url: '/api/openapi.json',
+      dom_id: '#swagger-ui',
+      deepLinking: true,
+      presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+      plugins: [SwaggerUIBundle.plugins.DownloadUrl],
+      layout: 'StandaloneLayout',
+      // Endpoints sorted by path rather than by registration order, so the page
+      // is stable as controllers are added.
+      operationsSorter: 'alpha',
+      tagsSorter: 'alpha'
+    });
+  };
+</script>
+</body>
+</html>

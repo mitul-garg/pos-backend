@@ -3,6 +3,7 @@ package com.pos.controller;
 import java.time.Instant;
 
 import com.pos.model.HealthData;
+import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -20,6 +21,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api")
 public class HealthController {
 
+    @Operation(summary = "Liveness check",
+               description = "Returns UP whenever the application is serving requests.")
     @GetMapping("/health")
     public HealthData health() {
         return new HealthData("UP", "pos-backend", Instant.now());
