@@ -144,7 +144,7 @@ com.pos
   ├─ dao/             @Repository — persistence only
   ├─ pojo/            @Entity — the persisted objects
   ├─ model/           Form (input) / Data (output) DTOs
-  ├─ exception/       domain failures — what services throw (added C1)
+  ├─ exception/       domain failures + the @ControllerAdvice that maps them (C1)
   └─ util/            shared helpers — pricing, sequences, QR payloads
 ```
 
@@ -290,7 +290,7 @@ Rules for this package:
 - Paths and payloads follow `../../requirements.md` §9 exactly. The frontend's
   service signatures are the contract; **what's absent from them is part of it.**
 - One `@ControllerAdvice` maps exceptions to status codes — `ApiExceptionHandler`
-  (C1), throwing from `com.pos.exception`:
+  (C1), in `com.pos.exception` beside the failures it translates:
   **401** bad credentials / unknown or blank tenant code (one generic message) ·
   **403** deactivated user, suspended tenant, wrong role ·
   **404** cross-tenant or missing ·

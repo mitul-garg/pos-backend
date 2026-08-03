@@ -1,12 +1,8 @@
-package com.pos.controller;
+package com.pos.exception;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-import com.pos.exception.ForbiddenException;
-import com.pos.exception.InvalidCredentialsException;
-import com.pos.exception.NotFoundException;
-import com.pos.exception.ValidationException;
 import com.pos.model.ApiError;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

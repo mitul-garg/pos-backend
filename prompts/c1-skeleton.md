@@ -20,8 +20,8 @@ no security, no domain logic — those are C2 and C3.
 ```
 com.pos
   config/      WebAppInitializer · RootConfig · WebConfig · OpenApiConfig
-  controller/  HealthController · OpenApiController · ApiExceptionHandler
-  exception/   ApiException + the four domain failures
+  controller/  HealthController · OpenApiController
+  exception/   ApiException + the four domain failures · ApiExceptionHandler
   model/       ApiError · HealthData          (Form = in, Data = out)
   service/     empty until C3
   dao/         empty until C2
@@ -33,6 +33,12 @@ com.pos
 The conventions require services to throw domain exceptions rather than anything
 HTTP-shaped, but didn't say where those live; a package of their own keeps them out of
 `model/`, which is the wire contract.
+
+`ApiExceptionHandler` lives there too rather than in `controller/`. It handles no route
+and returns no resource — it is the translation from those exceptions to status codes,
+so it belongs with the vocabulary it translates. `WebConfig` therefore component-scans
+`com.pos.exception` alongside `com.pos.controller`; a `@ControllerAdvice` has to be a
+bean of the servlet context to see anything.
 
 ## Decisions worth knowing
 

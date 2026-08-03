@@ -28,7 +28,9 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  */
 @Configuration
 @EnableWebMvc
-@ComponentScan(basePackages = "com.pos.controller")
+// com.pos.exception is scanned for ApiExceptionHandler: the @ControllerAdvice has to be
+// registered in the servlet context to see the handlers' exceptions.
+@ComponentScan(basePackages = { "com.pos.controller", "com.pos.exception" })
 public class WebConfig implements WebMvcConfigurer {
 
     /** The Vite dev server. The frontend calls this API cross-origin during development. */

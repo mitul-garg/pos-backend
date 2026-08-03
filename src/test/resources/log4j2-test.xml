@@ -18,7 +18,7 @@
       test run it is expected noise, and printing it trains people to ignore real
       stack traces.
     -->
-    <Logger name="com.pos.controller.ApiExceptionHandler" level="OFF"/>
+    <Logger name="com.pos.exception.ApiExceptionHandler" level="OFF"/>
 
     <Logger name="com.pos" level="INFO"/>
 
