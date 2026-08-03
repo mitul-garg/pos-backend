@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Log4j2 (requirements.md 1). Spring's own output arrives here via spring-jcl ->
+  SLF4J -> log4j-slf4j2-impl, so framework and application logs share one format.
+-->
+<Configuration status="WARN">
+
+  <Properties>
+    <!-- %X is the thread context map: from C4 it carries tenantId and userId, which
+         is what makes a cross-tenant incident traceable in a log file. -->
+    <Property name="PATTERN">%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%t] %logger{36} %X - %msg%n</Property>
+  </Properties>
+
+  <Appenders>
+    <Console name="Console" target="SYSTEM_OUT">
+      <PatternLayout pattern="${PATTERN}"/>
+    </Console>
+  </Appenders>
+
+  <Loggers>
+    <Logger name="com.pos" level="DEBUG" additivity="false">
+      <AppenderRef ref="Console"/>
+    </Logger>
+
+    <!-- C2 turns these up to see generated DDL and SQL; noisy by default. -->
+    <Logger name="org.hibernate.SQL" level="WARN"/>
+    <Logger name="org.hibernate.orm.jdbc.bind" level="WARN"/>
+
+    <Root level="INFO">
+      <AppenderRef ref="Console"/>
+    </Root>
+  </Loggers>
+</Configuration>
