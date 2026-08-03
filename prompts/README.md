@@ -3,10 +3,11 @@
 Read this file first, before opening any source file, when asked to change
 something in `backend/`.
 
-> **Status: nothing is built yet.** The plan is `../../backend-plan.md` (steps
-> C1–C9); the spec is `../../requirements.md`. The database design in
-> [database/](./database/) is **designed but not yet implemented** — it's what C2
-> will create, and it's already reviewable.
+> **Status: C1 done** (skeleton — Maven, Spring MVC on Jetty, JSON, CORS, error
+> mapping, OpenAPI docs; `mvn jetty:run`, 23 tests, no database). The plan is
+> `../../backend-plan.md` (steps C1–C9); the spec is `../../requirements.md`.
+> The database design in [database/](./database/) is **designed but not yet
+> implemented** — it's what C2 will create, and it's already reviewable.
 
 ## How to use this folder
 
@@ -33,7 +34,7 @@ something in `backend/`.
 
 | Doc | Covers |
 |---|---|
-| *(none yet)* | Added as each C-step lands, one doc per step |
+| [c1-skeleton.md](./c1-skeleton.md) | The two Spring contexts, JSON/CORS, error mapping, package layout, and **why API docs are a class (`OpenApiGenerator`) rather than a dependency** |
 
 Keep these tables in sync — they're the only thing agents read unconditionally.
 

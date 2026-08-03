@@ -5,9 +5,10 @@ Implements the contract the frontend already proves out — see
 [`../requirements.md`](../requirements.md) §9 for the endpoints and §13 for the
 multi-tenancy rules.
 
-> **Status: not started.** Build sequence is [`../backend-plan.md`](../backend-plan.md)
-> (steps C1–C9). Nothing below runs yet; this README is written ahead of the code
-> so the setup is agreed before it's needed.
+> **Status: C1 done** — the app boots on Jetty and serves JSON, with error mapping
+> and generated API docs. **No database yet** (C2) and **no auth** (C3), so the
+> MySQL setup below isn't needed to run or test what exists today. Build sequence
+> is [`../backend-plan.md`](../backend-plan.md) (steps C1–C9).
 
 Before changing anything here, read [`prompts/README.md`](./prompts/README.md) —
 it indexes the conventions and the database documentation.
@@ -20,6 +21,8 @@ Maven · Log4j2 · JUnit.
 No Boot means no auto-configuration — wiring is explicit Java config. That's
 deliberate: seeing what Boot normally hides is part of the point.
 
+Requires **JDK 17+** (the build targets 17) and Maven.
+
 ## Running it
 
 ```sh
@@ -28,7 +31,26 @@ mvn jetty:run          # http://localhost:8080
 mvn test
 ```
 
+| URL | What |
+|---|---|
+| [`/api/health`](http://localhost:8080/api/health) | Liveness — `{"status":"UP",...}` |
+| [`/swagger-ui/`](http://localhost:8080/swagger-ui/) | API documentation |
+| [`/api/openapi.json`](http://localhost:8080/api/openapi.json) | The OpenAPI 3 document |
+
+### API documentation
+
+Generated at runtime from Spring's handler mappings by `com.pos.util.OpenApiGenerator`,
+so it cannot drift from the controllers — annotate a handler with `@Operation` for
+prose and it appears. **This is deliberately not springdoc**, which requires
+`spring-boot-autoconfigure`, nor springfox, which is unmaintained and compiles against
+`javax.servlet` so it cannot load on Spring 6. See
+[`prompts/c1-skeleton.md`](./prompts/c1-skeleton.md) for the reasoning and how to
+extend the generator.
+
 ### One-time database setup
+
+Not needed until C2 — nothing currently connects to MySQL, and `mvn test` passes
+without it.
 
 ```sql
 CREATE DATABASE pos_dev  CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
@@ -111,6 +133,10 @@ fixtures.
 `mvn test` runs unit tests plus integration tests against `pos_test`. The suites
 port the frontend's, which already specify correct behaviour — see
 [`../backend-plan.md`](../backend-plan.md) §8 for the mapping.
+
+As of C1 there are **23 tests and none of them need a database** — `MockMvc` covers
+the controllers, error mapping and doc generation without starting Jetty. That
+changes in C2.
 
 `TenantIsolationIT` matters most: every case is an attempt to reach one tenant's
 data with another tenant's token. **Add a case for every new tenant-scoped

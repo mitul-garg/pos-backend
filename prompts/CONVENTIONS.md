@@ -3,10 +3,13 @@
 Cross-cutting patterns for `backend/`. Check here before inventing a new pattern
 or grepping the source tree for "how do we usually do X".
 
-> **Status: forward-looking.** Nothing is built yet, so most of this states the
-> intended pattern rather than describing existing code. As each C-step lands,
-> replace the intent with what was actually built and link the class that
-> establishes it — an unsubstantiated convention is worse than none.
+> **Status: partly substantiated (C1 done).** The layout, error mapping, DTO
+> naming and config-package rules now describe real classes — see
+> [c1-skeleton.md](./c1-skeleton.md). Everything about persistence, tenant scoping
+> and security is still **intent**, not description: no entity, `TenantContext` or
+> filter exists yet. As each C-step lands, replace the intent with what was
+> actually built and link the class that establishes it — an unsubstantiated
+> convention is worse than none.
 
 ## Working rhythm — small steps, commit often
 
@@ -120,8 +123,13 @@ com.pos
   ├─ dao/             @Repository — persistence only
   ├─ pojo/            @Entity — the persisted objects
   ├─ model/           Form (input) / Data (output) DTOs
+  ├─ exception/       domain failures — what services throw (added C1)
   └─ util/            shared helpers — pricing, sequences, QR payloads
 ```
+
+`exception/` was added in C1. The rule below — services throw domain exceptions,
+never HTTP ones — needed somewhere for them to live, and `model/` is the wire
+contract, not the failure vocabulary.
 
 `dao/` and "repository" are the same layer; the course uses both names, the
 annotation is `@Repository`.
@@ -158,13 +166,39 @@ Spring worth learning, so it gets its own namespace rather than being scattered.
 
 | Class | Responsibility |
 |---|---|
-| `WebAppInitializer` | Replaces `web.xml` — bootstraps the `DispatcherServlet` |
-| `WebConfig` | MVC: view resolution, message converters, Jackson (including **ids-as-strings**), CORS for the frontend dev server |
+| `WebAppInitializer` | Replaces `web.xml` — bootstraps the `DispatcherServlet`. **Built (C1)** |
+| `RootConfig` | The root context: services, DAOs, and later persistence + security. **Built (C1)** |
+| `WebConfig` | MVC: message converters, Jackson (ids-as-strings lands in C2), CORS for the frontend dev server. **Built (C1)** |
+| `OpenApiConfig` | Swagger UI + the generated spec. Servlet context, because it reads `RequestMappingHandlerMapping`. **Built (C1)** |
 | `PersistenceConfig` | `DataSource` + HikariCP, `EntityManagerFactory`, `JpaTransactionManager`, Hibernate properties (`hbm2ddl`, dialect) |
 | `SecurityConfig` | Filter chain, the JWT filter, `PasswordEncoder` (BCrypt), URL-level role rules |
 | `TenantConfig` | `TenantContext` and the interceptor that enables the Hibernate tenant filter |
 | `SeedConfig` | The dev seeder, gated on `pos.seed.dev` |
 | `AppProperties` | Typed access to externalized settings |
+
+#### Which context a config class belongs to (C1)
+
+`WebAppInitializer` creates **two** contexts, and putting a bean in the wrong one
+fails in ways that look like the bean is broken:
+
+- **Root** (`RootConfig`, and later `PersistenceConfig` / `SecurityConfig` /
+  `TenantConfig` / `SeedConfig`) — services, DAOs, transactions, security.
+- **Servlet** (`WebConfig`, `OpenApiConfig`) — controllers, converters, handler
+  mappings.
+
+The servlet context can see the root; **the root cannot see the servlet context.**
+Two consequences worth knowing before C3:
+
+- **Servlet filters are root-context beans.** Spring Security's chain is a filter,
+  so `SecurityConfig` goes in the root. A filter bean declared in the servlet
+  context is invisible to the container.
+- **Anything reading `RequestMappingHandlerMapping` must be in the servlet
+  context** — it's created by `@EnableWebMvc`. That's the whole reason
+  `OpenApiConfig` sits there rather than with the other wiring.
+
+`RootConfig` deliberately does **not** scan `com.pos.controller`. If both contexts
+scanned it, there would be two sets of controller beans and `@ControllerAdvice`
+would appear to stop working on one of them.
 
 Rules for this package:
 
@@ -234,11 +268,22 @@ Rules for this package:
 
 - Paths and payloads follow `../../requirements.md` §9 exactly. The frontend's
   service signatures are the contract; **what's absent from them is part of it.**
-- One `@ControllerAdvice` maps exceptions to status codes:
+- One `@ControllerAdvice` maps exceptions to status codes — `ApiExceptionHandler`
+  (C1), throwing from `com.pos.exception`:
   **401** bad credentials / unknown or blank tenant code (one generic message) ·
   **403** deactivated user, suspended tenant, wrong role ·
   **404** cross-tenant or missing ·
   **400** validation, field → message.
+- **Every error response is `ApiError`** — `{message, fields}`, with `fields`
+  omitted unless the failure is field-level. One shape, so the frontend's HTTP
+  layer needs exactly one error path. Don't invent a second envelope.
+- **`InvalidCredentialsException` takes no message argument, deliberately.** The
+  401 body is a constant. A constructor that accepted a message would eventually be
+  called with a helpful one, and "unknown tenant" vs "wrong password" is an
+  enumeration oracle.
+- **Unexpected exceptions return `"Something went wrong"`** and log at ERROR with
+  the stack trace. Detail is for the operator; a leaked message carries SQL
+  fragments, schema names and library versions.
 - **The 401's uniformity is a security property, not a UX choice** — naming the
   tenant would confirm which tenants exist. The specific 403s are safe only
   because they're unreachable until the password is proved, so **status checks run
@@ -249,8 +294,14 @@ Rules for this package:
 
 ## Testing
 
+- **Not every test needs a database.** C1's 23 tests run with none — `MockMvc` over
+  the real `WebConfig` exercises controllers, converters and the advice without
+  Jetty or MySQL. Reach for a database when the test is *about* persistence.
 - JUnit against a **local MySQL** (`pos_test`), `create-drop` per run,
   `@Transactional` rollback per test. Setup is documented in `../README.md`.
+- **A test that deliberately triggers an ERROR log silences that logger** in
+  `src/test/resources/log4j2-test.xml`. A green run that prints stack traces trains
+  people to ignore real ones.
 - **Port the frontend's suites** rather than reinventing them — see
   `../../backend-plan.md` §8 for the mapping. `pricing.test.js` ports
   case-for-case; `isolation.test.js` is the specification for `TenantIsolationIT`.
