@@ -129,11 +129,17 @@ before the filter exists.
 |---|---|---|
 | `SchemaSqlTest` | no | `schema.sql` matches the entities; checks, `varchar` enums, `tinyint` booleans and snake_case columns all survive generation |
 | `PersistenceConfigIT` | yes | Properties resolve, Hikari pools, MySQL is reachable, and tests point at `pos_test` rather than `pos_dev` |
-| `SchemaConstraintsIT` | yes | The six unique keys and three checks exist **in MySQL**, on the right tables, covering the right columns in order |
+| `SchemaConstraintsIT` | yes | All nine tables exist, and the six unique keys and three checks exist **in MySQL**, on the right tables, covering the right columns in order |
 | `JsonIdTest` | no | Ids serialize as strings, non-ids don't, nulls stay null, and no `com.pos.model` id field is missing `@JsonId` |
 
 `SchemaConstraintsIT` was **mutation-checked**, not merely observed to pass: removing
-`uk_variant_tenant_sku` from `Variant` failed exactly the covering case and nothing else.
+`uk_variant_tenant_sku` from `Variant` failed exactly the covering case and nothing else,
+and renaming `return_line`'s table failed only `createsEveryTable`.
+
+`createsEveryTable` exists to separate two failures the constraint assertions otherwise
+conflate — an entity Hibernate never scanned versus a constraint never declared. Without
+it the first reads as *"`uk_variant_tenant_sku` does not exist"*, which points at the
+constraint rather than at the missing table. See `BUGS.md` smell C4 for how it came about.
 
 Deliberately untested: reading and writing rows. There is no DAO or service yet, and a
 persistence test with no persistence logic to exercise would only assert that Hibernate
