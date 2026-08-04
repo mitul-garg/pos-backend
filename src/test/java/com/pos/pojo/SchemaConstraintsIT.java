@@ -12,7 +12,6 @@ import java.util.stream.Stream;
 import javax.sql.DataSource;
 
 import com.pos.config.PersistenceConfig;
-import jakarta.persistence.EntityManagerFactory;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -50,16 +49,34 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @DisplayName("The schema MySQL actually built")
 class SchemaConstraintsIT {
 
+    /**
+     * The schema is already created by the time any test here runs: refreshing the
+     * context eagerly instantiates the {@code EntityManagerFactory}, and starting it is
+     * what executes the {@code create-drop} DDL. Nothing needs to force that ordering.
+     */
     @Autowired
     private DataSource dataSource;
 
-    /**
-     * Injected purely to force the entity manager factory to start, which is what runs
-     * the {@code create-drop} DDL. Without it the queries below would race the schema
-     * into existence.
-     */
-    @Autowired
-    private EntityManagerFactory entityManagerFactory;
+    /** Every table the entities should have produced. */
+    private static final List<String> EXPECTED_TABLES = List.of(
+            "app_user", "order_line", "pos_order", "product", "return_line",
+            "sales_return", "tenant", "tenant_sequence", "variant");
+
+    @Test
+    @DisplayName("has every table, so a missed entity cannot go unnoticed")
+    void createsEveryTable() throws Exception {
+        List<String> actual = readTableNames();
+
+        // Distinguishes the two ways the assertions below can fail. Without this, an
+        // entity that Hibernate never picked up -- one placed outside com.pos.pojo, say,
+        // which PersistenceConfig scans -- shows up as "uk_variant_tenant_sku does not
+        // exist", pointing at the constraint rather than at the missing table.
+        for (String table : EXPECTED_TABLES) {
+            assertTrue(actual.contains(table),
+                    () -> table + " was never created. Tables found: " + actual
+                            + ". An entity outside com.pos.pojo is not scanned.");
+        }
+    }
 
     /**
      * The six keys from prompts/database/constraints-and-indexes.md, with the columns
@@ -170,6 +187,26 @@ class SchemaConstraintsIT {
             }
         }
         return keys;
+    }
+
+    private List<String> readTableNames() throws Exception {
+        String sql = """
+                SELECT TABLE_NAME
+                  FROM information_schema.TABLES
+                 WHERE TABLE_SCHEMA = DATABASE()
+                   AND TABLE_TYPE   = 'BASE TABLE'
+                """;
+
+        List<String> names = new ArrayList<>();
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement(sql);
+             ResultSet rows = statement.executeQuery()) {
+
+            while (rows.next()) {
+                names.add(rows.getString("TABLE_NAME"));
+            }
+        }
+        return names;
     }
 
     private List<String> readCheckConstraintNames() throws Exception {
