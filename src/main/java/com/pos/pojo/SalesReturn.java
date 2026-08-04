@@ -22,6 +22,8 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * A refund against a completed order. The table is {@code sales_return} because
@@ -91,7 +93,11 @@ public class SalesReturn {
     private BigDecimal refundTotal;
 
     /** Defaults to the original payment method. */
+    // VARCHAR, not MySQL's native ENUM: adding a value to a MySQL ENUM is a table
+    // alter, and hbm2ddl.auto=update will not perform it. Hibernate 6 defaults to the
+    // native type on MySQL, so this has to be said explicitly on every enum field.
     @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
     @Column(name = "refund_method", nullable = false, length = 16)
     private PaymentMethod refundMethod;
 

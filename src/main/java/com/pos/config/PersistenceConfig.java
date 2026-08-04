@@ -8,6 +8,7 @@ import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import jakarta.persistence.EntityManagerFactory;
 import org.hibernate.cfg.AvailableSettings;
+import org.hibernate.cfg.MappingSettings;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
@@ -123,6 +124,14 @@ public class PersistenceConfig {
         // server's zone. Omit this and a machine in IST writes local time into a
         // column documented as UTC, which is invisible until two machines disagree.
         properties.put(AvailableSettings.JDBC_TIME_ZONE, "UTC");
+
+        // Booleans as tinyint rather than Hibernate's default `bit` on MySQL, which is
+        // what BOOLEAN is an alias for there and what prompts/database/README.md
+        // documents. There is no equivalent global setting for enums -- those carry
+        // @JdbcTypeCode(VARCHAR) per field, because Hibernate 6 would otherwise emit
+        // MySQL's native ENUM type, and adding a value to one is a table alter that
+        // hbm2ddl.auto=update will not perform.
+        properties.put(MappingSettings.PREFERRED_BOOLEAN_JDBC_TYPE, "TINYINT");
 
         properties.put(AvailableSettings.SHOW_SQL, props.isHibernateShowSql());
         properties.put(AvailableSettings.FORMAT_SQL, props.isHibernateShowSql());

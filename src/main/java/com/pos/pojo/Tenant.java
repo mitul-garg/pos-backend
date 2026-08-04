@@ -13,6 +13,8 @@ import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * A tenant is a single store — the flat model in requirements.md section 13.1, with no
@@ -45,7 +47,11 @@ public class Tenant {
     @Column(name = "code", nullable = false, length = 64)
     private String code;
 
+    // VARCHAR, not MySQL's native ENUM: adding a value to a MySQL ENUM is a table
+    // alter, and hbm2ddl.auto=update will not perform it. Hibernate 6 defaults to the
+    // native type on MySQL, so this has to be said explicitly on every enum field.
     @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
     @Column(name = "status", nullable = false, length = 16)
     private TenantStatus status = TenantStatus.ACTIVE;
 

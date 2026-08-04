@@ -23,6 +23,8 @@ import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * One real-world sale. The table is {@code pos_order} because {@code order} is a SQL
@@ -74,7 +76,11 @@ public class PosOrder {
     @Column(name = "order_number", nullable = false, length = 32)
     private String orderNumber;
 
+    // VARCHAR, not MySQL's native ENUM: adding a value to a MySQL ENUM is a table
+    // alter, and hbm2ddl.auto=update will not perform it. Hibernate 6 defaults to the
+    // native type on MySQL, so this has to be said explicitly on every enum field.
     @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
     @Column(name = "status", nullable = false, length = 16)
     private OrderStatus status = OrderStatus.DRAFT;
 
@@ -98,7 +104,11 @@ public class PosOrder {
 
     // --- Payment (embedded; null until paid) ---------------------------------------
 
+    // VARCHAR, not MySQL's native ENUM: adding a value to a MySQL ENUM is a table
+    // alter, and hbm2ddl.auto=update will not perform it. Hibernate 6 defaults to the
+    // native type on MySQL, so this has to be said explicitly on every enum field.
     @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
     @Column(name = "payment_method", length = 16)
     private PaymentMethod paymentMethod;
 

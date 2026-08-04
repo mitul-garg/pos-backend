@@ -116,7 +116,11 @@ public class Variant {
     @ColumnDefault("0")
     private int stockQuantity;
 
+    // VARCHAR, not MySQL's native ENUM: adding a value to a MySQL ENUM is a table
+    // alter, and hbm2ddl.auto=update will not perform it. Hibernate 6 defaults to the
+    // native type on MySQL, so this has to be said explicitly on every enum field.
     @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
     @Column(name = "unit_of_measure", nullable = false, length = 8)
     @ColumnDefault("'EACH'")
     private UnitOfMeasure unitOfMeasure = UnitOfMeasure.EACH;
