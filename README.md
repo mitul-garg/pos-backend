@@ -5,9 +5,10 @@ Implements the contract the frontend already proves out — see
 [`../requirements.md`](../requirements.md) §9 for the endpoints and §13 for the
 multi-tenancy rules.
 
-> **Status: C1 done** — the app boots on Jetty and serves JSON, with error mapping
-> and generated API docs. **No database yet** (C2) and **no auth** (C3), so the
-> MySQL setup below isn't needed to run or test what exists today. Build sequence
+> **Status: C2 done** — the app boots on Jetty, serves JSON, and persists to MySQL
+> through Hibernate. All nine tables exist and `schema.sql` is committed.
+> **A local MySQL is now required to run `mvn test`.** No auth yet (C3) and **no
+> tenant filter yet** (C4), so nothing is tenant-scoped at runtime. Build sequence
 > is [`../backend-plan.md`](../backend-plan.md) (steps C1–C9).
 
 Before changing anything here, read [`prompts/README.md`](./prompts/README.md) —
@@ -47,22 +48,44 @@ prose and it appears. **This is deliberately not springdoc**, which requires
 [`prompts/c1-skeleton.md`](./prompts/c1-skeleton.md) for the reasoning and how to
 extend the generator.
 
-### One-time database setup
+### Database setup
 
-Not needed until C2 — nothing currently connects to MySQL, and `mvn test` passes
-without it.
+**There isn't any.** The JDBC URLs carry `createDatabaseIfNotExist=true`, so the
+driver creates `pos_dev` and `pos_test` on first connect, and Hibernate creates the
+tables from the entities. A fresh clone needs a running MySQL 8.0.16+ and nothing
+else.
 
-```sql
-CREATE DATABASE pos_dev  CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
-CREATE DATABASE pos_test CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
-CREATE USER 'pos'@'localhost' IDENTIFIED BY 'pos';
-GRANT ALL PRIVILEGES ON pos_dev.*  TO 'pos'@'localhost';
-GRANT ALL PRIVILEGES ON pos_test.* TO 'pos'@'localhost';
+Two databases, not one: **tests run against `pos_test` with
+`hbm2ddl.auto=create-drop`, which drops every table on each run.** Pointed at
+`pos_dev` that would wipe the seed data — and any in-progress manual test — on
+every `mvn test`. `PersistenceConfigIT` asserts the test connection's catalog is
+`pos_test` precisely so a mis-set URL fails instead of destroying data.
+
+`createDatabaseIfNotExist` is deliberately **local-only**. A deployed environment
+overrides the whole URL via `POS_DB_URL` and leaves it off, so a typo'd database
+name fails loudly instead of silently creating an empty schema to boot against.
+
+#### Credentials
+
+You need a MySQL user that can create databases and tables. Point the app at it:
+
+| Setting | Property | Environment variable |
+|---|---|---|
+| URL | `pos.db.url` | `POS_DB_URL` |
+| Username | `pos.db.username` | `POS_DB_USERNAME` |
+| Password | `pos.db.password` | `POS_DB_PASSWORD` |
+| Pool size | `pos.db.pool.maxSize` | `POS_DB_POOL_MAX_SIZE` |
+
+**Passwords are never committed.** `src/main/resources/application.properties` is
+tracked and defaults the password to empty; put the real one in
+`src/main/resources/application-local.properties`, which is gitignored and loaded
+last so it wins:
+
+```properties
+pos.db.password=your-password-here
 ```
 
-**Tests run against `pos_test` and drop its schema on every run.** Never point them
-at `pos_dev`. Tests use `hbm2ddl.auto=create-drop`, so each run starts from a
-schema that exactly matches the entities.
+Deployed environments set the environment variables instead and ship no local file.
 
 ## The database
 
@@ -90,8 +113,16 @@ preserve across a schema change.
 | Deployed | `create` on first boot, then `validate` |
 
 `schema.sql` is generated and committed so DDL changes show up in diffs.
-**Regenerate and commit it whenever an entity changes** — it's most of what a
-migration tool gives you, for one config property.
+**Regenerate and commit it whenever an entity changes:**
+
+```sh
+mvn test -Dpos.schema.write=true
+```
+
+`SchemaSqlTest` fails the build if it drifts, so this isn't optional — a committed
+file nobody regenerates describes a schema that stopped existing weeks ago. It
+generates offline from a pinned MySQL 8.0.16 dialect, so the file is a property of
+the entities rather than of whichever server you happen to be running.
 
 Two costs, both handled:
 
@@ -103,6 +134,11 @@ Two costs, both handled:
 
 ## Multi-tenancy in one paragraph
 
+> **As of C2 only the first sentence is built.** The tables carry `tenant_id` and
+> every uniqueness rule is per-tenant, but there is no `TenantContext`, no filter
+> and no security chain yet — **any query written today is unscoped**. C3 brings
+> auth, C4 the spine. The rest of this paragraph is the target, not the state.
+
 Every tenant-owned row carries `tenant_id`. A Spring Security filter reads the
 `tenantId` claim from the JWT into a request-scoped `TenantContext`, and a
 Hibernate `@Filter` scopes **every** query from it — so a forgotten `WHERE` clause
@@ -112,7 +148,11 @@ resolves as **404**, never 403, so ids in one tenant reveal nothing about anothe
 `/api/tenants/**` is the only cross-tenant surface: `SUPER_ADMIN`-only, filter
 disabled, quarantined in its own package.
 
-## Seed data (dev only)
+## Seed data (dev only) — not built yet
+
+Planned, not present: no seeder exists as of C2, so both databases start empty.
+Described here because the logins below are what the frontend's fixtures expect and
+what the C9 parity checklist will be run against.
 
 A profile-gated seeder (`pos.seed.dev=true`) loads the frontend's demo fixtures so
 the same logins work end-to-end. Production starts empty; the first tenant is
@@ -134,9 +174,10 @@ fixtures.
 port the frontend's, which already specify correct behaviour — see
 [`../backend-plan.md`](../backend-plan.md) §8 for the mapping.
 
-As of C1 there are **23 tests and none of them need a database** — `MockMvc` covers
-the controllers, error mapping and doc generation without starting Jetty. That
-changes in C2.
+As of C2 there are **44 tests, 21 of which need `pos_test`**. The rest still run
+with nothing but a JVM — `MockMvc` covers the controllers and error mapping without
+Jetty, and `SchemaSqlTest` generates DDL offline. Reach for a database when the test
+is genuinely *about* persistence.
 
 `TenantIsolationIT` matters most: every case is an attempt to reach one tenant's
 data with another tenant's token. **Add a case for every new tenant-scoped

@@ -5,9 +5,15 @@ change as the entity that alters the schema** — since the schema is generated 
 JPA entities rather than written by hand, these docs are the only human-readable
 record of what the database actually looks like.
 
-> **Status: designed, not implemented.** No tables exist yet; C2 creates them.
-> The design is finalised (`requirements.md` §3 + the decisions in
-> `../../../backend-plan.md` §2) and is reviewable as it stands.
+> **Status: implemented (C2).** All nine tables exist, generated from the entities
+> in `com.pos.pojo`, and `backend/schema.sql` is the committed DDL. What's written
+> here now describes something real: `SchemaConstraintsIT` reads the
+> isolation-critical constraints back out of `information_schema`, and
+> `SchemaSqlTest` fails the build if `schema.sql` drifts from the entities.
+>
+> Two places where MySQL's output differs from what's described below are called
+> out inline: enums also carry a generated `CHECK`, and `tenant_sequence`'s
+> primary key columns come out in the other order. Neither changes behaviour.
 
 | Doc | Covers |
 |---|---|
@@ -60,10 +66,26 @@ An invoice cannot carry float artefacts.
 **Timestamps** — `DATETIME(6)`, UTC, named `created_at`.
 
 **Booleans** — `BOOLEAN` (`TINYINT(1)`), `NOT NULL` with an explicit default.
+Hibernate emits `bit` on MySQL unless told otherwise, so `PersistenceConfig` sets
+`hibernate.type.preferred_boolean_jdbc_type=TINYINT`.
 
 **Enums as `VARCHAR`**, not MySQL `ENUM` — adding a value to a MySQL `ENUM` is a
 table alter, and `hbm2ddl.auto=update` won't perform it. Values are validated in
 the application layer.
+
+> ⚠️ **This does not happen by itself.** Hibernate 6 maps
+> `@Enumerated(EnumType.STRING)` to MySQL's native `ENUM`, and there is no global
+> setting to change that in 6.6 — **every enum field needs
+> `@JdbcTypeCode(SqlTypes.VARCHAR)`**. `SchemaSqlTest.storesEnumsAsVarchar` fails
+> the build if one is missed.
+>
+> Note what remains: Hibernate still generates a check constraint listing the
+> values (`check (role in ('SUPER_ADMIN','ADMIN','CASHIER'))`), so extending an
+> enum is *still* a schema change. What `VARCHAR` buys is a portable column type
+> that `validate` reports usefully, and a **named** constraint that can be dropped
+> and re-added rather than a column type that must be altered. Under
+> drop-and-recreate that costs nothing in production; locally it means recreating
+> the table rather than trusting `update`.
 
 ## The two rules that shape every table
 

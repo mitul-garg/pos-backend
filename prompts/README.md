@@ -3,11 +3,14 @@
 Read this file first, before opening any source file, when asked to change
 something in `backend/`.
 
-> **Status: C1 done** (skeleton — Maven, Spring MVC on Jetty, JSON, CORS, error
-> mapping, OpenAPI docs; `mvn jetty:run`, 23 tests, no database). The plan is
+> **Status: C2 done** (skeleton + persistence — Spring MVC on Jetty, Hibernate on
+> MySQL, all nine entities, a committed `schema.sql`; `mvn jetty:run`, 44 tests,
+> **21 of them needing a local `pos_test` database**). The plan is
 > `../../backend-plan.md` (steps C1–C9); the spec is `../../requirements.md`.
-> The database design in [database/](./database/) is **designed but not yet
-> implemented** — it's what C2 will create, and it's already reviewable.
+> The database in [database/](./database/) is **implemented as documented** —
+> `SchemaConstraintsIT` proves the isolation-critical parts of it exist in MySQL.
+> **No auth and no tenant filter yet** (C3, C4), so every query written against
+> these entities today is unscoped.
 
 ## How to use this folder
 
@@ -35,6 +38,7 @@ something in `backend/`.
 | Doc | Covers |
 |---|---|
 | [c1-skeleton.md](./c1-skeleton.md) | The two Spring contexts, JSON/CORS, error mapping, package layout, and **why API docs are a class (`OpenApiGenerator`) rather than a dependency** |
+| [c2-persistence.md](./c2-persistence.md) | Hibernate/Hikari wiring, the entities, `schema.sql` and its drift test, ids-as-strings — and the traps: **naming the dialect silently drops the check constraints**, and Hibernate 6 emits MySQL's native `ENUM` unless told otherwise |
 
 Keep these tables in sync — they're the only thing agents read unconditionally.
 

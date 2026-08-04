@@ -3,13 +3,14 @@
 Cross-cutting patterns for `backend/`. Check here before inventing a new pattern
 or grepping the source tree for "how do we usually do X".
 
-> **Status: partly substantiated (C1 done).** The layout, error mapping, DTO
-> naming and config-package rules now describe real classes — see
-> [c1-skeleton.md](./c1-skeleton.md). Everything about persistence, tenant scoping
-> and security is still **intent**, not description: no entity, `TenantContext` or
-> filter exists yet. As each C-step lands, replace the intent with what was
-> actually built and link the class that establishes it — an unsubstantiated
-> convention is worse than none.
+> **Status: partly substantiated (C1, C2 done).** The layout, error mapping, DTO
+> naming, config-package and **persistence** rules now describe real classes — see
+> [c1-skeleton.md](./c1-skeleton.md) and [c2-persistence.md](./c2-persistence.md).
+> **Tenant scoping and security are still intent, not description**: no
+> `TenantContext`, no filter, no security chain exists yet, so nothing below about
+> scoping is enforced by anything — a query written today is unscoped. As each
+> C-step lands, replace the intent with what was actually built and link the class
+> that establishes it; an unsubstantiated convention is worse than none.
 
 ## Working rhythm — small steps, commit often
 
@@ -189,13 +190,13 @@ Spring worth learning, so it gets its own namespace rather than being scattered.
 |---|---|
 | `WebAppInitializer` | Replaces `web.xml` — bootstraps the `DispatcherServlet`. **Built (C1)** |
 | `RootConfig` | The root context: services, DAOs, and later persistence + security. **Built (C1)** |
-| `WebConfig` | MVC: message converters, Jackson (ids-as-strings lands in C2), CORS for the frontend dev server. **Built (C1)** |
+| `WebConfig` | MVC: message converters, Jackson, CORS for the frontend dev server. **Built (C1)**. Ids-as-strings landed in C2 as `com.pos.model.JsonId`, per field rather than as a mapper rule |
 | `OpenApiConfig` | Swagger UI + the generated spec. Servlet context, because it reads `RequestMappingHandlerMapping`. **Built (C1)** |
-| `PersistenceConfig` | `DataSource` + HikariCP, `EntityManagerFactory`, `JpaTransactionManager`, Hibernate properties (`hbm2ddl`, dialect) |
+| `PersistenceConfig` | `DataSource` + HikariCP, `EntityManagerFactory`, `JpaTransactionManager`, Hibernate properties. **Built (C2)** — and note it deliberately does *not* set `hibernate.dialect`; see [c2-persistence.md](./c2-persistence.md) |
+| `AppProperties` | Typed access to externalized settings. **Built (C2)** |
 | `SecurityConfig` | Filter chain, the JWT filter, `PasswordEncoder` (BCrypt), URL-level role rules |
 | `TenantConfig` | `TenantContext` and the interceptor that enables the Hibernate tenant filter |
 | `SeedConfig` | The dev seeder, gated on `pos.seed.dev` |
-| `AppProperties` | Typed access to externalized settings |
 
 #### Which context a config class belongs to (C1)
 
@@ -266,6 +267,16 @@ Rules for this package:
 - **The schema is generated from entities** — declare every unique constraint and
   index explicitly in `@Table`. Nothing else will create them, and `validate`
   won't notice if they're missing. See [database/](./database/).
+- **Enum fields carry `@JdbcTypeCode(SqlTypes.VARCHAR)`.** Without it Hibernate 6
+  emits MySQL's native `ENUM` type, which `hbm2ddl.auto=update` can never extend.
+  There's no global setting for it; `SchemaSqlTest` fails the build if one is
+  forgotten (C2).
+- **Associations are `LAZY`, including `tenant`.** Nothing navigates
+  `product.getTenant()` — scoping happens on the column — and `EAGER` would make
+  every list query an N+1. Safe only because DTOs are mapped in-transaction.
+- **Regenerate `schema.sql` in the same change as the entity**
+  (`mvn test -Dpos.schema.write=true`). The build fails on drift, so it isn't
+  optional (C2).
 - **Snapshot columns on order/return lines are deliberate**, not denormalisation
   to clean up: a later price change must not rewrite history.
 - **Uniqueness is enforced by the database, not by the service check.** Keep the

@@ -73,6 +73,21 @@ Composite indexes lead with `tenant_id` because that predicate is always present
 a leftmost-prefix match, so the same index also serves a plain `tenant_id` lookup.
 That's why there's no separate `idx_order_tenant`.
 
+> **Three of the indexes above are redundant by that same rule, and were built
+> anyway** (C2, as documented rather than silently corrected):
+>
+> | Redundant | Already covered by |
+> |---|---|
+> | `idx_user_tenant` | `uk_user_tenant_username (tenant_id, username)` |
+> | `idx_variant_tenant` | `uk_variant_tenant_sku (tenant_id, sku)` |
+> | `idx_product_tenant` | `idx_product_tenant_category (tenant_id, category)` |
+>
+> A unique key is also an index, so each of those already serves a `tenant_id`
+> lookup as a leftmost prefix. The cost is write amplification and storage on the
+> three hottest tables, not correctness. **Dropping them is a one-line change per
+> entity plus a `schema.sql` regeneration** — deferred rather than taken during C2
+> because it changes a reviewed design and belongs in its own commit.
+
 The unique keys above double as indexes: `uk_variant_tenant_qrcode` is what makes
 `lookupByQrCode` — the POS hot path, hit on every scan — an index seek.
 
@@ -80,12 +95,25 @@ The unique keys above double as indexes: `uk_variant_tenant_qrcode` is what make
 
 | Table | Constraint | Why |
 |---|---|---|
-| `variant` | `selling_price <= mrp` | MRP is the legal tax-inclusive ceiling (`requirements.md` §4) |
-| `variant` | `stock_quantity >= 0` | Stock can't go negative; the atomic decrement relies on it as a backstop |
-| `order_line` | `quantity > 0` | A zero-quantity line is meaningless — removing the line is how you reach zero |
+| `variant` | `ck_variant_price_within_mrp` — `selling_price <= mrp` | MRP is the legal tax-inclusive ceiling (`requirements.md` §4) |
+| `variant` | `ck_variant_stock_not_negative` — `stock_quantity >= 0` | Stock can't go negative; the atomic decrement relies on it as a backstop |
+| `order_line` | `ck_order_line_quantity_positive` — `quantity > 0` | A zero-quantity line is meaningless — removing the line is how you reach zero |
 
 Needs MySQL 8.0.16+; below that they parse and are silently ignored, so the
 application-level validation is **not** redundant.
+
+**That version floor is load-bearing in a second, less obvious way.** Hibernate's
+`MySQLDialect` emits `CHECK` only when it believes the server is 8.0.16 or newer,
+and it works that out from JDBC metadata. Naming the dialect class in configuration
+*without* a version pins it to Hibernate's minimum supported MySQL (5.7) and drops
+all three of these silently — which is why `PersistenceConfig` deliberately leaves
+`hibernate.dialect` unset, and why the offline generator in `SchemaSqlTest` pins
+8.0.16 by hand. See [c2-persistence.md](../c2-persistence.md).
+
+Hibernate additionally generates an **unnamed check per enum column**
+(`check (status in ('DRAFT','HELD','COMPLETED','CANCELLED'))`). Not designed here,
+but worth knowing it exists: it means adding an enum value is a schema change even
+though the column is `VARCHAR`. See [README.md](./README.md).
 
 ## Foreign keys
 
@@ -104,10 +132,25 @@ rather than assuming the assumption held.
 
 ## `SchemaConstraintsIT` — the test that guards this file
 
+**Built in C2** (`src/test/java/com/pos/pojo/SchemaConstraintsIT.java`).
+
 `hbm2ddl.auto=validate` will happily start an app whose unique keys were never
-created. Nothing else in the stack notices either. So a test queries
-`information_schema` and asserts the **six unique keys** above exist with the right
-columns.
+created. Nothing else in the stack notices either. So the test queries
+`information_schema` and asserts the **six unique keys** above exist, on the right
+tables, covering the right columns **in order** — order matters, because
+`(username, tenant_id)` would be a different key wearing the same name.
+
+It also asserts two things beyond the list:
+
+- **the rule, not just the examples** — every unique key except `uk_tenant_code`
+  must *lead* with `tenant_id`, so a future global constraint where a per-tenant
+  one belongs fails immediately rather than at seed time;
+- **the three check constraints**, which are equally invisible to `validate` and
+  additionally depend on the server version.
+
+Mutation-checked when written, per `CONVENTIONS.md`, rather than trusted for
+passing: removing `uk_variant_tenant_sku` from `Variant` failed exactly the
+covering case and nothing else.
 
 It's a small test guarding a silent failure: without those keys, isolation still
 *appears* to work in every manual check, and only breaks under concurrency or on
