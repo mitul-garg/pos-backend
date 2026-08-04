@@ -42,6 +42,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>It is deliberately a statement about the <b>database</b>, not about the entities —
  * {@code SchemaSqlTest} already covers the entities, offline. This one runs the DDL
  * through MySQL and reads back what MySQL actually built.
+ *
+ * <p>The schema is guaranteed to exist before any test below runs, and nothing here has
+ * to arrange that: refreshing the Spring context eagerly instantiates every singleton,
+ * including the entity manager factory, and starting that is what executes the
+ * {@code create-drop} DDL.
  */
 @ExtendWith(SpringExtension.class)
 @ContextConfiguration(classes = PersistenceConfig.class)
@@ -49,18 +54,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @DisplayName("The schema MySQL actually built")
 class SchemaConstraintsIT {
 
-    /**
-     * The schema is already created by the time any test here runs: refreshing the
-     * context eagerly instantiates the {@code EntityManagerFactory}, and starting it is
-     * what executes the {@code create-drop} DDL. Nothing needs to force that ordering.
-     */
-    @Autowired
-    private DataSource dataSource;
-
     /** Every table the entities should have produced. */
     private static final List<String> EXPECTED_TABLES = List.of(
             "app_user", "order_line", "pos_order", "product", "return_line",
             "sales_return", "tenant", "tenant_sequence", "variant");
+
+    /** Queried directly rather than through JPA — the subject here is the schema, not the mapping. */
+    @Autowired
+    private DataSource dataSource;
 
     @Test
     @DisplayName("has every table, so a missed entity cannot go unnoticed")
