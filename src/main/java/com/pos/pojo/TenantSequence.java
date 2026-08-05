@@ -1,5 +1,6 @@
 package com.pos.pojo;
 
+import com.pos.util.TenantContext;
 import jakarta.persistence.Column;
 import jakarta.persistence.EmbeddedId;
 import jakarta.persistence.Entity;
@@ -10,6 +11,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.MapsId;
 import jakarta.persistence.Table;
 import org.hibernate.annotations.ColumnDefault;
+import org.hibernate.annotations.Filter;
 
 /**
  * A per-tenant counter. <b>The one table here with no business meaning.</b>
@@ -35,6 +37,7 @@ import org.hibernate.annotations.ColumnDefault;
  * convention.
  */
 @Entity
+@Filter(name = TenantContext.FILTER_NAME, condition = TenantContext.CONDITION)
 @Table(name = "tenant_sequence")
 public class TenantSequence {
 

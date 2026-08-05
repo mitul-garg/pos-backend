@@ -2,6 +2,7 @@ package com.pos.pojo;
 
 import java.math.BigDecimal;
 
+import com.pos.util.TenantContext;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -15,6 +16,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import org.hibernate.annotations.Check;
 import org.hibernate.annotations.ColumnDefault;
+import org.hibernate.annotations.Filter;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
@@ -27,6 +29,7 @@ import org.hibernate.annotations.OnDeleteAction;
  * price change must not rewrite history, and a refund reads these back verbatim.
  */
 @Entity
+@Filter(name = TenantContext.FILTER_NAME, condition = TenantContext.CONDITION)
 @Table(
         name = "order_line",
         indexes = @Index(name = "idx_orderline_order", columnList = "order_id")

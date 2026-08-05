@@ -7,6 +7,7 @@ import com.pos.exception.ForbiddenException;
 import com.pos.exception.InvalidCredentialsException;
 import com.pos.model.SessionUserData;
 import com.pos.service.AuthService;
+import com.pos.util.TenantContext;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -34,12 +35,13 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * {@code POST /api/auth/login} stay open while everything else 401s. Rejecting here
  * would make every public endpoint need an exception.
  *
- * <p>From C4 this filter is also where {@code TenantContext} is populated and — the part
- * that matters — cleared in a {@code finally}. Jetty pools threads, so a context left
+ * <p><b>This is also where {@link TenantContext} is populated (C4)</b> — and, the part
+ * that matters, cleared in a {@code finally}. Jetty pools threads, so a context left
  * behind is inherited by whatever request lands on that thread next, which is a
  * cross-tenant read rather than a stale value. The ThreadLocal already in play here,
  * {@code SecurityContextHolder}, is cleared for us by Spring Security's own
- * {@code SecurityContextHolderFilter}; C4's will not be.
+ * {@code SecurityContextHolderFilter}; this one is not, so the {@code finally} below is
+ * load-bearing rather than tidy.
  */
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
@@ -65,6 +67,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         try {
             SessionUserData session = authService.resolveSession(token);
             SecurityContextHolder.getContext().setAuthentication(authenticationFor(session));
+            // Null for a platform SUPER_ADMIN, which is correct: it has no tenant
+            // context, so every filtered query it could reach resolves to NO_TENANT and
+            // returns nothing. The 403 that makes that legible rather than merely empty
+            // is TenantContext.requireTenant(), in the service layer.
+            TenantContext.set(session.getTenantId());
         } catch (InvalidCredentialsException ex) {
             reject(response, HttpStatus.UNAUTHORIZED, InvalidCredentialsException.MESSAGE);
             return;
@@ -76,7 +83,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
 
-        chain.doFilter(request, response);
+        try {
+            chain.doFilter(request, response);
+        } finally {
+            // The single most consequential line in C4. Jetty hands this thread to the
+            // next request; anything left here becomes that request's tenant. In a
+            // finally rather than after the call because a handler that throws must not
+            // be able to skip it.
+            TenantContext.clear();
+        }
     }
 
     /**
@@ -88,6 +103,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private void reject(HttpServletResponse response, HttpStatus status, String message)
             throws IOException {
         SecurityContextHolder.clearContext();
+        // Unreachable in practice -- the tenant is set on the last line of the try block,
+        // so nothing that lands here has set one. Cleared anyway, because the cost is a
+        // ThreadLocal removal and the alternative failure is a cross-tenant read.
+        TenantContext.clear();
         responder.write(response, status, message);
     }
 

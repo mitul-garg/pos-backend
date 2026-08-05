@@ -28,6 +28,15 @@ import org.hibernate.type.SqlTypes;
  * <p>Username is unique <b>per tenant</b>: two stores can each have an {@code admin},
  * and the seed data relies on it. The tenant code supplied at login is what
  * disambiguates them.
+ *
+ * <p><b>The one entity with a {@code tenant_id} that carries no {@code @Filter}</b>, and
+ * the omission is deliberate rather than missed (C4). Authentication is what establishes
+ * which tenant a caller is in, so it runs <i>before</i> there is a tenant to scope by —
+ * filtered, {@code AppUserDao.findByTenantAndUsername} would be evaluated against
+ * {@link com.pos.util.TenantContext#NO_TENANT} and every login on earth would fail.
+ * {@code AppUserDao} therefore takes the tenant explicitly, which is safe only because
+ * it is reached from exactly one place. C8's user management has to re-establish the
+ * scoping this forgoes; see {@code prompts/c4-tenancy.md}.
  */
 @Entity
 @Table(

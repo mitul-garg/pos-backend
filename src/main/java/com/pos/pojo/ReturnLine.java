@@ -2,6 +2,7 @@ package com.pos.pojo;
 
 import java.math.BigDecimal;
 
+import com.pos.util.TenantContext;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -13,6 +14,7 @@ import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.Filter;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
@@ -24,6 +26,7 @@ import org.hibernate.annotations.OnDeleteAction;
  * cannot alter what the customer gets back.
  */
 @Entity
+@Filter(name = TenantContext.FILTER_NAME, condition = TenantContext.CONDITION)
 @Table(
         name = "return_line",
         indexes = @Index(name = "idx_returnline_return", columnList = "return_id")

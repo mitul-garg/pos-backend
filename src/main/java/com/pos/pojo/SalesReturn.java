@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import jakarta.persistence.CascadeType;
+import com.pos.util.TenantContext;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -22,6 +23,7 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.Filter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -37,6 +39,7 @@ import org.hibernate.type.SqlTypes;
  * the session — that is the rule, and it is how the frontend expresses it too.
  */
 @Entity
+@Filter(name = TenantContext.FILTER_NAME, condition = TenantContext.CONDITION)
 @Table(
         name = "sales_return",
         uniqueConstraints = @UniqueConstraint(

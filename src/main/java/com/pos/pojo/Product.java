@@ -3,6 +3,7 @@ package com.pos.pojo;
 import java.math.BigDecimal;
 import java.time.Instant;
 
+import com.pos.util.TenantContext;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -16,6 +17,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.Filter;
 
 /**
  * The parent concept — "Amul Milk". <b>Not the thing that gets scanned</b>: that is
@@ -26,6 +28,7 @@ import org.hibernate.annotations.CreationTimestamp;
  * shares its GST slab.
  */
 @Entity
+@Filter(name = TenantContext.FILTER_NAME, condition = TenantContext.CONDITION)
 @Table(
         name = "product",
         indexes = {

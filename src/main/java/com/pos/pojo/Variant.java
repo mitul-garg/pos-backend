@@ -3,6 +3,7 @@ package com.pos.pojo;
 import java.math.BigDecimal;
 import java.util.Map;
 
+import com.pos.util.TenantContext;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -19,6 +20,7 @@ import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import org.hibernate.annotations.Check;
 import org.hibernate.annotations.ColumnDefault;
+import org.hibernate.annotations.Filter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -33,6 +35,7 @@ import org.hibernate.type.SqlTypes;
  * rather than a read, a check and a write with a gap in between.
  */
 @Entity
+@Filter(name = TenantContext.FILTER_NAME, condition = TenantContext.CONDITION)
 @Table(
         name = "variant",
         uniqueConstraints = {
