@@ -32,12 +32,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpStatus;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.mvc.condition.PathPatternsRequestCondition;
 import org.springframework.web.servlet.mvc.condition.PatternsRequestCondition;
@@ -233,21 +235,43 @@ public class OpenApiGenerator {
 
     private ApiResponses responsesFor(HandlerMethod handler, Components components) {
         ApiResponses responses = new ApiResponses();
+        HttpStatus status = successStatusOf(handler);
         Type returnType = handler.getMethod().getGenericReturnType();
 
         if (returnType == void.class || returnType == Void.class) {
-            responses.addApiResponse("200", new ApiResponse().description("No content"));
+            responses.addApiResponse(String.valueOf(status.value()),
+                    new ApiResponse().description(status.getReasonPhrase()));
             return responses;
         }
 
         returnType = unwrapResponseEntity(returnType);
         Schema<?> schema = schemaFor(returnType, components);
-        ApiResponse ok = new ApiResponse().description("OK");
+        ApiResponse success = new ApiResponse().description(status.getReasonPhrase());
         if (schema != null) {
-            ok.content(jsonContent(schema));
+            success.content(jsonContent(schema));
         }
-        responses.addApiResponse("200", ok);
+        responses.addApiResponse(String.valueOf(status.value()), success);
         return responses;
+    }
+
+    /**
+     * The status a successful call actually answers with (C5).
+     *
+     * <p>Read from {@code @ResponseStatus} rather than assumed to be 200, because two
+     * handlers already disagree with that assumption — {@code POST /api/products} answers
+     * 201 and {@code POST /api/auth/logout} 204. A document that promises 200 for either
+     * is worse than a missing one: a generated client would treat the real answer as an
+     * error.
+     *
+     * <p>Only the success code is derived. The error statuses are the
+     * {@code ApiExceptionHandler}'s and are not visible on a handler signature at all;
+     * documenting them would mean restating the matrix here, where it would drift.
+     */
+    private HttpStatus successStatusOf(HandlerMethod handler) {
+        ResponseStatus annotation = handler.getMethodAnnotation(ResponseStatus.class);
+        // code() and value() are @AliasFor each other and HandlerMethod merges them, so
+        // reading either resolves whichever the handler wrote.
+        return annotation == null ? HttpStatus.OK : annotation.code();
     }
 
     /** {@code ResponseEntity<ProductData>} documents as {@code ProductData}. */

@@ -36,6 +36,6 @@ public class StubServiceConfig {
 
     @Bean
     public ProductService productService() {
-        return new ProductService(null);
+        return new ProductService(null, null, null);
     }
 }

@@ -57,6 +57,21 @@ public class TenantDao {
         return em.find(Tenant.class, id);
     }
 
+    /**
+     * A proxy for the row with this id, for stamping a foreign key without reading it
+     * (C5). Issues no SQL: the only thing an {@code INSERT} needs from the parent is its
+     * id, and that is already in hand.
+     *
+     * <p><b>The {@code id} parameter is not a scoping argument</b>, which is the thing
+     * CONVENTIONS.md forbids passing between layers. Nothing here is being filtered by it
+     * — it names the row to point at, and its one caller takes it from
+     * {@code AuthService.currentSession()}, i.e. from the token. A tenant id that arrived
+     * in a request body must never reach this method.
+     */
+    public Tenant reference(Long id) {
+        return em.getReference(Tenant.class, id);
+    }
+
     public void insert(Tenant tenant) {
         em.persist(tenant);
     }

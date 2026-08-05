@@ -1,12 +1,18 @@
 package com.pos.service;
 
+import java.math.BigDecimal;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 import com.pos.dao.ProductDao;
+import com.pos.dao.TenantDao;
 import com.pos.exception.NotFoundException;
+import com.pos.exception.ValidationException;
 import com.pos.model.PageData;
 import com.pos.model.ProductData;
+import com.pos.model.ProductForm;
 import com.pos.pojo.Product;
 import com.pos.util.TenantContext;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,8 +20,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Reading the catalogue (C4) — the one scoped resource the spine is proved against.
- * Writes are C5, along with variants and QR generation.
+ * The catalogue's product half — read in C4, as the one scoped resource the spine was
+ * proved against; written in C5. Variants and QR generation are {@code VariantService}.
  *
  * <p>The port of {@code frontend/src/services/productService.js}, minus the scoping: the
  * mock had to call {@code scopedRows()} / {@code findInTenant()} on every path, and here
@@ -41,7 +47,26 @@ public class ProductService {
      */
     static final int MAX_PAGE_SIZE = 200;
 
+    /** Verbatim from {@code domain/validators.js}, so both halves fail identically. */
+    static final String NAME_REQUIRED = "Name is required";
+
+    /**
+     * The GST slabs (requirements.md section 4), and the message the frontend shows for
+     * anything else.
+     *
+     * <p>Compared with {@code compareTo} rather than {@code equals}: {@code BigDecimal}
+     * equality is scale-sensitive, so {@code 5} and {@code 5.00} are unequal objects and
+     * the same tax rate. A client sending either has sent a valid slab.
+     */
+    static final List<BigDecimal> TAX_RATES = List.of(
+            BigDecimal.ZERO, BigDecimal.valueOf(5), BigDecimal.valueOf(12),
+            BigDecimal.valueOf(18), BigDecimal.valueOf(28));
+
+    static final String TAX_RATE_INVALID = "Tax rate must be one of 0, 5, 12, 18, 28%";
+
     private final ProductDao productDao;
+    private final TenantDao tenantDao;
+    private final AuthService authService;
 
     /**
      * Constructor injection, for the reason recorded on {@code AuthService}: a servlet-
@@ -49,8 +74,10 @@ public class ProductService {
      * field injection is applied even to a hand-built {@code @Bean}.
      */
     @Autowired
-    public ProductService(ProductDao productDao) {
+    public ProductService(ProductDao productDao, TenantDao tenantDao, AuthService authService) {
         this.productDao = productDao;
+        this.tenantDao = tenantDao;
+        this.authService = authService;
     }
 
     @Transactional(readOnly = true)
@@ -98,6 +125,129 @@ public class ProductService {
     }
 
     /**
+     * {@code POST /api/products} (C5).
+     *
+     * <p><b>The tenant is stamped here, and it has to be.</b> The Hibernate filter appends
+     * to {@code WHERE} clauses and an {@code INSERT} has none, so a write is scoped by
+     * whoever builds the entity and by nothing else. The value comes from
+     * {@code AuthService.currentSession()} — the token — and there is no code path by
+     * which the request body could supply one: {@link ProductForm} has no such field.
+     */
+    @Transactional
+    public ProductData create(ProductForm form) {
+        TenantContext.requireTenant();
+
+        String name = trimToNull(form.getName());
+        BigDecimal taxRatePercent = form.getTaxRatePercent();
+        validate(name, taxRatePercent);
+
+        Product product = new Product();
+        product.setTenant(tenantDao.reference(authService.currentSession().getTenantId()));
+        product.setName(name);
+        product.setBrand(trimToEmpty(form.getBrand()));
+        product.setCategory(trimToEmpty(form.getCategory()));
+        product.setDescription(trimToEmpty(form.getDescription()));
+        product.setHsnCode(trimToEmpty(form.getHsnCode()));
+        product.setTaxRatePercent(taxRatePercent);
+        // Never from the form: a product is created active, and a caller asking for
+        // isActive:false would be creating a row that no screen can reach.
+        product.setActive(true);
+
+        productDao.insert(product);
+        return toData(product);
+    }
+
+    /**
+     * {@code PUT /api/products/{id}} — a <b>merge patch</b>, matching the mock's
+     * {@code Object.assign(product, patch)}. An absent field is left alone, which is what
+     * lets the frontend reactivate a product with {@code {"isActive": true}} and nothing
+     * else.
+     *
+     * <p>Validation runs against the <i>merged</i> result rather than the request, for the
+     * same reason. There is no {@code save} call at the end: the row was loaded inside
+     * this transaction, so Hibernate's dirty checking writes it at commit.
+     */
+    @Transactional
+    public ProductData update(Long id, ProductForm form) {
+        TenantContext.requireTenant();
+
+        Product product = productDao.find(id);
+        if (product == null) {
+            throw new NotFoundException(NOT_FOUND);
+        }
+
+        String name = form.getName() == null ? product.getName() : trimToNull(form.getName());
+        BigDecimal taxRatePercent = form.getTaxRatePercent() == null
+                ? product.getTaxRatePercent()
+                : form.getTaxRatePercent();
+        validate(name, taxRatePercent);
+
+        product.setName(name);
+        product.setTaxRatePercent(taxRatePercent);
+        if (form.getBrand() != null) {
+            product.setBrand(trimToEmpty(form.getBrand()));
+        }
+        if (form.getCategory() != null) {
+            product.setCategory(trimToEmpty(form.getCategory()));
+        }
+        if (form.getDescription() != null) {
+            product.setDescription(trimToEmpty(form.getDescription()));
+        }
+        if (form.getHsnCode() != null) {
+            product.setHsnCode(trimToEmpty(form.getHsnCode()));
+        }
+        if (form.getActive() != null) {
+            product.setActive(form.getActive());
+        }
+
+        return toData(product);
+    }
+
+    /**
+     * {@code DELETE /api/products/{id}} — a <b>soft</b> delete, and the only kind there
+     * is here. An order line snapshots what was sold, but the catalogue row is still what
+     * a returns lookup and a receipt reprint resolve against, so removing it would rewrite
+     * history. Deactivating hides it from the sell-side lists instead.
+     *
+     * <p>Idempotent: deactivating an already-inactive product is a no-op that answers 200,
+     * not an error. Returns the row, as the mock does, so the client can update in place.
+     */
+    @Transactional
+    public ProductData deactivate(Long id) {
+        TenantContext.requireTenant();
+
+        Product product = productDao.find(id);
+        if (product == null) {
+            throw new NotFoundException(NOT_FOUND);
+        }
+        product.setActive(false);
+        return toData(product);
+    }
+
+    /**
+     * The port of {@code validateProduct()} in {@code domain/validators.js}, field for
+     * field and message for message.
+     *
+     * <p>Reports <b>every</b> broken field rather than the first, since the response
+     * carries a field map and the form highlights each input. The top-level
+     * {@code message} is the first of them, which is what the mock throws and what a
+     * client with no field-level rendering shows.
+     */
+    private void validate(String name, BigDecimal taxRatePercent) {
+        Map<String, String> errors = new LinkedHashMap<>();
+        if (name == null) {
+            errors.put("name", NAME_REQUIRED);
+        }
+        if (taxRatePercent == null
+                || TAX_RATES.stream().noneMatch(rate -> rate.compareTo(taxRatePercent) == 0)) {
+            errors.put("taxRatePercent", TAX_RATE_INVALID);
+        }
+        if (!errors.isEmpty()) {
+            throw new ValidationException(errors.values().iterator().next(), errors);
+        }
+    }
+
+    /**
      * Mapped inside the transaction, which is what makes {@code product.getTenant()} safe
      * — the association is {@code LAZY}, and reading it after the transaction closed is a
      * {@code LazyInitializationException}. Only the id is read, which Hibernate answers
@@ -140,5 +290,15 @@ public class ProductService {
             return null;
         }
         return value.trim();
+    }
+
+    /**
+     * The optional text fields, stored as {@code ""} rather than {@code NULL} when a form
+     * leaves them empty — which is what the mock rows hold, so a React input bound to one
+     * gets a string rather than a null and stays controlled. {@code ProductDao.categories}
+     * excludes the empty string for the same reason.
+     */
+    private String trimToEmpty(String value) {
+        return value == null ? "" : value.trim();
     }
 }

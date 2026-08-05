@@ -94,6 +94,25 @@ class OpenApiGeneratorTest {
         assertTrue(healthData.getProperties().containsKey("time"));
     }
 
+    /**
+     * A handler that answers something other than 200 must be documented as answering
+     * it. Both directions are asserted, because the failure this guards against is a
+     * document that promises 200 everywhere — which a generated client would read as
+     * "201 is an error".
+     */
+    @Test
+    void readsTheSuccessStatusFromResponseStatus() {
+        Operation create = api.getPaths().get("/api/products").getPost();
+        assertNotNull(create.getResponses().get("201"), "POST /api/products answers 201");
+        assertNull(create.getResponses().get("200"), "and only 201");
+
+        Operation logout = api.getPaths().get("/api/auth/logout").getPost();
+        assertNotNull(logout.getResponses().get("204"), "POST /api/auth/logout answers 204");
+
+        // The default is unchanged for a handler that says nothing.
+        assertNotNull(api.getPaths().get("/api/health").getGet().getResponses().get("200"));
+    }
+
     /** Cached: the handler map is fixed after startup, so rebuilding it is waste. */
     @Test
     void reusesTheGeneratedDocument() {

@@ -4,6 +4,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import com.pos.exception.InvalidCredentialsException;
+import com.pos.pojo.Role;
 import com.pos.service.AuthService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -125,6 +126,11 @@ public class SecurityConfig {
                         // filter configured above is what answers them.
                         .requestMatchers(AntPathRequestMatcher.antMatcher(HttpMethod.OPTIONS, "/**")).permitAll()
                         .requestMatchers(publicMatchers()).permitAll()
+                        // Catalogue management is an ADMIN's (requirements.md 13.2); a
+                        // CASHIER reads the same catalogue and writes none of it. Note
+                        // these are METHOD-scoped: GET /api/products stays open to both,
+                        // so the rules cannot be collapsed into one path pattern.
+                        .requestMatchers(adminMatchers()).hasRole(Role.ADMIN.name())
                         // Default-deny. A new endpoint is protected the moment it exists
                         // rather than when someone remembers to list it -- the inverse
                         // rule is how an endpoint ships unguarded.
@@ -137,9 +143,9 @@ public class SecurityConfig {
                         .authenticationEntryPoint((request, response, ex) ->
                                 responder.write(response, HttpStatus.UNAUTHORIZED,
                                         InvalidCredentialsException.MESSAGE))
-                        // Authenticated, but the role is wrong. Nothing reaches this in
-                        // C3 -- no rule discriminates by role yet -- and C8 is where it
-                        // starts mattering.
+                        // Authenticated, but the role is wrong. Unreachable until C5,
+                        // which added the first rule that discriminates by role: a
+                        // CASHIER writing to the catalogue lands here.
                         .accessDeniedHandler((request, response, ex) ->
                                 responder.write(response, HttpStatus.FORBIDDEN,
                                         "You do not have permission to perform this action.")))
@@ -175,6 +181,29 @@ public class SecurityConfig {
         return Arrays.stream(PUBLIC_PATHS)
                 .map(AntPathRequestMatcher::antMatcher)
                 .toArray(RequestMatcher[]::new);
+    }
+
+    /**
+     * The write half of the catalogue (C5). <b>The complete list of role-restricted URLs
+     * in the application</b> — keeping it here rather than as {@code @PreAuthorize} on
+     * scattered handlers is what makes "which endpoints does a CASHIER not reach?" a
+     * question one file answers.
+     *
+     * <p>A {@code CASHIER} reaching one of these gets the chain's 403, in the same
+     * {@code ApiError} envelope as everything else, from the access-denied handler
+     * configured above. A {@code SUPER_ADMIN} gets the same 403 — it is not an
+     * {@code ADMIN} and has no tenant to write into either, so both guards agree.
+     *
+     * <p>Ant matchers rather than the {@code String} overload, for the reason on
+     * {@link #publicMatchers()}: this is a root-context config and the MVC introspector
+     * lives in the servlet one.
+     */
+    private RequestMatcher[] adminMatchers() {
+        return new RequestMatcher[] {
+                AntPathRequestMatcher.antMatcher(HttpMethod.POST, "/api/products"),
+                AntPathRequestMatcher.antMatcher(HttpMethod.PUT, "/api/products/*"),
+                AntPathRequestMatcher.antMatcher(HttpMethod.DELETE, "/api/products/*"),
+        };
     }
 
     /**
