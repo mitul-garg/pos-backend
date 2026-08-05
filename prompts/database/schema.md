@@ -217,5 +217,13 @@ Read it with `SELECT … FOR UPDATE` **in the same transaction** as the insert i
 numbers, so two terminals in one store can't mint the same `ORD-2026-0007`. The
 `UNIQUE(tenant_id, order_number)` key is the backstop if that logic is ever wrong.
 
+> **Lock the `tenant` row before this one** — `TenantSequenceDao` does, and the
+> reason is a deadlock C5 hit rather than a precaution. A `SELECT … FOR UPDATE`
+> matching **no** row takes a *gap* lock, gap locks are **shared**, and an insert
+> then needs an intention lock that conflicts with the other holder's gap lock. Two
+> transactions creating a store's first counter therefore deadlock. Locking a row
+> that always exists first gives every caller one queue and no cycle. In use since
+> C5 for `QR`; `ORDER` and `RETURN` join it in C6/C7 through the same method.
+
 A tenant with no row for a `kind` starts at 1 — matching the frontend, where a
 newly created tenant simply has no counter entry yet.

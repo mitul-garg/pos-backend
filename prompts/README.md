@@ -3,18 +3,22 @@
 Read this file first, before opening any source file, when asked to change
 something in `backend/`.
 
-> **Status: C4 done** (skeleton + persistence + auth + **the tenant spine** —
-> Spring MVC on Jetty, Hibernate on MySQL, all nine entities, a committed
-> `schema.sql`, a JWT security chain, and a Hibernate filter that scopes every
-> query to the caller's tenant; `mvn jetty:run`, **128 tests, 52 of them needing a
-> local `pos_test` database**). The plan is `../../backend-plan.md` (steps C1–C9);
-> the spec is `../../requirements.md`. The database in [database/](./database/) is
+> **Status: C5 done** (skeleton + persistence + auth + the tenant spine + **the
+> catalogue** — Spring MVC on Jetty, Hibernate on MySQL, all nine entities, a
+> committed `schema.sql`, a JWT security chain, a Hibernate filter that scopes every
+> query to the caller's tenant, and products and variants with server-minted QR
+> codes; `mvn jetty:run`, **196 tests, 130 of them needing a local `pos_test`
+> database**). The plan is `../../backend-plan.md` (steps C1–C9); the spec is
+> `../../requirements.md`. The database in [database/](./database/) is
 > **implemented as documented** — `SchemaConstraintsIT` proves the
 > isolation-critical parts of it exist in MySQL.
 > **Scoping is now enforced, not intended:** a query written against a
 > tenant-owned entity is scoped whether or not its author thought about tenancy.
 > The one thing a new entity must not forget is `@Filter`, and
 > `TenantFilterCoverageTest` fails the build if it does.
+> **What a write still has to do by hand** is in [c5-catalogue.md](./c5-catalogue.md):
+> stamp the tenant, take a sequence value in the same transaction as the insert it
+> numbers, and map any new unique constraint to a field.
 
 ## How to use this folder
 
@@ -45,6 +49,7 @@ something in `backend/`.
 | [c2-persistence.md](./c2-persistence.md) | Hibernate/Hikari wiring, the entities, `schema.sql` and its drift test, ids-as-strings — and the traps: **naming the dialect silently drops the check constraints**, and Hibernate 6 emits MySQL's native `ENUM` unless told otherwise |
 | [c3-auth.md](./c3-auth.md) | BCrypt, JWTs, the security chain, the 401/403 matrix and the dev seeder — and **the two contexts biting three separate times**, one of which shipped green and would not boot. Read before touching `SecurityConfig` |
 | [c4-tenancy.md](./c4-tenancy.md) | `TenantContext`, the Hibernate `@Filter`, and `/api/products` as the first scoped resource. **Read before adding any entity or endpoint** — it says what a new one must carry, why `applyToLoadByKey` is not optional, why a read outside a transaction is unscoped, and which mutations the isolation suite actually catches |
+| [c5-catalogue.md](./c5-catalogue.md) | Products and variants, the merge-patch forms, server-minted QR codes and the per-tenant sequence. **Read before writing anything that inserts a row or mints a number** — it says why `TenantSequenceDao` locks the tenant first (it deadlocked without it), why a unique-constraint name arrives table-qualified, and why a green isolation case does not prove a child entity is filtered |
 
 Keep these tables in sync — they're the only thing agents read unconditionally.
 
@@ -77,7 +82,12 @@ out-of-tenant id must resolve as **404**, never 403.
 The frontend already proved this contract end-to-end —
 `frontend/src/services/isolation.test.js` is 23 executable statements of what
 "isolated" means, and `TenantIsolationIT` has to reproduce all of them. The
-product-shaped ones landed in C4; the order, return, variant and user ones join
-them as C5–C8 give them endpoints to aim at. **Adding an endpoint without adding
-its case there is how a leak ships**, because the browser cannot show you one you
-did not think to look for.
+product-shaped ones landed in C4 and the variant ones in C5; the order, return and
+user ones join them as C6–C8 give them endpoints to aim at. **Adding an endpoint
+without adding its case there is how a leak ships**, because the browser cannot show
+you one you did not think to look for.
+
+C5 added a corollary worth knowing before you write that case: **a passing isolation
+case does not prove the entity it exercises is filtered.** A query that joins a
+filtered parent is scoped through the join either way — see
+[c5-catalogue.md](./c5-catalogue.md)'s mutation table.

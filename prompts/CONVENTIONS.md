@@ -3,11 +3,12 @@
 Cross-cutting patterns for `backend/`. Check here before inventing a new pattern
 or grepping the source tree for "how do we usually do X".
 
-> **Status: substantiated (C1–C4 done).** The layout, error mapping, DTO naming,
-> config-package, **persistence**, **security** and — as of C4 — **tenant
-> scoping** rules all describe real classes. See [c1-skeleton.md](./c1-skeleton.md),
-> [c2-persistence.md](./c2-persistence.md), [c3-auth.md](./c3-auth.md) and
-> [c4-tenancy.md](./c4-tenancy.md).
+> **Status: substantiated (C1–C5 done).** The layout, error mapping, DTO naming,
+> config-package, **persistence**, **security**, **tenant scoping** and — as of C5 —
+> **writes, validation and per-tenant sequences** all describe real classes. See
+> [c1-skeleton.md](./c1-skeleton.md), [c2-persistence.md](./c2-persistence.md),
+> [c3-auth.md](./c3-auth.md), [c4-tenancy.md](./c4-tenancy.md) and
+> [c5-catalogue.md](./c5-catalogue.md).
 > **Scoping is now enforced rather than intended**: a query written against a
 > tenant-owned entity is scoped whether or not its author thought about tenancy.
 > As each C-step lands, replace intent with what was actually built and link the
@@ -229,6 +230,22 @@ layer cuts against the premise that this project exists to show what Boot hides.
 than a single `Dto` suffix, and it makes an accidental entity in a method
 signature obvious at a glance.
 
+**One `Form` serves both `POST` and `PUT`, and `PUT` is a merge patch** (C5). Every
+field is nullable, wrapper types included, because absent has to be distinguishable
+from "set it to null" — the frontend reactivates a row with `{"isActive": true}` and
+nothing else. Two consequences:
+
+- **A `Form` that serves a `PUT` carries no bean-validation annotations.**
+  `@NotBlank` on a name would reject that reactivation, which is a legal request.
+  The service validates the **merged row** instead, which is also the rule it should
+  have been enforcing: not "this request names a product" but "the product that
+  results is valid".
+- **What a `Form` leaves out is part of the contract.** No `id`, no `tenantId`, no
+  `createdAt`, no `qrCode` — the mapper drops unknown properties, so a client
+  supplying one is a no-op rather than an error. `ProductWriteIT` and `VariantIT`
+  each assert the outcome rather than the mechanism, because "the DTO happens not to
+  have a setter" evaporates the day someone adds one for convenience.
+
 ### The multi-tenancy adaptation this layout needs
 
 A layer-first tree scatters the platform (cross-tenant) classes across
@@ -378,8 +395,19 @@ Rules for this package:
   `DataIntegrityViolationException` — a read-then-write check is racy, and the
   unique index is the only thing that makes it atomic.
 - **Per-tenant sequences** (`order_number`, `return_number`, QR) come from
-  `tenant_sequence` under `SELECT … FOR UPDATE` in the same transaction as the
-  insert. `AUTO_INCREMENT` can't produce per-tenant runs.
+  `TenantSequenceDao.next()`, **in the same transaction as the insert they
+  number** — the value is reserved by locks held until that transaction commits.
+  `AUTO_INCREMENT` can't produce per-tenant runs. **Lock the tenant row first**,
+  which that method does for you: it is not belt-and-braces, it is the fix for a
+  real deadlock, and anything else that ever locks a tenant row must take it in the
+  same order (C5).
+- **A unique constraint a request can trip needs a row in
+  `ApiExceptionHandler.CONSTRAINT_FIELDS`,** added in the same change as the
+  constraint. Without one its violation answers **500**, deliberately — an unmapped
+  constraint has no field to blame and is more likely a bug here than in the
+  request. Note MySQL 8 reports the name **table-qualified**
+  (`variant.uk_variant_tenant_sku`); the handler strips that, and the bare form is
+  not what production sends (C5).
 
 ## Transactions
 
@@ -424,14 +452,25 @@ Rules for this package:
 - **Ids serialize as JSON strings** (`BIGINT` in the database). The frontend's
   mock ids are strings and `useParams` yields strings; string-on-the-wire keeps
   every existing `===` comparison working.
+- **A create answers 201**, and `@ResponseStatus` is read by `OpenApiGenerator`, so
+  the document says what the handler actually returns (C5). Before that it promised
+  200 everywhere — already wrong for `logout`'s 204 — and a document that lies about
+  a status is worse than a missing one, because a generated client treats the real
+  answer as an error.
+- **Role rules are URL rules in `SecurityConfig.adminMatchers()`, not
+  `@PreAuthorize` on handlers** (C5). One greppable file answers "what can a CASHIER
+  not reach?"; annotations scattered across controllers do not. They are
+  **method-scoped** — `GET /api/products` is open to both roles and `POST` is not —
+  so the rules cannot be collapsed into one path pattern.
 
 ## Testing
 
-- **Not every test needs a database.** 76 of the current 128 run with none —
+- **Not every test needs a database.** 66 of the current 196 run with none —
   `MockMvc` over the real `WebConfig` exercises controllers, converters and the
   advice without Jetty or MySQL. Reach for a database when the test is *about*
   persistence. The `*Test` / `*IT` suffix is the marker: `IT` means it needs
-  `pos_test`, nothing more.
+  `pos_test`, nothing more. (This file previously claimed 52 of 128 needed a
+  database; the real split was 66, counted rather than estimated in C5.)
 - **A servlet-context-only test must stub the service layer.** `WebConfig`
   component-scans `com.pos.controller`, so every controller is built whether or
   not a suite is about it. `StubServiceConfig` (test sources) supplies inert
@@ -461,6 +500,22 @@ Rules for this package:
   [c4-tenancy.md](./c4-tenancy.md). One mutation showed the by-id cases cover
   something no list case does; another **disproved a claim already written in a
   comment**, which is the outcome to hope for.
+- **A green isolation case does not prove the entity it exercises is filtered**
+  (C5). A query that joins a filtered parent — `JOIN FETCH v.product` — is scoped
+  through the join whether or not the child carries `@Filter`. Dropping it from
+  `Variant` left the scan, the search and the by-product list green; what reddened
+  was the two paths joining no product, `em.find` and a `count` over the child
+  alone. **`TenantFilterCoverageTest` is what actually holds that line**, and an
+  aggregate over one entity is the shape with nothing else behind it.
+- **A test fixture must be shaped like production or it agrees with whatever the
+  code does** (C5). The constraint-mapping test used a bare constraint name, passed,
+  and proved nothing — MySQL sends a table-qualified one, and every raced duplicate
+  was answering 500. Two fixtures in `TenantIsolationIT` carry the same warning:
+  writing a QR code by hand means moving `tenant_sequence` to match.
+- **Concurrency tests find what review cannot.** `VariantSequenceIT` caught both of
+  C5's bugs on its first run, and in each case the broken code carried a comment
+  explaining why it was correct. Write one for anything that mints a number, decrements
+  stock, or checks uniqueness.
 - **A `@Transactional` IT can assert nothing without `em.flush()` / `em.clear()`
   after its fixtures.** Rows persisted in the test's own transaction are managed,
   so `em.find()` answers from the persistence context without running SQL — and a

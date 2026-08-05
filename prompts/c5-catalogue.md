@@ -1,0 +1,216 @@
+# C5 — The catalogue
+
+**Status: done.** Products gained their writes, variants arrived whole, and QR codes
+are minted server-side from a per-tenant sequence. `mvn test` runs **196 tests, 130 of
+which need `pos_test`**.
+
+Corresponds to `backend-plan.md` C5, and to `requirements.md` §9 (the contract), §2
+(products vs variants), §6 (QR) and §13.3 (per-tenant uniqueness).
+
+> **This is the step where the C4 spine stopped being the interesting part.** Scoping
+> needed no new work — the filter was already there — so what C5 was actually about is
+> everything a *write* has to get right that a read does not: stamping the tenant,
+> generating an identifier that has to be unique, and losing a race cleanly.
+
+## Key classes
+
+- `com.pos.model.ProductForm` / `VariantForm` — one form per resource, serving both
+  `POST` and `PUT`, every field nullable. Read either Javadoc before adding a constraint
+  annotation to one.
+- `com.pos.service.ProductService` / `VariantService` — the ported `productService.js` and
+  `variantService.js`, including their messages word for word.
+- `com.pos.dao.TenantSequenceDao` — **read this before C6.** The per-tenant counter, its
+  lock order, and why it has one.
+- `com.pos.util.QrCodes` — the payload's shape, and the fallback SKU derived from the same
+  sequence value.
+- `com.pos.dao.VariantDao` — every read `JOIN FETCH`es the product; `insert` flushes
+  deliberately.
+- `com.pos.exception.ApiExceptionHandler` — now maps a unique-index violation onto the same
+  400 the service's pre-check produces.
+- `com.pos.config.SecurityConfig#adminMatchers` — the first role rule in the application.
+
+## Decisions & gotchas
+
+### `PUT` is a merge patch, which is why the forms carry no bean validation
+
+The frontend reactivates a soft-deleted row by sending `{"isActive": true}` and nothing
+else. A `@NotBlank` on `name` would reject that — a legal request — so the rule being
+enforced is not "this request names a product" but **"the product that results is valid"**,
+and the service validates the *merged* row. Exactly what the mock does with
+`validateProduct(merged)`.
+
+That also decides where validation lives. `ProductWriteIT.validatesTheMergedRow` sends
+`{"name": "   "}` at a valid product: the request is well-formed, and what it would
+*produce* is a nameless row.
+
+### The tenant is stamped, and nothing else protects a create
+
+The filter appends to `WHERE` clauses and an `INSERT` has none. So a create is scoped by
+`ProductService` reading `AuthService.currentSession()` and by nothing else — no annotation,
+no interceptor, no test that passes for a different reason. Mutation-checked: making
+`create` trust a `tenantId` from the body reddens **exactly one case in each of two
+suites**, and every filter-backed case stays green.
+
+A variant does it differently and more strictly: it **inherits its parent product's
+tenant**, because the product was loaded through a filtered read. Same rule a return will
+follow from its order in C7.
+
+### The server mints the QR code, and `VariantForm` has no field for one
+
+Requirements §6 puts generation on the server. The payload embeds the tenant
+(`POS-QR-{tenantId}-000001`), so a client that could supply one could mint into another
+store's run — which is a sharper version of the `tenantId`-in-the-body problem, since the
+result gets printed and stuck to a shelf.
+
+A blank `sku` falls back to `SKU-000001` from the **same sequence value** as the code, so a
+row's two identifiers agree. The mock used the variant's own id; that does not exist yet
+under `AUTO_INCREMENT` — the row has to be built before the database will name it.
+
+### `TenantSequenceDao` deadlocked, and the Javadoc explaining why it could not was wrong
+
+**The most important thing in this step.** The first version took
+`SELECT … FOR UPDATE` on `tenant_sequence`, and where the row did not exist yet, inserted
+it. The comment said a gap lock would make a second concurrent caller block.
+
+Gap locks are **shared**. Both transactions take one, then each tries to insert, and an
+insert needs an intention lock that conflicts with the *other's* gap lock. Neither can
+proceed; MySQL kills one with `Deadlock found when trying to get lock`, and the caller gets
+a 500 — on the first pair of concurrent creates in a fresh store.
+
+The fix is the textbook one: **lock in a fixed order, starting from a row that always
+exists.** Every caller now locks the `tenant` row before touching the sequence, so only one
+transaction per store is ever in that section, the gap lock is uncontended, and there is no
+cycle.
+
+Cost: a store's QR codes, order numbers and return numbers serialize against each other
+rather than only against their own kind. For a shop with a few tills that is nothing, and
+it buys a lock order that fits in one sentence.
+
+**Still true, and still the reason the class exists:** take the number in the same
+transaction as the insert it numbers. Both locks are held until that transaction commits,
+and that is what reserves the value.
+
+### The unique index is the referee, and its name arrives table-qualified
+
+The service pre-check (`VariantDao.skuExists`) is a read and a write with a gap. The unique
+index is what actually prevents the duplicate, so `ApiExceptionHandler` maps the violation
+onto the **same field and the same sentence** — a lost race is then invisible to the caller
+rather than a different bug to report.
+
+MySQL 8 reports the index as `variant.uk_variant_tenant_sku`, **table-qualified**, and
+Hibernate passes that through. The lookup missed every entry, so every raced duplicate
+answered 500 while the identical uncontended one answered a clean 400. The qualifier is now
+stripped.
+
+Worth knowing *how* that hid: the unit test written for the mapping used the bare name,
+passed, and proved nothing. **A fixture that is not shaped like production agrees with
+whatever the code does.**
+
+An unmapped constraint deliberately stays a **500**. Only the entries in
+`CONSTRAINT_FIELDS` have a field to blame and a sentence a user can act on; a foreign key
+or a check constraint failing is a bug in this application rather than in the request, and
+answering 400 would blame the caller and hide it. **Add a row there in the same change that
+adds a unique constraint a request can trip.**
+
+### Enrichment is part of the variant's shape
+
+Every variant response carries the parent's name (`"Amul Taaza Toned Milk — 500 ml"`), GST
+slab and HSN code — including the by-product list, where the mock returned bare rows. One
+shape per resource, and a scan must not need a second round trip while a customer waits at
+a till. Hence `JOIN FETCH` on every read: left lazy, a 34-row list is 35 statements.
+
+### The role rule lives in `SecurityConfig`, not on the handlers
+
+Catalogue management is an `ADMIN`'s (§13.2). The matchers are **method-scoped**, so
+`GET /api/products` stays open to a `CASHIER` and the rules cannot be collapsed into one
+path pattern. Kept as URL rules rather than `@PreAuthorize` so the whole role surface is one
+greppable file — the same argument as the `@PlatformOperation` marker C8 will need.
+
+This is also the first rule that makes C3's `accessDeniedHandler` reachable.
+
+### 201, and the generator had to learn about it
+
+`POST` answers **201 Created**. `OpenApiGenerator` documented every handler as 200, which
+was *already* wrong for `logout`'s 204; it now reads `@ResponseStatus`. A document that
+promises 200 is worse than a missing one, because a generated client treats the real answer
+as an error.
+
+## Tenant scoping
+
+Nothing new — which was the point of C4. Three things C5 did have to do by hand:
+
+- **Writes stamp the tenant.** Products from the session, variants from the parent.
+- **`TenantSequenceDao` names no tenant in its sequence query.** The filter scopes it, so it
+  can only ever advance the caller's own counter. Its `Tenant` argument exists to lock the
+  tenant row and to point a foreign key, never to select by.
+- **New cases in `TenantIsolationIT`**, including the scan.
+
+## Tests
+
+| Suite | Needs a DB | Proves |
+|---|---|---|
+| `ProductWriteIT` (24) | yes | Create/update/deactivate inside one store, the merge-patch semantics, and the ADMIN rule |
+| `VariantIT` (28) | yes | The identity of a variant: who chooses the SKU and the code, what a duplicate does, what re-issuing does to the old value |
+| `VariantSequenceIT` (2) | yes | The sequence under real contention, and a raced SKU |
+| `TenantIsolationIT` (+10, now 24) | yes | Cross-tenant **writes**, and the variant cases from `isolation.test.js` — the scan above all |
+| `ApiExceptionHandlerTest` (+3, now 9) | no | The constraint mapping, in both the bare and table-qualified forms |
+| `OpenApiGeneratorTest` (+1, now 8) | no | `@ResponseStatus` reaches the document |
+
+### The concurrency suite earned its place immediately
+
+`VariantSequenceIT` found **both** of the bugs above on its first run — the deadlock and the
+qualified constraint name. Neither is reachable from a single-threaded test, and neither was
+visible by reading the code, because in both cases the code came with a comment explaining
+why it was fine.
+
+### Mutation results, and one that was not expected
+
+| Mutation | Reddens |
+|---|---|
+| `create` stamps the tenant from the request body | **only** the two create cases (`ProductWriteIT` + `TenantIsolationIT`); every filter-backed case stays green |
+| `applyToLoadByKey = false` | the three by-id cases in `TenantIsolationIT`, plus the C4 read ones — **not** the create case |
+| Drop `@Filter` from `Variant` | **only 2** isolation cases, plus both coverage assertions |
+
+**The third row is the surprise, and it changes what a green run means.** The scan, the
+search and the by-product list stay green without the variant's filter, because every read
+in `VariantDao` is `JOIN FETCH v.product` and `Product` is filtered — Hibernate scopes those
+queries through the join regardless. What reddens is exactly the two paths that join no
+product: `em.find` by id, and `VariantDao.skuExists`, whose count then spans every store and
+reports another tenant's SKU as taken.
+
+Two consequences for C6 and C7:
+
+1. **A green isolation case does not prove the child entity is annotated.**
+   `TenantFilterCoverageTest` is what actually holds that line — which is why it exists and
+   why its count must be bumped in the same change as a new entity.
+2. **An aggregate over a child alone is protected by nothing but that annotation.** That is
+   the shape `skuExists` has, and the shape a stock check or an order-total query will have.
+
+### A fixture bug worth not repeating
+
+`TenantIsolationIT` writes QR codes as literals so they are predictable in assertions. Doing
+that while leaving `tenant_sequence` at 1 means the next *real* create mints `000001` again
+and trips `uk_variant_tenant_qrcode`. It surfaced as a 400 on the SKU case and read, at a
+glance, exactly like a leak. The fixture now sets the counter where the generator would have
+left it.
+
+## Extension points
+
+- **A new endpoint** — `requireTenant()`, `@Transactional`, a case in `TenantIsolationIT`,
+  and a `@Bean` in `StubServiceConfig` if it adds a controller dependency.
+- **A new unique constraint a caller can trip** — add a row to
+  `ApiExceptionHandler.CONSTRAINT_FIELDS` in the same change, or its violation answers 500.
+- **Order and return numbers (C6/C7)** — `TenantSequenceDao.next(SequenceKind.ORDER, tenant)`,
+  called inside the transaction that inserts the row it numbers. The lock order is already
+  set; do not add a second thing that locks the tenant row in a different order.
+- **A role rule** — `SecurityConfig.adminMatchers()`, method-scoped.
+- **The stock check (C6)** — an atomic conditional update, which is a *bulk* statement and
+  therefore **not** filtered. Scope it by hand.
+
+## Related
+
+- [CONVENTIONS.md](./CONVENTIONS.md) — the cross-cutting rules this follows
+- [c4-tenancy.md](./c4-tenancy.md) — the filter this relies on and adds nothing to
+- [c2-persistence.md](./c2-persistence.md) — the entities, and `tenant_sequence`'s shape
+- [database/constraints-and-indexes.md](./database/constraints-and-indexes.md) — the two
+  unique keys this step made reachable from a request

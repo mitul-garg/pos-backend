@@ -5,12 +5,13 @@ Implements the contract the frontend already proves out — see
 [`../requirements.md`](../requirements.md) §9 for the endpoints and §13 for the
 multi-tenancy rules.
 
-> **Status: C3 done** — the app boots on Jetty, serves JSON, persists to MySQL
-> through Hibernate, and authenticates with JWTs. All nine tables exist and
-> `schema.sql` is committed. **A local MySQL is required to run `mvn test`**, and
-> **a JWT signing key is required to run the app at all** (see Credentials below).
-> **No tenant filter yet** (C4): a caller's tenant is known from their token, but
-> nothing uses it to scope a query. Build sequence is
+> **Status: C5 done** — the app boots on Jetty, serves JSON, persists to MySQL
+> through Hibernate, authenticates with JWTs, **scopes every query to the caller's
+> tenant**, and serves the catalogue: products, variants, and QR codes minted from
+> each store's own sequence. All nine tables exist and `schema.sql` is committed.
+> **A local MySQL is required to run `mvn test`**, and **a JWT signing key is
+> required to run the app at all** (see Credentials below). Orders, payments and
+> returns are next (C6–C7). Build sequence is
 > [`../backend-plan.md`](../backend-plan.md) (steps C1–C9).
 
 Before changing anything here, read [`prompts/README.md`](./prompts/README.md) —
@@ -163,10 +164,9 @@ Two costs, both handled:
 
 ## Multi-tenancy in one paragraph
 
-> **As of C2 only the first sentence is built.** The tables carry `tenant_id` and
-> every uniqueness rule is per-tenant, but there is no `TenantContext`, no filter
-> and no security chain yet — **any query written today is unscoped**. C3 brings
-> auth, C4 the spine. The rest of this paragraph is the target, not the state.
+> **Built, as of C4, except the last sentence.** `/api/tenants/**` is C8; everything
+> before it describes real classes. See
+> [`prompts/c4-tenancy.md`](./prompts/c4-tenancy.md).
 
 Every tenant-owned row carries `tenant_id`. A Spring Security filter reads the
 `tenantId` claim from the JWT into a request-scoped `TenantContext`, and a
@@ -179,10 +179,16 @@ disabled, quarantined in its own package.
 
 ## Seed data (dev only)
 
-`com.pos.service.DevSeeder` loads the frontend's demo tenants and users at startup,
-so the same logins work end to end and the B6 isolation checklist can be re-run
-against real persistence. **Users and tenants only** — products, variants and orders
-arrive with the steps that own them (C5–C7).
+`com.pos.service.DevSeeder` loads the frontend's demo tenants, users and catalogue at
+startup, so the same logins work end to end and the B6 isolation checklist can be
+re-run against real persistence. **Tenants, users, 23 products and 40 variants** —
+orders and returns arrive with the steps that own them (C6–C7).
+
+The variants are created **through `VariantService`**, so their QR codes come from
+each store's real sequence rather than from literals that would drift out of step the
+first time someone adds a variant through the API. Both stores' runs start at
+`POS-QR-{tenantId}-000001`, and `BISLERI-1L` exists in both — legal, because
+uniqueness is per tenant, and a fixture the isolation suite depends on.
 
 **`mvn jetty:run` seeds with no flag to pass.** `pos.seed.dev` still defaults to
 `false`; the POM turns it on for the `jetty:run` goal only. That is deliberate and
@@ -197,6 +203,11 @@ idempotent, so rows survive stopping the app and a restart inserts nothing. An
 existing tenant is left exactly as it is — re-seeding will not reactivate a store
 you suspended in order to test the 403. To start over, drop `pos_dev`; it is
 recreated on the next boot.
+
+Idempotence is checked **per row**, not "does this store have anything?" — so a
+database seeded by an earlier C-step picks up what a later one adds on the next boot,
+rather than needing to be dropped. A variant you delete by hand comes back; one you
+edit is left alone.
 
 Production starts empty; the first tenant is created through `POST /api/tenants` (C8).
 
@@ -217,7 +228,7 @@ this table, so the two cannot drift apart silently.
 port the frontend's, which already specify correct behaviour — see
 [`../backend-plan.md`](../backend-plan.md) §8 for the mapping.
 
-As of C4 there are **128 tests, 52 of which need `pos_test`**. The rest run with
+As of C5 there are **196 tests, 130 of which need `pos_test`**. The other 66 run with
 nothing but a JVM — `MockMvc` covers the controllers and error mapping without Jetty,
 `SchemaSqlTest` generates DDL offline, and `JwtTokenServiceTest` needs neither.
 Reach for a database when the test is genuinely *about* persistence. The suffix is
@@ -236,16 +247,28 @@ changes, and don't make its assertions easier by adding `WebConfig` to it.
 `TenantIsolationIT` matters most: every case is an attempt to reach one tenant's
 data with another tenant's token. **Add a case for every new tenant-scoped
 endpoint**, and mutation-check it periodically by disabling the Hibernate filter
-and confirming the suite goes red. C4's mutation results are recorded in
-[`prompts/c4-tenancy.md`](./prompts/c4-tenancy.md), including one that disproved a
-claim already written in a comment — which is what the exercise is for.
+and confirming the suite goes red. The mutation results are recorded in
+[`prompts/c4-tenancy.md`](./prompts/c4-tenancy.md) and
+[`prompts/c5-catalogue.md`](./prompts/c5-catalogue.md) — including one that disproved
+a claim already written in a comment, and one that showed **a green isolation case
+does not prove the entity it exercises is filtered**. That is what the exercise is
+for.
 
 Two companions to it, neither redundant. `TenantFilterCoverageTest` needs no
 database and fails the build if a tenant-owned entity is missing its `@Filter` —
 the failure it guards against has no symptom, since an unannotated entity queries
-perfectly and simply returns everyone's rows. `TenantThreadLocalIT` runs two
-tenants and a tenant-less admin over a **two-thread pool**, which is the only way
-to see whether a request leaves its tenant on a thread the next one reuses.
+perfectly and simply returns everyone's rows, and C5 showed the isolation suite can
+stay green without it. `TenantThreadLocalIT` runs two tenants and a tenant-less admin
+over a **two-thread pool**, which is the only way to see whether a request leaves its
+tenant on a thread the next one reuses.
+
+**Concurrency suites are where the real bugs were.** `VariantSequenceIT` runs parallel
+creates against one store's QR sequence and found two on its first run: a deadlock in
+the sequence generator, and a constraint-name mismatch that turned every raced
+duplicate into a 500. In both cases the broken code carried a comment explaining why
+it was correct. C6 and C7 mint order and return numbers through the same class, where
+the failure is a duplicate invoice number — write the equivalent suite before
+trusting either.
 
 ## Bugs
 
