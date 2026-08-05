@@ -35,6 +35,22 @@ import org.hibernate.type.SqlTypes;
 )
 public class Tenant {
 
+    /**
+     * The reserved code a platform {@code SUPER_ADMIN} logs in with, mirroring the
+     * frontend's {@code PLATFORM_TENANT_CODE}.
+     *
+     * <p>Chosen over "leave the field blank" so the value is explicit at every layer —
+     * form, request body, server log — instead of an unreadable empty string, and so a
+     * tenant user who forgets their code gets a plain failed login rather than silently
+     * landing in the platform namespace (requirements.md section 13.4).
+     *
+     * <p>C8 must reject it, along with {@code admin}/{@code super}/{@code system}, when
+     * a tenant is created. Until then nothing enforces that no tenant claims it — which
+     * is why {@code TenantDao.findPlatform()} matches on {@code is_platform} rather than
+     * on this string.
+     */
+    public static final String PLATFORM_CODE = "platform";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "id")
