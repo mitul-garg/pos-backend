@@ -1,12 +1,16 @@
 package com.pos.service;
 
 import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import com.pos.config.AppProperties;
 import com.pos.dao.AppUserDao;
 import com.pos.dao.ProductDao;
 import com.pos.dao.TenantDao;
+import com.pos.dao.VariantDao;
+import com.pos.model.VariantForm;
 import com.pos.pojo.AppUser;
 import com.pos.pojo.Product;
 import com.pos.pojo.Role;
@@ -50,9 +54,29 @@ public class DevSeeder {
 
     private static final Logger log = LoggerFactory.getLogger(DevSeeder.class);
 
+    /**
+     * A page size for the name-to-id lookup below, comfortably above the largest seeded
+     * catalogue (18). Not a limit on what a store may hold — nothing else reads it.
+     */
+    private static final int MAX_SEEDED_PRODUCTS = 500;
+
     /** One catalogue row, in the order requirements.md section 3 lists the fields. */
     private record CatalogueEntry(String name, String brand, String category,
                                   String hsnCode, int taxRatePercent) {
+    }
+
+    /**
+     * One variant, keyed to its parent by <b>product name</b> rather than by position.
+     * Names are unique within a store's catalogue, and an index would silently re-point
+     * every row below it the day a product is inserted in the middle.
+     *
+     * <p>No {@code qrCode} field: the seeder creates these through {@link VariantService},
+     * so the codes come from the store's real sequence rather than from a literal that
+     * would drift out of step with it the first time anyone adds a variant by hand.
+     */
+    private record VariantEntry(String productName, String variantLabel,
+                                Map<String, String> attributes, String sku,
+                                int mrp, int sellingPrice, int stockQuantity) {
     }
 
     /**
@@ -97,6 +121,76 @@ public class DevSeeder {
             new CatalogueEntry("Starbucks Bottled Frappuccino", "Starbucks", "Beverages", "2202", 18),
             new CatalogueEntry("Kurkure Masala Munch", "Kurkure", "Snacks", "2005", 12));
 
+    /**
+     * MG Road's 34 variants, copied from {@code frontend/src/mocks/products.js}.
+     *
+     * <p>The coverage is deliberate and worth keeping (requirements.md section 7): products
+     * with <b>several variants at different MRPs</b> — the primary case the whole
+     * product/variant split exists for — a couple of <b>single-variant</b> products, and an
+     * <b>out-of-stock</b> one ({@code LAYS-SALT-90}) so the stock-0 path has a fixture. Two
+     * variants of Dettol differ only by {@code attributes}, which is what that column is
+     * for.
+     */
+    private static final List<VariantEntry> MG_ROAD_VARIANTS = List.of(
+            v("Amul Taaza Toned Milk", "500 ml", Map.of("size", "500ml"), "AMUL-MILK-500", 30, 29, 40),
+            v("Amul Taaza Toned Milk", "1 L", Map.of("size", "1L"), "AMUL-MILK-1000", 58, 56, 25),
+            v("Amul Butter", "100 g", Map.of("size", "100g"), "AMUL-BTR-100", 56, 55, 30),
+            v("Amul Butter", "500 g", Map.of("size", "500g"), "AMUL-BTR-500", 265, 258, 12),
+            v("Lay's Classic Salted", "52 g", Map.of("size", "52g"), "LAYS-SALT-52", 20, 20, 60),
+            // Out of stock on purpose: still findable and still scannable, not sellable.
+            v("Lay's Classic Salted", "90 g", Map.of("size", "90g"), "LAYS-SALT-90", 33, 32, 0),
+            v("Coca-Cola", "750 ml", Map.of("size", "750ml"), "COKE-750", 40, 40, 50),
+            v("Coca-Cola", "1.25 L", Map.of("size", "1.25L"), "COKE-1250", 65, 63, 20),
+            v("Coca-Cola", "2 L", Map.of("size", "2L"), "COKE-2000", 95, 92, 15),
+            v("Maggi 2-Minute Noodles", "70 g (single)", Map.of("pack", "single"), "MAGGI-70", 14, 14, 100),
+            v("Maggi 2-Minute Noodles", "280 g (4-pack)", Map.of("pack", "4-pack"), "MAGGI-280", 56, 55, 40),
+            v("Tata Salt", "1 kg", Map.of("size", "1kg"), "TATA-SALT-1KG", 28, 27, 35),
+            v("Colgate MaxFresh Toothpaste", "100 g", Map.of("size", "100g"), "COLG-MAXF-100", 95, 90, 22),
+            v("Colgate MaxFresh Toothpaste", "150 g", Map.of("size", "150g"), "COLG-MAXF-150", 135, 128, 18),
+            v("Surf Excel Easy Wash Detergent", "500 g", Map.of("size", "500g"), "SURF-EW-500", 70, 68, 28),
+            v("Surf Excel Easy Wash Detergent", "1 kg", Map.of("size", "1kg"), "SURF-EW-1KG", 135, 130, 14),
+            v("Britannia Good Day Cashew Cookies", "100 g", Map.of("size", "100g"), "GOODDAY-CSHW-100", 30, 29, 45),
+            v("Parle-G Biscuits", "70 g", Map.of("size", "70g"), "PARLEG-70", 10, 10, 120),
+            v("Parle-G Biscuits", "250 g", Map.of("size", "250g"), "PARLEG-250", 30, 29, 50),
+            v("Nescafé Classic Instant Coffee", "50 g jar", Map.of("size", "50g"), "NESC-CLSC-50", 175, 168, 16),
+            v("Nescafé Classic Instant Coffee", "100 g jar", Map.of("size", "100g"), "NESC-CLSC-100", 320, 305, 10),
+            v("Red Bull Energy Drink", "250 ml", Map.of("size", "250ml"), "REDBULL-250", 125, 125, 24),
+            v("Dettol Original Handwash", "200 ml refill", Map.of("size", "200ml", "pack", "refill"), "DETTOL-HW-RF200", 99, 95, 30),
+            v("Dettol Original Handwash", "200 ml pump", Map.of("size", "200ml", "pack", "pump"), "DETTOL-HW-PM200", 120, 115, 20),
+            v("Kissan Mixed Fruit Jam", "200 g", Map.of("size", "200g"), "KISSAN-JAM-200", 85, 82, 18),
+            v("Kissan Mixed Fruit Jam", "500 g", Map.of("size", "500g"), "KISSAN-JAM-500", 190, 182, 9),
+            v("Fortune Sunlite Sunflower Oil", "1 L pouch", Map.of("size", "1L", "pack", "pouch"), "FORT-SFO-1L", 145, 140, 26),
+            v("Fortune Sunlite Sunflower Oil", "5 L can", Map.of("size", "5L", "pack", "can"), "FORT-SFO-5L", 700, 685, 8),
+            v("Cadbury Dairy Milk", "13.2 g", Map.of("size", "13.2g"), "CDM-13", 10, 10, 150),
+            v("Cadbury Dairy Milk", "55 g", Map.of("size", "55g"), "CDM-55", 45, 44, 40),
+            v("Cadbury Dairy Milk", "110 g", Map.of("size", "110g"), "CDM-110", 95, 92, 25),
+            v("Aashirvaad Whole Wheat Atta", "5 kg", Map.of("size", "5kg"), "AASH-ATTA-5KG", 265, 258, 20),
+            v("Bisleri Packaged Drinking Water", "1 L", Map.of("size", "1L"), "BISLERI-1L", 20, 20, 80),
+            v("Bisleri Packaged Drinking Water", "500 ml", Map.of("size", "500ml"), "BISLERI-500", 10, 10, 100));
+
+    /**
+     * Airport's six.
+     *
+     * <p><b>{@code BISLERI-1L} is deliberately the same SKU MG Road uses</b>, and it has to
+     * keep working: uniqueness is {@code (tenant_id, sku)}, so a schema that rejects this
+     * has a global constraint where a per-tenant one belongs. It is a fixture for the
+     * isolation suite, not a copy-paste slip.
+     */
+    private static final List<VariantEntry> AIRPORT_VARIANTS = List.of(
+            v("Bisleri Packaged Drinking Water", "1 L", Map.of("size", "1L"), "BISLERI-1L", 20, 20, 60),
+            v("Haldiram's Aloo Bhujia", "150 g", Map.of("size", "150g"), "HALD-BHUJIA-150", 55, 55, 30),
+            v("Haldiram's Aloo Bhujia", "400 g", Map.of("size", "400g"), "HALD-BHUJIA-400", 135, 132, 12),
+            v("Travel Neck Pillow", "One size", Map.of("size", "standard"), "TRVL-PILLOW-STD", 599, 549, 15),
+            v("Starbucks Bottled Frappuccino", "281 ml", Map.of("size", "281ml"), "SBUX-FRAP-281", 250, 250, 18),
+            v("Kurkure Masala Munch", "90 g", Map.of("size", "90g"), "KURKURE-90", 20, 20, 0));
+
+    private static VariantEntry v(String productName, String variantLabel,
+                                  Map<String, String> attributes, String sku,
+                                  int mrp, int sellingPrice, int stockQuantity) {
+        return new VariantEntry(productName, variantLabel, attributes, sku,
+                mrp, sellingPrice, stockQuantity);
+    }
+
     @Autowired
     private AppProperties props;
 
@@ -108,6 +202,12 @@ public class DevSeeder {
 
     @Autowired
     private ProductDao productDao;
+
+    @Autowired
+    private VariantDao variantDao;
+
+    @Autowired
+    private VariantService variantService;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -151,8 +251,8 @@ public class DevSeeder {
         seedUser(airport, "admin", "admin123", "Airport Admin", Role.ADMIN);
         seedUser(airport, "cashier", "cashier123", "Airport Cashier", Role.CASHIER);
 
-        seedCatalogue(mgRoad, MG_ROAD_CATALOGUE);
-        seedCatalogue(airport, AIRPORT_CATALOGUE);
+        seedCatalogue(mgRoad, MG_ROAD_CATALOGUE, MG_ROAD_VARIANTS);
+        seedCatalogue(airport, AIRPORT_CATALOGUE, AIRPORT_VARIANTS);
     }
 
     private Tenant seedTenant(String name, String code, boolean platform) {
@@ -185,30 +285,96 @@ public class DevSeeder {
      * though the startup thread serves nothing afterwards. The habit is the safeguard; an
      * exception here must not leave a tenant on a thread the container may reuse.
      */
-    private void seedCatalogue(Tenant tenant, List<CatalogueEntry> catalogue) {
+    private void seedCatalogue(Tenant tenant, List<CatalogueEntry> catalogue,
+                               List<VariantEntry> variants) {
         TenantContext.set(tenant.getId());
         try {
-            if (productDao.count(null, null, true) > 0) {
-                return;
+            if (productDao.count(null, null, true) == 0) {
+                for (CatalogueEntry entry : catalogue) {
+                    Product product = new Product();
+                    // Stamped from the tenant being seeded, never from the row's own data
+                    // -- the same rule the API follows, where it comes from the session.
+                    // The filter does not police inserts; only whoever builds the entity
+                    // does.
+                    product.setTenant(tenant);
+                    product.setName(entry.name());
+                    product.setBrand(entry.brand());
+                    product.setCategory(entry.category());
+                    product.setHsnCode(entry.hsnCode());
+                    product.setTaxRatePercent(BigDecimal.valueOf(entry.taxRatePercent()));
+                    product.setActive(true);
+                    productDao.insert(product);
+                }
+                log.info("Seeded {} products for tenant {}", catalogue.size(), tenant.getCode());
             }
-            for (CatalogueEntry entry : catalogue) {
-                Product product = new Product();
-                // Stamped from the tenant being seeded, never from the row's own data --
-                // the same rule the API follows, where it comes from the session. The
-                // filter does not police inserts; only whoever builds the entity does.
-                product.setTenant(tenant);
-                product.setName(entry.name());
-                product.setBrand(entry.brand());
-                product.setCategory(entry.category());
-                product.setHsnCode(entry.hsnCode());
-                product.setTaxRatePercent(BigDecimal.valueOf(entry.taxRatePercent()));
-                product.setActive(true);
-                productDao.insert(product);
-            }
-            log.info("Seeded {} products for tenant {}", catalogue.size(), tenant.getCode());
+
+            seedVariants(tenant, variants);
         } finally {
             TenantContext.clear();
         }
+    }
+
+    /**
+     * <b>Gated per variant rather than on "does this store have products?"</b>, and that
+     * is not fussiness. C4 seeded the two catalogues and C5 added the variants, so every
+     * database that already ran the previous version has products and no variants — under
+     * a single products-shaped guard those would never appear, and the fix would be
+     * "drop your dev database", which is a bad answer to give someone mid-feature.
+     *
+     * <p>The check is the SKU, because that is what the schema makes unique within a
+     * store. Idempotent at the row level: a variant deleted by hand comes back on the next
+     * boot, and one that is merely edited is left exactly as it is.
+     */
+    private void seedVariants(Tenant tenant, List<VariantEntry> variants) {
+        Map<String, Long> productIds = new HashMap<>();
+        for (Product product : productDao.list(null, null, true, 0, MAX_SEEDED_PRODUCTS)) {
+            productIds.put(product.getName(), product.getId());
+        }
+
+        int created = 0;
+        for (VariantEntry entry : variants) {
+            if (variantDao.skuExists(entry.sku(), null)) {
+                continue;
+            }
+            Long productId = productIds.get(entry.productName());
+            if (productId == null) {
+                // A typo in the seed data, caught here rather than as a puzzling missing
+                // row later. DevSeederIT counts both lists, so this should never ship --
+                // the message is what makes it a two-second fix if it does.
+                throw new IllegalStateException(
+                        "Seed variant names an unknown product: " + entry.productName());
+            }
+            variantService.create(productId, toForm(entry));
+            created++;
+        }
+
+        if (created > 0) {
+            log.info("Seeded {} variants for tenant {}", created, tenant.getCode());
+        }
+    }
+
+    /**
+     * <b>Seeded through {@link VariantService} rather than through a DAO, deliberately.</b>
+     *
+     * <p>Everything that makes a variant a variant is generated: the QR payload comes from
+     * the store's own sequence and the row is validated on the way in. Inserting these by
+     * hand would mean either duplicating that logic — where the duplicate is the copy
+     * nobody updates — or writing literal codes that drift out of step with the sequence
+     * the moment anyone adds a variant through the API.
+     *
+     * <p>It also means the seeded rows are, by construction, exactly what the endpoint
+     * produces. A bug in {@code create} shows up as broken seed data at startup, which is
+     * a good place to find one.
+     */
+    private VariantForm toForm(VariantEntry entry) {
+        VariantForm form = new VariantForm();
+        form.setVariantLabel(entry.variantLabel());
+        form.setAttributes(entry.attributes());
+        form.setSku(entry.sku());
+        form.setMrp(BigDecimal.valueOf(entry.mrp()));
+        form.setSellingPrice(BigDecimal.valueOf(entry.sellingPrice()));
+        form.setStockQuantity(entry.stockQuantity());
+        return form;
     }
 
     private void seedUser(Tenant tenant, String username, String password,
