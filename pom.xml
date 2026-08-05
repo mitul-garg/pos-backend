@@ -15,6 +15,11 @@
     <maven.compiler.release>17</maven.compiler.release>
 
     <spring.version>6.2.8</spring.version>
+    <!--
+      Spring Security 6.4.x is the line built against Spring Framework 6.2. 6.5+
+      moves to Framework 7, the same mismatch that pins Hibernate below.
+    -->
+    <spring.security.version>6.4.4</spring.security.version>
     <jakarta.servlet.version>6.0.0</jakarta.servlet.version>
     <!--
       Hibernate 6.6, not 7.x. Hibernate 7 moved to Jakarta Persistence 3.2, which
@@ -30,6 +35,7 @@
     <log4j2.version>2.24.3</log4j2.version>
     <hibernate.validator.version>8.0.2.Final</hibernate.validator.version>
     <expressly.version>5.0.0</expressly.version>
+    <jjwt.version>0.12.7</jjwt.version>
     <swagger.version>2.2.30</swagger.version>
     <swagger.ui.version>5.20.1</swagger.ui.version>
     <junit.version>5.11.4</junit.version>
@@ -103,6 +109,50 @@
       <groupId>com.zaxxer</groupId>
       <artifactId>HikariCP</artifactId>
       <version>${hikaricp.version}</version>
+    </dependency>
+
+    <!--
+      Security (C3). spring-security-config carries @EnableWebSecurity and the
+      HttpSecurity DSL; spring-security-web carries the filter chain and
+      AbstractSecurityWebApplicationInitializer, which registers it in place of the
+      <filter> element a web.xml would have held. spring-security-core comes
+      transitively and brings BCryptPasswordEncoder with it.
+    -->
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-web</artifactId>
+      <version>${spring.security.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-config</artifactId>
+      <version>${spring.security.version}</version>
+    </dependency>
+
+    <!--
+      JWT. Split into three artifacts on purpose: only jjwt-api is a compile
+      dependency, so nothing in com.pos can accidentally import an implementation
+      class. The other two are `runtime` and are located by ServiceLoader.
+      jjwt-jackson is the JSON serializer jjwt needs for the claims payload; omit
+      it and token creation fails at runtime with "cannot find a JSON serializer",
+      not at compile time.
+    -->
+    <dependency>
+      <groupId>io.jsonwebtoken</groupId>
+      <artifactId>jjwt-api</artifactId>
+      <version>${jjwt.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.jsonwebtoken</groupId>
+      <artifactId>jjwt-impl</artifactId>
+      <version>${jjwt.version}</version>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.jsonwebtoken</groupId>
+      <artifactId>jjwt-jackson</artifactId>
+      <version>${jjwt.version}</version>
+      <scope>runtime</scope>
     </dependency>
 
     <!-- JSON. Spring ships no mapper; this is what MappingJackson2HttpMessageConverter needs. -->
@@ -199,6 +249,17 @@
       <groupId>org.hamcrest</groupId>
       <artifactId>hamcrest</artifactId>
       <version>${hamcrest.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <!--
+      SecurityMockMvcConfigurers.springSecurity(), which inserts the real filter
+      chain in front of MockMvc. Without it AuthControllerIT would call controllers
+      directly and never exercise the thing C3 is mostly about.
+    -->
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-test</artifactId>
+      <version>${spring.security.version}</version>
       <scope>test</scope>
     </dependency>
   </dependencies>

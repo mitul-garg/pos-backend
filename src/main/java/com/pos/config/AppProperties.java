@@ -36,6 +36,15 @@ public class AppProperties {
     @Value("${pos.hibernate.showSql}")
     private boolean hibernateShowSql;
 
+    @Value("${pos.jwt.secret}")
+    private String jwtSecret;
+
+    @Value("${pos.jwt.ttlMinutes}")
+    private long jwtTtlMinutes;
+
+    @Value("${pos.seed.dev}")
+    private boolean seedDev;
+
     public String getDbUrl() {
         return dbUrl;
     }
@@ -58,5 +67,17 @@ public class AppProperties {
 
     public boolean isHibernateShowSql() {
         return hibernateShowSql;
+    }
+
+    public String getJwtSecret() {
+        return jwtSecret;
+    }
+
+    public long getJwtTtlMinutes() {
+        return jwtTtlMinutes;
+    }
+
+    public boolean isSeedDev() {
+        return seedDev;
     }
 }
