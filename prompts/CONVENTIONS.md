@@ -16,7 +16,7 @@ or grepping the source tree for "how do we usually do X".
 
 ## Working rhythm
 
-Three rules, in the order they bite. **They are the process the project actually
+Four rules, in the order they bite. **They are the process the project actually
 runs on** — C1 and C3 each broke one and paid for it, and both costs are recorded
 below so the rules read as consequences rather than preferences.
 
@@ -77,7 +77,18 @@ security chain whose 28-case suite was fully green against an application that
 minutes of `curl` found it immediately. Automated tests are for keeping behaviour
 correct; they are poor at establishing that it ever was.
 
-### 3. Offer the commit, don't run it
+### 3. Edit files so the change is reviewable
+
+**Agents: make edits through the editing tool, one change at a time.** They render
+as diffs in the user's review editor, which is where the change actually gets
+looked at.
+
+Driving edits through a `python`/`sed` heredoc that string-replaces several places
+at once is faster to write and **invisible to review** — the user sees a script and
+a success message rather than what changed. On a project that reviews this closely,
+that trade is backwards.
+
+### 4. Offer the commit, don't run it
 
 **Offer the message** (subject + body, `Cn: <what>` for build steps) and say *why*,
 plus any deliberate deviation from `../../backend-plan.md`. **Don't run

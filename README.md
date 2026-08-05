@@ -184,10 +184,19 @@ so the same logins work end to end and the B6 isolation checklist can be re-run
 against real persistence. **Users and tenants only** — products, variants and orders
 arrive with the steps that own them (C5–C7).
 
-Gated on `pos.seed.dev`. It is **idempotent**, and local dev runs
-`hbm2ddl.auto=update`, so the rows survive a restart and are not duplicated by one.
-An existing tenant is left exactly as it is — re-seeding will not reactivate a store
-you suspended in order to test the 403.
+**`mvn jetty:run` seeds with no flag to pass.** `pos.seed.dev` still defaults to
+`false`; the POM turns it on for the `jetty:run` goal only. That is deliberate and
+stronger than an environment variable: nothing but local development runs that
+goal, so the deployed WAR **cannot** seed however it is configured, and there is no
+"remember to set `POS_SEED_DEV=false` in production" step to forget. The seeder
+creates admin accounts whose passwords are printed below, which is why it is worth
+the care.
+
+The data is **persistent**. Local dev runs `hbm2ddl.auto=update` and the seeder is
+idempotent, so rows survive stopping the app and a restart inserts nothing. An
+existing tenant is left exactly as it is — re-seeding will not reactivate a store
+you suspended in order to test the 403. To start over, drop `pos_dev`; it is
+recreated on the next boot.
 
 Production starts empty; the first tenant is created through `POST /api/tenants` (C8).
 

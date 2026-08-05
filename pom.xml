@@ -330,6 +330,24 @@
           <webApp>
             <contextPath>/</contextPath>
           </webApp>
+          <!--
+            Dev seeding is a property of THIS GOAL, not of the artifact.
+
+            `mvn jetty:run` is the local-development command and nothing else uses
+            it, so turning the seeder on here means a developer never passes a
+            flag, while the WAR that gets deployed cannot seed no matter how it is
+            configured: pos.seed.dev still defaults to false in
+            application.properties, and a deployed container never runs this
+            plugin. That is a stronger guarantee than "remember to set
+            POS_SEED_DEV=false in production", because forgetting it is not an
+            option that exists.
+
+            The seeder creates admin accounts whose passwords are in the README,
+            which is why it is worth this much care.
+          -->
+          <systemProperties>
+            <POS_SEED_DEV>true</POS_SEED_DEV>
+          </systemProperties>
         </configuration>
       </plugin>
     </plugins>
