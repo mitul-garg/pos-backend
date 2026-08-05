@@ -1,6 +1,7 @@
 package com.pos.config;
 
 import com.pos.service.AuthService;
+import com.pos.service.ProductService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -31,5 +32,10 @@ public class StubServiceConfig {
     @Bean
     public AuthService authService() {
         return new AuthService(null, null, null, null);
+    }
+
+    @Bean
+    public ProductService productService() {
+        return new ProductService(null);
     }
 }
