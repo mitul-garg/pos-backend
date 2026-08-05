@@ -42,6 +42,7 @@
     <jsonpath.version>2.9.0</jsonpath.version>
     <hamcrest.version>3.0</hamcrest.version>
     <jetty.version>12.0.16</jetty.version>
+    <jacoco.version>0.8.15</jacoco.version>
   </properties>
 
   <dependencies>
@@ -352,4 +353,72 @@
       </plugin>
     </plugins>
   </build>
+
+  <!--
+    Coverage, on request: `mvn test -Pcoverage`, then open
+    target/site/jacoco/index.html.
+
+    Behind a profile rather than always-on so that `mvn test`, the command
+    CONVENTIONS.md asks you to run before every commit, stays exactly as fast as
+    it is today. The JaCoCo agent is cheap but not free, and a verification
+    command people run dozens of times a day is the wrong place to spend it.
+
+    No `check` goal, deliberately. A coverage threshold chosen before anyone has
+    seen the baseline is a threshold that gets lowered the first time it is
+    inconvenient, which teaches people the number is negotiable. Add one when
+    there is a real figure to hold the line at.
+
+    Read the number with one caveat in mind: 50 of the 128 tests need a local
+    pos_test (../README.md). On a machine without MySQL those suites error and
+    the report understates coverage dramatically rather than failing, because
+    persistence and security are precisely the parts only they reach.
+
+    Keep jacoco.version ahead of the JDK Maven runs on. The agent has to read
+    the class file version the JVM emits, and when it cannot it prints a stack
+    trace per class and drops them from the report while the build still passes
+    green. 0.8.13 could not read JDK 26's version 70; 0.8.15 can.
+  -->
+  <profiles>
+    <profile>
+      <id>coverage</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.jacoco</groupId>
+            <artifactId>jacoco-maven-plugin</artifactId>
+            <version>${jacoco.version}</version>
+            <executions>
+              <!--
+                Sets the `argLine` property that Surefire passes to the forked
+                JVM. Surefire picks it up on its own precisely because nothing
+                in this POM sets argLine by hand. If that ever changes, the
+                hand-written value has to include @{argLine} or coverage
+                silently reports zero.
+              -->
+              <execution>
+                <id>prepare-agent</id>
+                <goals>
+                  <goal>prepare-agent</goal>
+                </goals>
+              </execution>
+              <!--
+                Bound to `test`, not the goal's default `verify` phase. This
+                project runs its *IT suites under Surefire rather than Failsafe
+                (see maven-surefire-plugin above), so everything worth measuring
+                has already run by the end of `test` and `mvn test -Pcoverage`
+                is a complete command on its own.
+              -->
+              <execution>
+                <id>report</id>
+                <phase>test</phase>
+                <goals>
+                  <goal>report</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>
