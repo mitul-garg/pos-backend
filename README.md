@@ -5,11 +5,13 @@ Implements the contract the frontend already proves out — see
 [`../requirements.md`](../requirements.md) §9 for the endpoints and §13 for the
 multi-tenancy rules.
 
-> **Status: C2 done** — the app boots on Jetty, serves JSON, and persists to MySQL
-> through Hibernate. All nine tables exist and `schema.sql` is committed.
-> **A local MySQL is now required to run `mvn test`.** No auth yet (C3) and **no
-> tenant filter yet** (C4), so nothing is tenant-scoped at runtime. Build sequence
-> is [`../backend-plan.md`](../backend-plan.md) (steps C1–C9).
+> **Status: C3 done** — the app boots on Jetty, serves JSON, persists to MySQL
+> through Hibernate, and authenticates with JWTs. All nine tables exist and
+> `schema.sql` is committed. **A local MySQL is required to run `mvn test`**, and
+> **a JWT signing key is required to run the app at all** (see Credentials below).
+> **No tenant filter yet** (C4): a caller's tenant is known from their token, but
+> nothing uses it to scope a query. Build sequence is
+> [`../backend-plan.md`](../backend-plan.md) (steps C1–C9).
 
 Before changing anything here, read [`prompts/README.md`](./prompts/README.md) —
 it indexes the conventions and the database documentation.
@@ -32,11 +34,17 @@ mvn jetty:run          # http://localhost:8080
 mvn test
 ```
 
-| URL | What |
-|---|---|
-| [`/api/health`](http://localhost:8080/api/health) | Liveness — `{"status":"UP",...}` |
-| [`/swagger-ui/`](http://localhost:8080/swagger-ui/) | API documentation |
-| [`/api/openapi.json`](http://localhost:8080/api/openapi.json) | The OpenAPI 3 document |
+| URL | Auth | What |
+|---|---|---|
+| [`/api/health`](http://localhost:8080/api/health) | open | Liveness — `{"status":"UP",...}` |
+| [`/swagger-ui/`](http://localhost:8080/swagger-ui/) | open | API documentation |
+| [`/api/openapi.json`](http://localhost:8080/api/openapi.json) | open | The OpenAPI 3 document |
+| `POST /api/auth/login` | open | `{tenantCode, username, password}` → `{token, user}` |
+| `GET /api/auth/me` | **token** | The current session, re-read from the database each call |
+| `POST /api/auth/logout` | **token** | 204. A no-op — see [`prompts/c3-auth.md`](./prompts/c3-auth.md) |
+
+Everything not listed as open requires `Authorization: Bearer <token>`, because the
+chain is **default-deny** — a new endpoint is protected the moment it exists.
 
 ### API documentation
 
@@ -79,13 +87,34 @@ You need a MySQL user that can create databases and tables. Point the app at it:
 **Passwords are never committed.** `src/main/resources/application.properties` is
 tracked and defaults the password to empty; put the real one in
 `src/main/resources/application-local.properties`, which is gitignored and loaded
-last so it wins:
+last so it wins.
+
+**You also need a JWT signing key (C3).** `pos.jwt.secret` ships as `CHANGE_ME`
+and `JwtTokenService` **refuses to start on it** — a signing key that works out of
+the box is one nobody replaces, and anyone with the source could then mint a token
+for any tenant. It must be at least 32 bytes (HS256 rejects anything shorter).
+
+So a fresh clone needs one file:
 
 ```properties
+# src/main/resources/application-local.properties  (gitignored)
 pos.db.password=your-password-here
+pos.jwt.secret=at-least-32-bytes-of-random-text-goes-here
 ```
 
+Generate a key with `openssl rand -base64 48`.
+
+| Setting | Property | Environment variable |
+|---|---|---|
+| JWT signing key | `pos.jwt.secret` | `POS_JWT_SECRET` |
+| Token lifetime (minutes) | `pos.jwt.ttlMinutes` | `POS_JWT_TTL_MINUTES` |
+
 Deployed environments set the environment variables instead and ship no local file.
+
+Tokens last **12 hours** and there is no refresh: long enough that a full retail
+shift is one login, so a cashier is never logged out mid-transaction. There is also
+no revocation — `POST /api/auth/logout` is an acknowledgement, and the token it was
+called with stays valid until it expires.
 
 ## The database
 
@@ -148,15 +177,19 @@ resolves as **404**, never 403, so ids in one tenant reveal nothing about anothe
 `/api/tenants/**` is the only cross-tenant surface: `SUPER_ADMIN`-only, filter
 disabled, quarantined in its own package.
 
-## Seed data (dev only) — not built yet
+## Seed data (dev only)
 
-Planned, not present: no seeder exists as of C2, so both databases start empty.
-Described here because the logins below are what the frontend's fixtures expect and
-what the C9 parity checklist will be run against.
+`com.pos.service.DevSeeder` loads the frontend's demo tenants and users at startup,
+so the same logins work end to end and the B6 isolation checklist can be re-run
+against real persistence. **Users and tenants only** — products, variants and orders
+arrive with the steps that own them (C5–C7).
 
-A profile-gated seeder (`pos.seed.dev=true`) loads the frontend's demo fixtures so
-the same logins work end-to-end. Production starts empty; the first tenant is
-created through `POST /api/tenants`.
+Gated on `pos.seed.dev`. It is **idempotent**, and local dev runs
+`hbm2ddl.auto=update`, so the rows survive a restart and are not duplicated by one.
+An existing tenant is left exactly as it is — re-seeding will not reactivate a store
+you suspended in order to test the 403.
+
+Production starts empty; the first tenant is created through `POST /api/tenants` (C8).
 
 | Tenant code | Username | Password |
 |---|---|---|
@@ -166,7 +199,8 @@ created through `POST /api/tenants`.
 
 Passwords are BCrypt-hashed on insert. The repeated usernames across tenants are
 deliberate — they prove uniqueness is per-tenant, and they're isolation-test
-fixtures.
+fixtures. `DevSeederIT` asserts every seeded hash verifies against the password in
+this table, so the two cannot drift apart silently.
 
 ## Testing
 
@@ -174,10 +208,16 @@ fixtures.
 port the frontend's, which already specify correct behaviour — see
 [`../backend-plan.md`](../backend-plan.md) §8 for the mapping.
 
-As of C2 there are **44 tests, 21 of which need `pos_test`**. The rest still run
-with nothing but a JVM — `MockMvc` covers the controllers and error mapping without
-Jetty, and `SchemaSqlTest` generates DDL offline. Reach for a database when the test
-is genuinely *about* persistence.
+As of C3 there are **96 tests, 50 of which need `pos_test`**. The rest run with
+nothing but a JVM — `MockMvc` covers the controllers and error mapping without Jetty,
+`SchemaSqlTest` generates DDL offline, and `JwtTokenServiceTest` needs neither.
+Reach for a database when the test is genuinely *about* persistence.
+
+**`SecurityConfigIT` is small and load-bearing.** It boots the root context *alone*,
+the way the servlet container does, because every other suite flattens the root and
+servlet contexts into one — which is how C3 briefly shipped a fully green suite
+against an application that would not start. Run it whenever `SecurityConfig`
+changes, and don't make its assertions easier by adding `WebConfig` to it.
 
 `TenantIsolationIT` matters most: every case is an attempt to reach one tenant's
 data with another tenant's token. **Add a case for every new tenant-scoped
