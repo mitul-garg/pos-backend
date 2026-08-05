@@ -11,8 +11,12 @@ import com.pos.config.WebConfig;
 import com.pos.pojo.AppUser;
 import com.pos.pojo.Product;
 import com.pos.pojo.Role;
+import com.pos.pojo.SequenceKind;
 import com.pos.pojo.Tenant;
+import com.pos.pojo.TenantSequence;
 import com.pos.pojo.TenantStatus;
+import com.pos.pojo.UnitOfMeasure;
+import com.pos.pojo.Variant;
 import com.pos.util.TenantContext;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -42,6 +46,7 @@ import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.startsWith;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -109,6 +114,11 @@ class TenantIsolationIT {
     private Long mgRoadBisleri;
     private Long mgRoadRetired;
 
+    /** And the variant-shaped half of it, including a label from each store. */
+    private Long airportBisleriVariant;
+    private String mgRoadBisleriQr;
+    private String airportBisleriQr;
+
     @BeforeEach
     void setUp() {
         mvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
@@ -131,6 +141,24 @@ class TenantIsolationIT {
         airportBisleri = product(airport, "Bisleri Packaged Drinking Water", "Bisleri", "Beverages", true);
         // A category only this store uses, so a leaking categories list names it.
         airportPillow = product(airport, "Travel Neck Pillow", "Wildcraft", "Travel Essentials", true);
+
+        // The same SKU in both stores -- legal, because uniqueness is (tenant_id, sku) --
+        // and a label from each. Both stores' runs start at 000001, so the two codes differ
+        // only in the tenant segment, which is exactly the confusion a scan has to survive.
+        mgRoadBisleriQr = "POS-QR-" + mgRoad.getId() + "-000001";
+        variant(mgRoad, mgRoadBisleri, "1 L", "BISLERI-1L", mgRoadBisleriQr, 80);
+        variant(mgRoad, mgRoadBisleri, "500 ml", "BISLERI-500", "POS-QR-" + mgRoad.getId() + "-000002", 100);
+
+        airportBisleriQr = "POS-QR-" + airport.getId() + "-000001";
+        airportBisleriVariant =
+                variant(airport, airportBisleri, "1 L", "BISLERI-1L", airportBisleriQr, 60);
+
+        // A fixture that writes codes by hand has to leave the counter where the generator
+        // would have left it. Without this the next real create mints 000001 again and
+        // trips uk_variant_tenant_qrcode -- which is how these two lines came to exist:
+        // the SKU case below failed on a DUPLICATE QR, and read at a glance like a leak.
+        qrSequence(mgRoad, 3);
+        qrSequence(airport, 2);
 
         // NOT tidiness -- without it, three of the cases below pass while asserting
         // nothing.
@@ -382,6 +410,146 @@ class TenantIsolationIT {
         }
     }
 
+    /**
+     * The variant cases from {@code isolation.test.js} (C5), and <b>the scan is the one
+     * this whole suite is named for</b>.
+     *
+     * <p>Every other case here defends against an id that leaked through a URL, a receipt
+     * or a bookmark. This one defends against a physical object: a printed label can be
+     * carried from one store to another in a way a URL cannot, and the operator scanning it
+     * is not an attacker — they are doing their job with the wrong box in their hand. It
+     * has to resolve to nothing, exactly as an unissued code does.
+     *
+     * <h2>Mutation-checked, and the result was not what was expected</h2>
+     * Removing {@code @Filter} from {@code Variant} <b>leaves the scan, the search and the
+     * by-product list green</b>. It reddens exactly two cases here plus both coverage
+     * assertions.
+     *
+     * <p>The reason is real rather than a fluke: every read in {@code VariantDao} is
+     * {@code JOIN FETCH v.product p}, and {@code Product} is filtered — so Hibernate scopes
+     * those queries through the join whether or not the variant carries a filter of its
+     * own. What reddens is precisely the two paths that do <b>not</b> join a product:
+     * {@code em.find} by id (so {@code crossTenantVariantWritesAre404} answers 400 instead
+     * of 404, having loaded the row) and {@code VariantDao.skuExists}, whose count then
+     * spans every store and reports another tenant's SKU as taken.
+     *
+     * <p><b>Two consequences worth carrying into C6 and C7.</b> A query that joins a
+     * filtered parent is scoped even if the child's own filter is missing — which means a
+     * green isolation case does not prove the child is annotated, and
+     * {@code TenantFilterCoverageTest} is what actually holds that line. And the reverse:
+     * an aggregate over a child <i>alone</i> is protected by nothing but that annotation,
+     * which is the shape {@code skuExists} has and the shape a stock or totals query will
+     * have.
+     */
+    @Nested
+    @DisplayName("variants — the scan, the search and the shared SKU")
+    class VariantsAreScopedToo {
+
+        @Test
+        @DisplayName("scanning the other store's label resolves as an unknown code")
+        void scanningAForeignLabelIs404() throws Exception {
+            String crossTenant = lookup(asMgRoadCashier(), airportBisleriQr)
+                    .andExpect(status().isNotFound())
+                    .andReturn().getResponse().getContentAsString();
+
+            String neverIssued = lookup(asMgRoadCashier(), "POS-QR-" + id(mgRoad) + "-999999")
+                    .andExpect(status().isNotFound())
+                    .andReturn().getResponse().getContentAsString();
+
+            assertEquals(neverIssued, crossTenant,
+                    "a label from another store must be indistinguishable from a code that "
+                            + "was never issued");
+        }
+
+        @Test
+        @DisplayName("but each store's own label scans fine")
+        void yourOwnLabelScans() throws Exception {
+            lookup(asMgRoadCashier(), mgRoadBisleriQr)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.tenantId").value(id(mgRoad)))
+                    .andExpect(jsonPath("$.sku").value("BISLERI-1L"));
+
+            lookup(asAirportAdmin(), airportBisleriQr)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.tenantId").value(id(airport)));
+        }
+
+        @Test
+        @DisplayName("search never crosses over, on a product both stores stock")
+        void searchNeverCrossesOver() throws Exception {
+            // A substring match would happily return the other store's rows if the query
+            // were not scoped first -- which is why both stores sell Bisleri. The counts
+            // differ (MG Road stocks two sizes, Airport one), so a crossed search would
+            // show three either way and neither store's answer could be mistaken for the
+            // other's.
+            searchVariants(asMgRoadCashier(), "bisleri")
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$", hasSize(2)))
+                    .andExpect(jsonPath("$[*].tenantId", everyItem(is(id(mgRoad)))));
+
+            searchVariants(asAirportAdmin(), "bisleri")
+                    .andExpect(jsonPath("$", hasSize(1)))
+                    .andExpect(jsonPath("$[0].tenantId").value(id(airport)));
+        }
+
+        @Test
+        @DisplayName("listing a foreign product's variants is empty, not a 404 and not a leak")
+        void listingAForeignProductsVariantsIsEmpty() throws Exception {
+            mvc.perform(get("/api/products/" + airportBisleri + "/variants")
+                            .header("Authorization", "Bearer " + asMgRoadCashier()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$", hasSize(0)));
+        }
+
+        @Test
+        @DisplayName("a t2 variant cannot be updated, deactivated or re-coded from t1")
+        void crossTenantVariantWritesAre404() throws Exception {
+            mvc.perform(put("/api/variants/" + airportBisleriVariant)
+                            .header("Authorization", "Bearer " + asMgRoadAdmin())
+                            .contentType(APPLICATION_JSON)
+                            .content("{\"stockQuantity\":0}"))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.message").value("Variant not found"));
+
+            mvc.perform(delete("/api/variants/" + airportBisleriVariant)
+                            .header("Authorization", "Bearer " + asMgRoadAdmin()))
+                    .andExpect(status().isNotFound());
+
+            // Re-coding someone else's variant would be the worst of the three: it does
+            // not read their data, it invalidates the labels on their shelves.
+            mvc.perform(post("/api/variants/" + airportBisleriVariant + "/qr-code")
+                            .header("Authorization", "Bearer " + asMgRoadAdmin()))
+                    .andExpect(status().isNotFound());
+
+            em.flush();
+            em.clear();
+
+            lookup(asAirportAdmin(), airportBisleriQr)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.stockQuantity").value(60))
+                    .andExpect(jsonPath("$.isActive").value(true));
+        }
+
+        /**
+         * The pair from {@code isolation.test.js}: {@code BISLERI-1L} is taken in one store
+         * and free in the other. A schema with a global unique key would pass the first
+         * case and fail the second, which is why both are here.
+         */
+        @Test
+        @DisplayName("a SKU is taken within a store and free in the other")
+        void skuUniquenessIsPerTenant() throws Exception {
+            createVariant(asMgRoadAdmin(), mgRoadBisleri, "BISLERI-1L")
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.fields.sku").value("SKU is already in use"));
+
+            createVariant(asAirportAdmin(), airportPillow, "BISLERI-500")
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.tenantId").value(id(airport)))
+                    // And its code comes from ITS OWN run, not from a global counter.
+                    .andExpect(jsonPath("$.qrCode").value(startsWith("POS-QR-" + id(airport) + "-")));
+        }
+    }
+
     @Nested
     @DisplayName("a SUPER_ADMIN has no tenant context")
     class PlatformAdminHasNoTenant {
@@ -485,8 +653,34 @@ class TenantIsolationIT {
         return String.valueOf(tenant.getId());
     }
 
+    private ResultActions lookup(String token, String qrCode) throws Exception {
+        return mvc.perform(get("/api/variants/lookup")
+                .header("Authorization", "Bearer " + token)
+                .param("qrCode", qrCode));
+    }
+
+    private ResultActions searchVariants(String token, String term) throws Exception {
+        return mvc.perform(get("/api/variants/search")
+                .header("Authorization", "Bearer " + token)
+                .param("q", term));
+    }
+
+    private ResultActions createVariant(String token, Long productId, String sku) throws Exception {
+        return mvc.perform(post("/api/products/" + productId + "/variants")
+                .header("Authorization", "Bearer " + token)
+                .contentType(APPLICATION_JSON)
+                .content("""
+                        {"variantLabel":"probe","sku":"%s","mrp":20,"sellingPrice":20}
+                        """.formatted(sku)));
+    }
+
     private String asMgRoadCashier() throws Exception {
         return tokenFor("mg-road", "cashier", "cashier123");
+    }
+
+    /** Writes need an ADMIN — the catalogue role rule lands before the tenant one. */
+    private String asMgRoadAdmin() throws Exception {
+        return tokenFor("mg-road", "admin", "admin123");
     }
 
     private String asAirportAdmin() throws Exception {
@@ -541,6 +735,36 @@ class TenantIsolationIT {
      * would be answered against {@code NO_TENANT} and find nothing — which is worth
      * knowing before writing a fixture that queries.
      */
+    /**
+     * Persisted directly, and the {@code qrCode} is a literal rather than a value from
+     * {@code TenantSequenceDao}. Deliberate: a fixture that called the real generator would
+     * make the codes depend on insert order, and these two have to be predictable enough to
+     * write into an assertion. The sequence has its own suite, {@code VariantSequenceIT}.
+     */
+    private Long variant(Tenant tenant, Long productId, String label, String sku,
+                         String qrCode, int stock) {
+        Variant variant = new Variant();
+        variant.setTenant(tenant);
+        variant.setProduct(em.getReference(Product.class, productId));
+        variant.setVariantLabel(label);
+        variant.setSku(sku);
+        variant.setQrCode(qrCode);
+        variant.setMrp(new BigDecimal("20.00"));
+        variant.setSellingPrice(new BigDecimal("20.00"));
+        variant.setStockQuantity(stock);
+        variant.setUnitOfMeasure(UnitOfMeasure.EACH);
+        variant.setActive(true);
+        em.persist(variant);
+        return variant.getId();
+    }
+
+    /** Where {@code TenantSequenceDao} would have left this store's QR counter. */
+    private void qrSequence(Tenant tenant, long nextValue) {
+        TenantSequence sequence = new TenantSequence(tenant, SequenceKind.QR);
+        sequence.setNextValue(nextValue);
+        em.persist(sequence);
+    }
+
     private Long product(Tenant tenant, String name, String brand, String category, boolean active) {
         Product product = new Product();
         product.setTenant(tenant);

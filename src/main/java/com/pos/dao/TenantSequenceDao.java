@@ -36,25 +36,56 @@ public class TenantSequenceDao {
     /**
      * The next value for this tenant's counter of the given kind, starting at 1.
      *
-     * <p><b>Note the query names no tenant.</b> The {@code tenantFilter} on
+     * <p><b>Note the sequence query names no tenant.</b> The {@code tenantFilter} on
      * {@link TenantSequence} scopes it, exactly as it scopes every other query — so this
-     * can only ever lock and advance the caller's own counter, whatever the {@code tenant}
-     * argument says. That argument is used for one thing: constructing the row the first
-     * time a tenant asks, where there is nothing yet to point the foreign key at. Its
+     * can only ever advance the caller's own counter, whatever the {@code tenant} argument
+     * says. That argument exists for the two things the filter cannot do: lock the tenant
+     * row, and point a foreign key at it the first time a store asks for a number. Its
      * caller takes it from the parent entity of the row being numbered, which was itself
-     * loaded through a filtered read.
+     * loaded through a filtered read — never from a request.
      *
-     * <p><b>JPQL rather than {@code em.find(..., PESSIMISTIC_WRITE)}</b>, and not for
-     * style: {@code find} would need the composite key, which means naming the tenant id,
-     * which is the thing no signature here may do.
+     * <p><b>JPQL rather than {@code em.find(..., PESSIMISTIC_WRITE)}</b> for the sequence
+     * row, and not for style: {@code find} would need the composite key, which means
+     * naming the tenant id in a query, which is the thing this design does not do.
      *
-     * <p>The first call for a tenant inserts the row, and two simultaneous first calls
-     * cannot both win. InnoDB takes a gap lock for a {@code SELECT ... FOR UPDATE} that
-     * matches nothing, so the second caller blocks; and if it somehow does not, the
-     * primary key {@code (tenant_id, kind)} refuses the duplicate. The {@code flush} is
-     * what makes that refusal happen here rather than at commit.
+     * <h2>Why the tenant row is locked first</h2>
+     * <b>Found by {@code VariantSequenceIT}, not by reasoning</b> — the first version of
+     * this method deadlocked, and its Javadoc confidently explained why it could not.
+     *
+     * <p>The claim was that a {@code SELECT … FOR UPDATE} matching nothing takes a gap
+     * lock, so a second caller creating the same counter would block. It does take a gap
+     * lock, and gap locks are <b>shared</b>: both transactions take it, then each tries to
+     * insert, and an insert needs an intention lock that conflicts with the <i>other's</i>
+     * gap lock. Neither can proceed. MySQL detects it and kills one with
+     * "Deadlock found when trying to get lock" — which reached the caller as a 500, on the
+     * very first pair of concurrent creates in a fresh store.
+     *
+     * <p>The fix is the textbook one: <b>take the locks in a fixed order, starting with a
+     * row that always exists.</b> Every caller locks the tenant row before touching the
+     * sequence, so only one transaction per store is ever inside the section below, the
+     * gap lock is uncontended, and there is no cycle to deadlock on.
+     *
+     * <p>The cost is that a store's QR codes, order numbers and return numbers serialize
+     * against each other rather than only against their own kind. For a shop with a
+     * handful of tills that is nothing, and it buys a lock order simple enough to state in
+     * one sentence — which is worth more here than concurrency nobody is waiting on.
+     *
+     * <h2>Still true, and still the reason this class exists</h2>
+     * <b>Call this in the same transaction as the insert it numbers.</b> Both locks are
+     * held until that transaction commits, which is what reserves the value. Take the
+     * number in one transaction and insert in another and the locks are released in
+     * between — the race, dressed up to look safe. {@code MAX(number) + 1} and a plain
+     * read-then-write are no better: MySQL's REPEATABLE READ makes an unlocked
+     * {@code SELECT} a snapshot read, so two transactions seeing the same value is defined
+     * behaviour rather than misconfiguration.
      */
     public long next(SequenceKind kind, Tenant tenant) {
+        // The whole of the deadlock fix. Not a read -- the row is already in hand -- but a
+        // lock upgrade on a row that is guaranteed to exist, so every caller queues here
+        // rather than in the section below where two of them could hold incompatible
+        // locks. Tenant is unfiltered, so this is unaffected by the tenant filter.
+        em.find(Tenant.class, tenant.getId(), LockModeType.PESSIMISTIC_WRITE);
+
         TenantSequence sequence = em.createQuery(
                         "SELECT s FROM TenantSequence s WHERE s.id.kind = :kind",
                         TenantSequence.class)
@@ -65,6 +96,10 @@ public class TenantSequenceDao {
                 .orElse(null);
 
         if (sequence == null) {
+            // First number this store has ever asked for. Safe to insert without racing
+            // anyone, because the tenant lock above is held. The primary key
+            // (tenant_id, kind) is the backstop if that ever stops being true, and the
+            // flush is what makes it fail here rather than at commit.
             sequence = new TenantSequence(tenant, kind);
             em.persist(sequence);
             em.flush();

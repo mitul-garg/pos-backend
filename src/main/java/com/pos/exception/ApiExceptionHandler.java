@@ -152,13 +152,33 @@ public class ApiExceptionHandler {
     private String constraintNameOf(Throwable ex) {
         for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
             if (cause instanceof ConstraintViolationException violation) {
-                return violation.getConstraintName();
+                return unqualify(violation.getConstraintName());
             }
             if (cause.getCause() == cause) {
                 break;
             }
         }
         return null;
+    }
+
+    /**
+     * <b>MySQL 8 names the index by table</b>, so a violation arrives as
+     * {@code variant.uk_variant_tenant_sku} rather than {@code uk_variant_tenant_sku}, and
+     * Hibernate passes that through unchanged. Matching the qualified string against
+     * {@link #CONSTRAINT_FIELDS} silently misses every entry — which is exactly how this
+     * was found: a raced duplicate answered 500 while the identical uncontended one
+     * answered a clean 400.
+     *
+     * <p>Stripping the qualifier rather than putting {@code variant.} in the keys, because
+     * the prefix is the database's formatting rather than part of the name we declared,
+     * and MySQL has not always included it.
+     */
+    private String unqualify(String constraintName) {
+        if (constraintName == null) {
+            return null;
+        }
+        int dot = constraintName.lastIndexOf('.');
+        return dot < 0 ? constraintName : constraintName.substring(dot + 1);
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
