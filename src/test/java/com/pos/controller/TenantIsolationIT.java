@@ -45,8 +45,10 @@ import static org.hamcrest.Matchers.not;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -273,6 +275,113 @@ class TenantIsolationIT {
         }
     }
 
+    /**
+     * The write half (C5). <b>A leak through a write is worse than one through a read</b>
+     * — a cross-tenant read shows a caller data that is not theirs, a cross-tenant write
+     * silently corrupts a store that never made the request and has no way to notice.
+     *
+     * <p>These cases also cover the half the Hibernate filter does <i>not</i>: it appends
+     * to {@code WHERE} clauses, so it scopes the lookup that precedes an {@code UPDATE}
+     * but has nothing to say about an {@code INSERT}. The first two below are the filter
+     * working; the last one is entirely down to {@code ProductService} stamping the
+     * tenant from the session, and it is the only thing standing behind it.
+     *
+     * <p><b>Mutation-checked, and the split is the point</b> — these four cases are not
+     * four ways of asserting one thing:
+     *
+     * <table>
+     *   <caption>What each mutation reddens</caption>
+     *   <tr><td>{@code applyToLoadByKey = false}</td>
+     *       <td>the three by-id cases here, plus the three C4 read ones — and
+     *           <b>not</b> the create case</td></tr>
+     *   <tr><td>{@code create} stamps the tenant from the request body</td>
+     *       <td><b>only</b> the create case, here and its twin in
+     *           {@code ProductWriteIT} — every filter-backed case stays green</td></tr>
+     * </table>
+     *
+     * <p>Row two is why {@code aCreateIgnoresTheTenantInTheBody} exists at all: it is the
+     * single case covering the one write path the filter cannot reach.
+     */
+    @Nested
+    @DisplayName("writes cannot cross the boundary either")
+    class WritesAreScopedToo {
+
+        @Test
+        @DisplayName("updating a t2 product is 404, and identical to an id that never existed")
+        void crossTenantUpdateIs404() throws Exception {
+            String crossTenant = updateProduct(asAirportAdmin(), mgRoadBisleri, """
+                    {"brand":"Written from the wrong store"}
+                    """)
+                    .andExpect(status().isNotFound())
+                    .andReturn().getResponse().getContentAsString();
+
+            String neverExisted = updateProduct(asAirportAdmin(), UNISSUED_ID, """
+                    {"brand":"Written from the wrong store"}
+                    """)
+                    .andExpect(status().isNotFound())
+                    .andReturn().getResponse().getContentAsString();
+
+            assertEquals(neverExisted, crossTenant,
+                    "a write to another tenant's id must look like a write to a missing one");
+        }
+
+        @Test
+        @DisplayName("deactivating a t2 product is 404")
+        void crossTenantDeactivateIs404() throws Exception {
+            deleteProduct(asAirportAdmin(), mgRoadBisleri)
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.message").value("Product not found"));
+        }
+
+        /**
+         * <b>The case that matters more than either status code.</b> A 404 that had
+         * already written would be catastrophic and invisible — the caller sees a
+         * failure, the owner sees a changed row, and nothing anywhere reports a problem.
+         */
+        @Test
+        @DisplayName("and neither refusal changed the owner's row")
+        void theRefusedWritesDidNotHappen() throws Exception {
+            updateProduct(asAirportAdmin(), mgRoadBisleri, """
+                    {"brand":"Written from the wrong store","isActive":false}
+                    """).andExpect(status().isNotFound());
+            deleteProduct(asAirportAdmin(), mgRoadBisleri).andExpect(status().isNotFound());
+
+            // Flush THEN clear, and in that order for a reason. A write that leaked would
+            // have left a dirty managed entity; flushing forces it to the database, and
+            // clearing makes the read below fetch a row rather than answer from the
+            // persistence context. Without this the assertion could pass against an
+            // in-memory copy of exactly the state it is trying to disprove.
+            em.flush();
+            em.clear();
+
+            getProduct(asMgRoadCashier(), mgRoadBisleri)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.brand").value("Bisleri"))
+                    .andExpect(jsonPath("$.isActive").value(true));
+        }
+
+        @Test
+        @DisplayName("a create lands in the caller's tenant however the body is addressed")
+        void aCreateIgnoresTheTenantInTheBody() throws Exception {
+            // The insert the filter cannot help with. The body names t1 by id and even
+            // gives a plausible id of its own; the row has to land in t2 regardless.
+            mvc.perform(post("/api/products")
+                            .header("Authorization", "Bearer " + asAirportAdmin())
+                            .contentType(APPLICATION_JSON)
+                            .content("""
+                                    {"name":"Smuggled into MG Road","taxRatePercent":5,
+                                     "tenantId":"%s","id":"%s"}
+                                    """.formatted(id(mgRoad), id(mgRoadBisleri))))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.tenantId").value(id(airport)));
+
+            // And t1's catalogue is the size it was. Asserted through the API rather than
+            // a count query, because that is the surface a real leak would show up on.
+            listProducts(asMgRoadCashier()).andExpect(jsonPath("$.total").value(2));
+            listProducts(asAirportAdmin()).andExpect(jsonPath("$.total").value(3));
+        }
+    }
+
     @Nested
     @DisplayName("a SUPER_ADMIN has no tenant context")
     class PlatformAdminHasNoTenant {
@@ -345,6 +454,22 @@ class TenantIsolationIT {
 
     private ResultActions getProduct(String token, Long id) throws Exception {
         return mvc.perform(get("/api/products/" + id).header("Authorization", "Bearer " + token));
+    }
+
+    /**
+     * Named for the resource rather than the verb, like {@link #listProducts}: a bare
+     * {@code delete} would shadow the statically imported request builder of the same
+     * name, and Java resolves the member first.
+     */
+    private ResultActions updateProduct(String token, Long id, String body) throws Exception {
+        return mvc.perform(put("/api/products/" + id)
+                .header("Authorization", "Bearer " + token)
+                .contentType(APPLICATION_JSON)
+                .content(body));
+    }
+
+    private ResultActions deleteProduct(String token, Long id) throws Exception {
+        return mvc.perform(delete("/api/products/" + id).header("Authorization", "Bearer " + token));
     }
 
     private ResultActions listCategories(String token) throws Exception {
