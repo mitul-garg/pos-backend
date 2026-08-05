@@ -3,16 +3,15 @@
 Cross-cutting patterns for `backend/`. Check here before inventing a new pattern
 or grepping the source tree for "how do we usually do X".
 
-> **Status: partly substantiated (C1–C3 done).** The layout, error mapping, DTO
-> naming, config-package, **persistence** and **security** rules now describe real
-> classes — see [c1-skeleton.md](./c1-skeleton.md),
-> [c2-persistence.md](./c2-persistence.md) and [c3-auth.md](./c3-auth.md).
-> **Tenant scoping is still intent, not description**: C3 resolves the tenant into
-> the session, but there is no `TenantContext` and no Hibernate filter yet, so
-> nothing below about *scoping* is enforced by anything — a query written today is
-> unscoped. As each C-step lands, replace the intent with what was actually built
-> and link the class that establishes it; an unsubstantiated convention is worse
-> than none.
+> **Status: substantiated (C1–C4 done).** The layout, error mapping, DTO naming,
+> config-package, **persistence**, **security** and — as of C4 — **tenant
+> scoping** rules all describe real classes. See [c1-skeleton.md](./c1-skeleton.md),
+> [c2-persistence.md](./c2-persistence.md), [c3-auth.md](./c3-auth.md) and
+> [c4-tenancy.md](./c4-tenancy.md).
+> **Scoping is now enforced rather than intended**: a query written against a
+> tenant-owned entity is scoped whether or not its author thought about tenancy.
+> As each C-step lands, replace intent with what was actually built and link the
+> class that establishes it; an unsubstantiated convention is worse than none.
 
 ## Working rhythm
 
@@ -168,18 +167,31 @@ and worth adopting if the mapping code becomes tedious, but not before.
 
 ### Where tenant scoping lives — and where it must not
 
-Tenant scoping is **infrastructure, below the repository layer**: the security
-filter puts `tenantId` into `TenantContext`, an interceptor enables the Hibernate
-filter, and every query is scoped without any layer participating.
+Tenant scoping is **infrastructure, below the repository layer** (C4): the security
+filter puts `tenantId` into `com.pos.util.TenantContext`, and Hibernate's
+`tenantFilter` — auto-enabled, its parameter resolved per query — appends
+`tenant_id = ?` to every statement. No layer participates.
 
-That's the design goal — **no layer has to remember**. So:
+That's not a goal any more, it's the mechanism — **no layer has to remember**. So:
 
 - **Never pass `tenantId` down through layers as a parameter.** A service method
   taking a `tenantId` argument is the same mistake as an endpoint taking one: the
-  moment it's a parameter, it can be the wrong value.
-- **Only the platform (`Tenant*`) classes read `TenantContext` deliberately**, to
-  disable the filter. Everywhere else the tenant is invisible, which is what makes
-  it safe.
+  moment it's a parameter, it can be the wrong value. `ProductDao` is the worked
+  example — not one of its methods mentions a tenant.
+- **`TenantContext` is read deliberately in exactly two places**, and both are
+  documented: `requireTenant()` as a guard (never as a filter), and `DevSeeder`,
+  which runs at startup with no request. The platform (`Tenant*`) classes will
+  join them in C8, to *disable* the filter.
+- **Every service method that reads tenant-owned data is `@Transactional`**,
+  read-only ones included. The filter lives on a Hibernate session, and outside a
+  transaction there is no session to enable it on — so a read that escapes its
+  transaction is an **unscoped read**. Nothing enforces this automatically; it is
+  the sharpest edge in the design.
+- **Writes are not scoped by the filter.** It appends to `WHERE` clauses and an
+  `INSERT` has none, so a write is scoped by whoever builds the entity. Stamp
+  `tenant_id` from the context, never from the request body.
+- **Bulk HQL `UPDATE`/`DELETE` is not filtered either.** Nothing issues one yet;
+  C6/C7 must scope one by hand if they do.
 
 ## Packages — one per layer, plus config
 
@@ -254,7 +266,7 @@ Spring worth learning, so it gets its own namespace rather than being scattered.
 | `SecurityConfig` | Filter chain, the JWT filter, `PasswordEncoder` (BCrypt), URL-level rules, **and CORS**. **Built (C3)** — see [c3-auth.md](./c3-auth.md) for why CORS had to move here from `WebConfig`, and why its URL rules use explicit `AntPathRequestMatcher`s |
 | `SecurityWebApplicationInitializer` | Registers the chain with the container — the `<filter>` element a `web.xml` would hold. **Built (C3)** |
 | `JwtAuthenticationFilter` · `ApiErrorResponder` | The bearer-token filter, and the JSON error writer for failures a `@ControllerAdvice` can never see. **Built (C3)** |
-| `TenantConfig` | `TenantContext` and the interceptor that enables the Hibernate tenant filter |
+| ~~`TenantConfig`~~ | **Never needed (C4).** Hibernate 6.5+ auto-enables a filter and resolves its parameter from a `Supplier` it instantiates itself, so there was nothing to wire. `com.pos.util.TenantContext` holds the ThreadLocal *and* that supplier; the `@FilterDef` lives on `com.pos.pojo`'s `package-info` — see [c4-tenancy.md](./c4-tenancy.md) |
 | ~~`SeedConfig`~~ | Superseded: the dev seeder landed in C3 as `com.pos.service.DevSeeder`, self-gated and idempotent, since it is transactional work rather than wiring |
 
 #### Which context a config class belongs to (C1)
@@ -302,9 +314,16 @@ Rules for this package:
 - **`tenantId` comes from the session, never the caller.** No endpoint takes a
   `tenantId` parameter. **Built in C3:** the JWT carries the tenant, and
   `JwtAuthenticationFilter` resolves it — against the *database row*, not the
-  claim — onto the `SecurityContext`, where `AuthService.currentSession()` is the
-  one accessor. **Still C4:** copying that into a request-scoped `TenantContext`
-  and enabling the Hibernate `tenantFilter` from it.
+  claim — onto the `SecurityContext`. **Completed in C4:** the same filter copies
+  it into `TenantContext`, and Hibernate's `tenantFilter` scopes every query from
+  there.
+- **A tenant-owned entity carries `@Filter`, and `TenantFilterCoverageTest`
+  enforces it.** Add the annotation *and* bump that test's expected count in the
+  same change. The failure it guards against has no symptom: an unannotated entity
+  compiles, persists and queries perfectly — it just returns everyone's rows.
+- **An absent tenant resolves to `NO_TENANT` (`-1`), not to "unfiltered".** A
+  forgotten guard returns nothing rather than everything. Fail-closed is a
+  property of the sentinel, not of anyone remembering.
 - **Writes stamp `tenant_id` from the context, never from the request body.**
 - **The acting user is session-derived too** — `cashierId` / `processedBy` come
   from the JWT subject, never a body field. (They remain legitimate *filter*
@@ -318,9 +337,17 @@ Rules for this package:
 - **Two DAOs are permanently outside scoping, and only two.** `TenantDao`, because
   `tenant` carries no `tenant_id` — it *is* the discriminator; and `AppUserDao`,
   because authentication establishes which tenant a caller is in and so cannot be
-  scoped by its own answer. Every DAO from C5 onwards takes the tenant from the
-  filter and names it in no signature. The exception has a reason; it is not a
-  precedent (C3).
+  scoped by its own answer. `AppUser` is correspondingly the one entity with a
+  `tenant_id` and no `@Filter`; filtered, every login would be evaluated against
+  `NO_TENANT` and fail. Every DAO from C5 onwards takes the tenant from the filter
+  and names it in no signature. The exception has a reason; it is not a
+  precedent (C3), and C8's user management pays for it by re-establishing that
+  scoping by hand.
+- **Isolation is fail-closed *by id* too.** The `@FilterDef` sets
+  `applyToLoadByKey`, without which `em.find()` is unfiltered and a by-id lookup
+  returns another tenant's row while every other query is scoped. Do not remove
+  it, and do not paper over it by writing by-id lookups as JPQL — that hides the
+  regression from the test that catches it.
 - **Cross-tenant reads live only in the platform package** (`/api/tenants/**`,
   `SUPER_ADMIN`-gated, filter disabled). Nowhere else. The frontend quarantined
   the equivalent in one module for the same reason — if the reach is visible in
@@ -400,10 +427,11 @@ Rules for this package:
 
 ## Testing
 
-- **Not every test needs a database.** 46 of the current 96 run with none —
+- **Not every test needs a database.** 76 of the current 128 run with none —
   `MockMvc` over the real `WebConfig` exercises controllers, converters and the
   advice without Jetty or MySQL. Reach for a database when the test is *about*
-  persistence.
+  persistence. The `*Test` / `*IT` suffix is the marker: `IT` means it needs
+  `pos_test`, nothing more.
 - **A servlet-context-only test must stub the service layer.** `WebConfig`
   component-scans `com.pos.controller`, so every controller is built whether or
   not a suite is about it. `StubServiceConfig` (test sources) supplies inert
@@ -429,7 +457,19 @@ Rules for this package:
   browser can't show you a leak you didn't think to look for.
 - **Mutation-check the isolation suite**: disable the Hibernate filter and confirm
   it goes red. A green isolation suite that stays green with isolation off is
-  worse than none.
+  worse than none. Done for C4, and it paid twice — see the table in
+  [c4-tenancy.md](./c4-tenancy.md). One mutation showed the by-id cases cover
+  something no list case does; another **disproved a claim already written in a
+  comment**, which is the outcome to hope for.
+- **A `@Transactional` IT can assert nothing without `em.flush()` / `em.clear()`
+  after its fixtures.** Rows persisted in the test's own transaction are managed,
+  so `em.find()` answers from the persistence context without running SQL — and a
+  filter only scopes a query that runs. Three `TenantIsolationIT` cases passed
+  while asserting nothing until this was added.
+- **Coverage** is `mvn test -Pcoverage`, then `target/site/jacoco/index.html`.
+  Behind a profile so plain `mvn test` stays fast; no threshold, deliberately.
+  Keep `jacoco.version` ahead of the JDK Maven runs on, or the agent cannot read
+  the class files and silently drops them from the report on a green build.
 - Concurrency deserves real tests here — thread-pool context leakage, parallel
   order numbering, two terminals racing the last unit in stock. The frontend mock
   couldn't exercise any of it.

@@ -217,10 +217,15 @@ this table, so the two cannot drift apart silently.
 port the frontend's, which already specify correct behaviour — see
 [`../backend-plan.md`](../backend-plan.md) §8 for the mapping.
 
-As of C3 there are **96 tests, 50 of which need `pos_test`**. The rest run with
+As of C4 there are **128 tests, 52 of which need `pos_test`**. The rest run with
 nothing but a JVM — `MockMvc` covers the controllers and error mapping without Jetty,
 `SchemaSqlTest` generates DDL offline, and `JwtTokenServiceTest` needs neither.
-Reach for a database when the test is genuinely *about* persistence.
+Reach for a database when the test is genuinely *about* persistence. The suffix is
+the marker: `*IT` needs `pos_test`, `*Test` needs nothing.
+
+For coverage, `mvn test -Pcoverage` and open `target/site/jacoco/index.html`. It is
+behind a profile so that plain `mvn test` — the command you run before every commit —
+stays as fast as it is. There is no threshold that can fail the build.
 
 **`SecurityConfigIT` is small and load-bearing.** It boots the root context *alone*,
 the way the servlet container does, because every other suite flattens the root and
@@ -231,7 +236,16 @@ changes, and don't make its assertions easier by adding `WebConfig` to it.
 `TenantIsolationIT` matters most: every case is an attempt to reach one tenant's
 data with another tenant's token. **Add a case for every new tenant-scoped
 endpoint**, and mutation-check it periodically by disabling the Hibernate filter
-and confirming the suite goes red.
+and confirming the suite goes red. C4's mutation results are recorded in
+[`prompts/c4-tenancy.md`](./prompts/c4-tenancy.md), including one that disproved a
+claim already written in a comment — which is what the exercise is for.
+
+Two companions to it, neither redundant. `TenantFilterCoverageTest` needs no
+database and fails the build if a tenant-owned entity is missing its `@Filter` —
+the failure it guards against has no symptom, since an unannotated entity queries
+perfectly and simply returns everyone's rows. `TenantThreadLocalIT` runs two
+tenants and a tenant-less admin over a **two-thread pool**, which is the only way
+to see whether a request leaves its tenant on a thread the next one reuses.
 
 ## Bugs
 
