@@ -12,43 +12,75 @@ or grepping the source tree for "how do we usually do X".
 > C-step lands, replace the intent with what was actually built and link the class
 > that establishes it; an unsubstantiated convention is worse than none.
 
-## Working rhythm — small steps, commit often
+## Working rhythm
 
-**Agents: after each self-contained iteration lands and `mvn test` is green and
-the app boots, remind the user to commit before starting the next one.** Don't
-wait for a whole C-step if it was a big one. A self-contained iteration is any
-change that leaves the app runnable and is describable in one commit subject — a
-C-step or a slice of one, a bug fix, a refactor, a docs pass.
+Three rules, in the order they bite. **They are the process the project actually
+runs on** — C1 and C3 each broke one and paid for it, and both costs are recorded
+below so the rules read as consequences rather than preferences.
 
-Why it's worth the nagging: this project builds in verify-then-proceed steps, and
-an uncommitted step means a manual-testing session that goes sideways has no clean
-point to fall back to. Small commits also keep the diff reviewable — a whole
-C-step in one commit is unreviewable by the time it's written.
+### 1. Commit forward, never backward
 
-### A size check to make that concrete (learned from C1)
+**Stop and commit at each boundary as you reach it.** A boundary is any change
+that leaves the app runnable and is describable in one commit subject — a slice of
+a C-step, a bug fix, a refactor, a docs pass.
 
-"Commit often" gave nothing to check against, and it didn't bind: **C1 was built
-and then offered as a single 32-file commit**, exactly the unreviewable thing this
-section exists to prevent. It was retroactively split into six.
+> **Never reconstruct history afterwards.** If you find yourself stashing, moving
+> files aside, re-applying them one group at a time and re-editing as you go, the
+> mistake already happened — it happened when you kept writing past a boundary.
+> The replay is not a fix; it is an error-prone dance over files that were already
+> finished, and it can silently reorder or drop work.
 
-Soft guidance, not a hard gate:
+Two occasions taught this. **C1 was built and then offered as a single 32-file
+commit** and had to be retroactively split into six. **C3 repeated it**: six
+commits' worth of code was written before the first commit, then reconstructed by
+stashing everything and replaying it in groups — which meant editing the same
+files two and three times to produce history that could have just been written in
+order.
 
-> **Once uncommitted work passes roughly 10 files or 500 lines, stop and look for
-> a commit boundary.** Past that, a diff stops being reviewable in one sitting.
+A size check, since "commit often" gave nothing to check against:
 
-It's a smell, not a limit — a genuinely atomic change that runs long is fine, and
-so is committing at three files. The point is to notice, rather than discover at
-the end that there were five commits in there all along.
+> **Once uncommitted work passes roughly 10 files or 500 lines, stop and find a
+> commit boundary.** Past that, a diff stops being reviewable in one sitting.
 
-When splitting after the fact, **build each commit rather than just splitting the
-`git add`.** Doing that for C1 immediately surfaced a real ordering bug:
+A smell, not a gate — a genuinely atomic change that runs long is fine, and so is
+committing at three files. The point is to notice *at the time*.
+
+If you are ever splitting after the fact anyway, **build each commit rather than
+just splitting the `git add`.** Doing that for C1 surfaced a real ordering bug:
 `HealthController` carried an annotation whose dependency arrived two commits
 later, so the "health endpoint" commit didn't compile on its own. A split that is
 only a staging exercise produces history that has never been verified.
 
-**Offer the commit message** (subject + body, `Cn: <what>` for build steps), and
-say *why*, plus any deliberate deviation from `../../backend-plan.md`. **Don't run
-`git commit` unless asked.**
+**Green every commit is the goal, not a gate.** Prefer a boundary where `mvn test`
+passes. If a commit has to land red — a controller whose collaborator arrives in
+the next one — say so in the message, say which suites and why, and fix it in the
+commit that completes the slice. A red commit that is *explained* is better than a
+900-line green one.
+
+### 2. Manual testing comes before automated tests
+
+The order for a new endpoint or feature:
+
+1. **Write the code.**
+2. **Propose the manual test steps** — every endpoint added, the happy path, and
+   the failure cases worth exercising by hand. Concrete `curl`s or UI steps, not
+   "try logging in".
+3. **Wait for the user to confirm it behaves.**
+4. **Then write the automated tests.**
+
+Not ceremony. A test written before anyone has seen the thing work encodes what
+the author *assumed* the behaviour is, and then passes forever — C3 shipped a
+security chain whose 28-case suite was fully green against an application that
+**would not start**, because the suite's context was not the container's. Ten
+minutes of `curl` found it immediately. Automated tests are for keeping behaviour
+correct; they are poor at establishing that it ever was.
+
+### 3. Offer the commit, don't run it
+
+**Offer the message** (subject + body, `Cn: <what>` for build steps) and say *why*,
+plus any deliberate deviation from `../../backend-plan.md`. **Don't run
+`git commit` unless asked** — but do offer, every time a boundary is reached,
+rather than accumulating.
 
 ⚠️ **`backend/` is its own git repo. The parent `pos-application/` directory is
 not.** So `../backend-plan.md`, `../requirements.md` and `../BUGS.md` are **not**
