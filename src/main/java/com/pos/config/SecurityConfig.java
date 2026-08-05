@@ -1,0 +1,173 @@
+package com.pos.config;
+
+import java.util.List;
+
+import com.pos.exception.InvalidCredentialsException;
+import com.pos.service.AuthService;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+/**
+ * The security chain (C3) — everything Spring Boot's security auto-configuration would
+ * assemble, written out.
+ *
+ * <p><b>A root-context config, and that is structural rather than stylistic.</b> Spring
+ * Security is a servlet <i>filter</i>, and filters are built from the root context — they
+ * cannot see the servlet context (see {@link WebAppInitializer}). Declared alongside
+ * {@link WebConfig} this would produce a chain that is constructed, logged at startup,
+ * and never invoked, which looks exactly like security silently not working.
+ *
+ * <p>{@code @EnableWebSecurity} only builds the {@code springSecurityFilterChain} bean;
+ * {@link SecurityWebApplicationInitializer} is what registers it with the container.
+ */
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
+
+    /** The Vite dev server — see {@link #corsConfigurationSource()}. */
+    private static final String FRONTEND_DEV_ORIGIN = "http://localhost:5173";
+
+    /**
+     * Reachable with no token at all. Everything absent from this list requires one.
+     *
+     * <p>{@code /api/auth/logout} is deliberately <b>not</b> here. A stateless server has
+     * nothing to revoke, so an open logout would work — but it would bake in "logout has
+     * no actor", and the day it gains a token denylist or an audit entry
+     * (backend-plan.md section 11) it has to know who is calling. The cost of requiring a
+     * token is nil: the frontend clears its own state and redirects to login on any 401,
+     * which is the end state a logout wants anyway.
+     */
+    private static final String[] PUBLIC_PATHS = {
+            "/api/health",
+            "/api/auth/login",
+            "/api/openapi.json",
+            "/swagger-ui",
+            "/swagger-ui/**",
+    };
+
+    /**
+     * BCrypt at its default strength (10).
+     *
+     * <p>The cost is the feature. Roughly 100ms per verification is what makes an offline
+     * attack on a leaked {@code password_hash} column expensive — and it is also why
+     * {@code AuthService} spends a verification on an unknown username too, so the
+     * uniform 401 does not leak through response time what it refuses to say in its
+     * message.
+     */
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public ApiErrorResponder apiErrorResponder() {
+        return new ApiErrorResponder();
+    }
+
+    @Bean
+    public JwtAuthenticationFilter jwtAuthenticationFilter(AuthService authService,
+                                                           ApiErrorResponder responder) {
+        return new JwtAuthenticationFilter(authService, responder);
+    }
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http,
+                                                   JwtAuthenticationFilter jwtFilter,
+                                                   ApiErrorResponder responder) throws Exception {
+        return http
+                // Disabled honestly, not for convenience. CSRF exploits the browser
+                // attaching a credential by itself; this API's credential is a bearer
+                // token the frontend reads from localStorage and sets as a header, which
+                // a forged cross-site request cannot cause to happen. The day a session
+                // cookie appears, this line becomes wrong.
+                .csrf(AbstractHttpConfigurer::disable)
+
+                // CORS lives here now, not in WebConfig. MVC's CORS support runs inside
+                // the DispatcherServlet and this chain is in front of it -- a preflight
+                // OPTIONS carries no Authorization header, so it would be answered 401
+                // before MVC ever saw it and every cross-origin call from the dev server
+                // would fail. WebConfig#addCorsMappings was removed in the same change.
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+
+                // No HttpSession, ever: the token is the whole session. Without this,
+                // Spring Security still creates one to hold the SecurityContext, quietly
+                // reintroducing the server-side state that makes cold starts and multiple
+                // instances a problem (backend-plan.md section 3).
+                .sessionManagement(session ->
+                        session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+
+                // All three would otherwise answer an unauthenticated request with a
+                // redirect or a browser credential prompt. This API only speaks JSON.
+                // logout() in particular would map its own POST /logout, which is not
+                // our endpoint and would not be stateless.
+                .formLogin(AbstractHttpConfigurer::disable)
+                .httpBasic(AbstractHttpConfigurer::disable)
+                .logout(AbstractHttpConfigurer::disable)
+
+                .authorizeHttpRequests(auth -> auth
+                        // Preflight requests are unauthenticated by definition; the CORS
+                        // filter configured above is what answers them.
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        .requestMatchers(PUBLIC_PATHS).permitAll()
+                        // Default-deny. A new endpoint is protected the moment it exists
+                        // rather than when someone remembers to list it -- the inverse
+                        // rule is how an endpoint ships unguarded.
+                        .anyRequest().authenticated())
+
+                .exceptionHandling(handling -> handling
+                        // No token at all, or one this chain rejected before the filter
+                        // ran. Same {message} envelope as every other error, because a
+                        // @ControllerAdvice cannot see a failure that happens in a filter.
+                        .authenticationEntryPoint((request, response, ex) ->
+                                responder.write(response, HttpStatus.UNAUTHORIZED,
+                                        InvalidCredentialsException.MESSAGE))
+                        // Authenticated, but the role is wrong. Nothing reaches this in
+                        // C3 -- no rule discriminates by role yet -- and C8 is where it
+                        // starts mattering.
+                        .accessDeniedHandler((request, response, ex) ->
+                                responder.write(response, HttpStatus.FORBIDDEN,
+                                        "You do not have permission to perform this action.")))
+
+                // Where Spring Security expects an authentication mechanism to sit.
+                // Nothing authenticates downstream of it here, but the position is what
+                // the rest of the chain is built around.
+                .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
+                .build();
+    }
+
+    /**
+     * The single CORS definition, moved out of {@link WebConfig} in C3.
+     *
+     * <p>The origin stays a literal rather than a wildcard: the CORS specification
+     * forbids pairing {@code allowCredentials} with {@code *}, and a browser handles the
+     * combination by silently dropping the response rather than reporting a
+     * misconfiguration. {@code allowCredentials} itself is what permits the
+     * {@code Authorization} header.
+     */
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration configuration = new CorsConfiguration();
+        configuration.setAllowedOrigins(List.of(FRONTEND_DEV_ORIGIN));
+        configuration.setAllowedMethods(
+                List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        configuration.setAllowedHeaders(List.of("*"));
+        configuration.setAllowCredentials(true);
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/api/**", configuration);
+        return source;
+    }
+}

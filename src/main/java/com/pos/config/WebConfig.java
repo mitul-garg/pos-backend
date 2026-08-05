@@ -15,7 +15,6 @@ import org.springframework.http.converter.HttpMessageConverter;
 import org.springframework.http.converter.ResourceHttpMessageConverter;
 import org.springframework.http.converter.StringHttpMessageConverter;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
-import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.EnableWebMvc;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -33,8 +32,11 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @ComponentScan(basePackages = { "com.pos.controller", "com.pos.exception" })
 public class WebConfig implements WebMvcConfigurer {
 
-    /** The Vite dev server. The frontend calls this API cross-origin during development. */
-    private static final String FRONTEND_DEV_ORIGIN = "http://localhost:5173";
+    // NOTE: CORS was configured here in C1 and moved to SecurityConfig in C3. MVC's CORS
+    // support runs inside the DispatcherServlet, and the security filter chain sits in
+    // front of it -- a preflight OPTIONS carries no Authorization header, so it would be
+    // answered with 401 here before MVC ever saw it. Leaving both in place would look
+    // like belt and braces and actually be one dead configuration plus one live one.
 
     @Bean
     public ObjectMapper objectMapper() {
@@ -66,13 +68,4 @@ public class WebConfig implements WebMvcConfigurer {
         converters.add(new MappingJackson2HttpMessageConverter(objectMapper()));
     }
 
-    @Override
-    public void addCorsMappings(CorsRegistry registry) {
-        registry.addMapping("/api/**")
-                .allowedOrigins(FRONTEND_DEV_ORIGIN)
-                .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
-                .allowedHeaders("*")
-                // Needed once C3 issues JWTs: the browser must be allowed to send Authorization.
-                .allowCredentials(true);
-    }
 }

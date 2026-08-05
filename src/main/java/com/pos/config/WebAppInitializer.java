@@ -10,9 +10,9 @@ import org.springframework.web.servlet.support.AbstractAnnotationConfigDispatche
  *
  * <p>Two contexts, because they have different lifetimes and visibility:
  * <ul>
- *   <li><b>root</b> — services, persistence and (from C3) security. Shared by every
- *       servlet and by servlet filters, which is why the security filter chain needs
- *       to live here rather than in the servlet context.</li>
+ *   <li><b>root</b> — services, persistence and security. Shared by every servlet and by
+ *       servlet filters, which is why {@link SecurityConfig} lives here rather than in
+ *       the servlet context (C3).</li>
  *   <li><b>servlet</b> — web concerns only: controllers, message converters,
  *       handler mappings. It can see the root context; the root cannot see it.</li>
  * </ul>
@@ -21,7 +21,7 @@ public class WebAppInitializer extends AbstractAnnotationConfigDispatcherServlet
 
     @Override
     protected Class<?>[] getRootConfigClasses() {
-        return new Class<?>[] { RootConfig.class, PersistenceConfig.class };
+        return new Class<?>[] { RootConfig.class, PersistenceConfig.class, SecurityConfig.class };
     }
 
     @Override
