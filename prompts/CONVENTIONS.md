@@ -3,14 +3,16 @@
 Cross-cutting patterns for `backend/`. Check here before inventing a new pattern
 or grepping the source tree for "how do we usually do X".
 
-> **Status: partly substantiated (C1, C2 done).** The layout, error mapping, DTO
-> naming, config-package and **persistence** rules now describe real classes — see
-> [c1-skeleton.md](./c1-skeleton.md) and [c2-persistence.md](./c2-persistence.md).
-> **Tenant scoping and security are still intent, not description**: no
-> `TenantContext`, no filter, no security chain exists yet, so nothing below about
-> scoping is enforced by anything — a query written today is unscoped. As each
-> C-step lands, replace the intent with what was actually built and link the class
-> that establishes it; an unsubstantiated convention is worse than none.
+> **Status: partly substantiated (C1–C3 done).** The layout, error mapping, DTO
+> naming, config-package, **persistence** and **security** rules now describe real
+> classes — see [c1-skeleton.md](./c1-skeleton.md),
+> [c2-persistence.md](./c2-persistence.md) and [c3-auth.md](./c3-auth.md).
+> **Tenant scoping is still intent, not description**: C3 resolves the tenant into
+> the session, but there is no `TenantContext` and no Hibernate filter yet, so
+> nothing below about *scoping* is enforced by anything — a query written today is
+> unscoped. As each C-step lands, replace the intent with what was actually built
+> and link the class that establishes it; an unsubstantiated convention is worse
+> than none.
 
 ## Working rhythm
 
@@ -113,8 +115,8 @@ Controller   HTTP only — map the request, validate the DTO, delegate, map the 
     ↓        No business logic. No repository access. No transactions.
 Service      All business logic. Owns @Transactional. Throws DOMAIN exceptions,
     ↓        never HTTP ones. The only layer that knows the rules.
-Repository   Persistence only. Spring Data JPA interfaces; hand-written queries
-             where derived method names stop being readable. No business logic.
+Repository   Persistence only. Hand-written DAOs over an injected EntityManager,
+             with explicit JPQL. No business logic.
 ```
 
 The rules that make this testable rather than decorative:
@@ -126,7 +128,12 @@ The rules that make this testable rather than decorative:
   the `@ControllerAdvice`'s job — a service that knows about 404s can't be reused
   or unit-tested without a servlet.
 - **`@Autowired` for injection.** Beans are Spring-managed singletons; let the
-  container wire them rather than constructing collaborators by hand.
+  container wire them rather than constructing collaborators by hand. **Prefer a
+  constructor over fields for a service a controller depends on** — `WebConfig`
+  component-scans `com.pos.controller`, so every controller has to be satisfiable
+  by a test that boots the servlet context alone, and field injection is applied
+  even to a hand-built `@Bean`, which makes such a service impossible to stub
+  without dragging in a database (C3, `AuthService` + `StubServiceConfig`).
 - **No `ServiceImpl` unless there are two implementations.** The `Interface` +
   `Impl` pair is tradition, not design — a one-implementation interface is
   indirection with no payoff. Add it the day a second implementation exists.
@@ -188,6 +195,13 @@ contract, not the failure vocabulary.
 `dao/` and "repository" are the same layer; the course uses both names, the
 annotation is `@Repository`.
 
+**Not Spring Data JPA** (decided in C3, replacing this file's earlier claim).
+`dao/` + `@Repository` was already the shape of the tree; C6 and C7 need
+`SELECT … FOR UPDATE` for the per-tenant sequences and an atomic conditional
+update for stock, neither of which a derived method name expresses, so those
+queries would be hand-written regardless; and another auto-configuration-shaped
+layer cuts against the premise that this project exists to show what Boot hides.
+
 **`Form` / `Data` naming for DTOs** — `ProductForm` in, `ProductData` out. Clearer
 than a single `Dto` suffix, and it makes an accidental entity in a method
 signature obvious at a glance.
@@ -226,17 +240,19 @@ Spring worth learning, so it gets its own namespace rather than being scattered.
 | `OpenApiConfig` | Swagger UI + the generated spec. Servlet context, because it reads `RequestMappingHandlerMapping`. **Built (C1)** |
 | `PersistenceConfig` | `DataSource` + HikariCP, `EntityManagerFactory`, `JpaTransactionManager`, Hibernate properties. **Built (C2)** — and note it deliberately does *not* set `hibernate.dialect`; see [c2-persistence.md](./c2-persistence.md) |
 | `AppProperties` | Typed access to externalized settings. **Built (C2)** |
-| `SecurityConfig` | Filter chain, the JWT filter, `PasswordEncoder` (BCrypt), URL-level role rules |
+| `SecurityConfig` | Filter chain, the JWT filter, `PasswordEncoder` (BCrypt), URL-level rules, **and CORS**. **Built (C3)** — see [c3-auth.md](./c3-auth.md) for why CORS had to move here from `WebConfig`, and why its URL rules use explicit `AntPathRequestMatcher`s |
+| `SecurityWebApplicationInitializer` | Registers the chain with the container — the `<filter>` element a `web.xml` would hold. **Built (C3)** |
+| `JwtAuthenticationFilter` · `ApiErrorResponder` | The bearer-token filter, and the JSON error writer for failures a `@ControllerAdvice` can never see. **Built (C3)** |
 | `TenantConfig` | `TenantContext` and the interceptor that enables the Hibernate tenant filter |
-| `SeedConfig` | The dev seeder, gated on `pos.seed.dev` |
+| ~~`SeedConfig`~~ | Superseded: the dev seeder landed in C3 as `com.pos.service.DevSeeder`, self-gated and idempotent, since it is transactional work rather than wiring |
 
 #### Which context a config class belongs to (C1)
 
 `WebAppInitializer` creates **two** contexts, and putting a bean in the wrong one
 fails in ways that look like the bean is broken:
 
-- **Root** (`RootConfig`, and later `PersistenceConfig` / `SecurityConfig` /
-  `TenantConfig` / `SeedConfig`) — services, DAOs, transactions, security.
+- **Root** (`RootConfig`, `PersistenceConfig`, `SecurityConfig`, and later
+  `TenantConfig`) — services, DAOs, transactions, security.
 - **Servlet** (`WebConfig`, `OpenApiConfig`) — controllers, converters, handler
   mappings.
 
@@ -273,9 +289,11 @@ Rules for this package:
 ## Tenant scoping (the rule everything else serves)
 
 - **`tenantId` comes from the session, never the caller.** No endpoint takes a
-  `tenantId` parameter. The Spring Security filter reads it from the JWT into a
-  request-scoped `TenantContext`; an interceptor enables the Hibernate
-  `tenantFilter` from that.
+  `tenantId` parameter. **Built in C3:** the JWT carries the tenant, and
+  `JwtAuthenticationFilter` resolves it — against the *database row*, not the
+  claim — onto the `SecurityContext`, where `AuthService.currentSession()` is the
+  one accessor. **Still C4:** copying that into a request-scoped `TenantContext`
+  and enabling the Hibernate `tenantFilter` from it.
 - **Writes stamp `tenant_id` from the context, never from the request body.**
 - **The acting user is session-derived too** — `cashierId` / `processedBy` come
   from the JWT subject, never a body field. (They remain legitimate *filter*
@@ -286,6 +304,12 @@ Rules for this package:
   means the next request on that thread inherits another tenant. This is the
   highest-severity bug available in this design and single-threaded tests will
   never show it.
+- **Two DAOs are permanently outside scoping, and only two.** `TenantDao`, because
+  `tenant` carries no `tenant_id` — it *is* the discriminator; and `AppUserDao`,
+  because authentication establishes which tenant a caller is in and so cannot be
+  scoped by its own answer. Every DAO from C5 onwards takes the tenant from the
+  filter and names it in no signature. The exception has a reason; it is not a
+  precedent (C3).
 - **Cross-tenant reads live only in the platform package** (`/api/tenants/**`,
   `SUPER_ADMIN`-gated, filter disabled). Nowhere else. The frontend quarantined
   the equivalent in one module for the same reason — if the reach is visible in
@@ -341,6 +365,13 @@ Rules for this package:
 - **Every error response is `ApiError`** — `{message, fields}`, with `fields`
   omitted unless the failure is field-level. One shape, so the frontend's HTTP
   layer needs exactly one error path. Don't invent a second envelope.
+- **There are two writers of that envelope, and there have to be.** A
+  `@ControllerAdvice` only sees exceptions the `DispatcherServlet` dispatched, and
+  the security chain is a servlet *filter* that runs in front of it — so
+  `ApiErrorResponder` writes the envelope for authentication failures (C3). The
+  shape cannot drift, because both serialize the same `ApiError` class, and
+  `AuthControllerIT` asserts a filter-produced 401 and an advice-produced 401 are
+  byte-identical. **Don't add a third.**
 - **`InvalidCredentialsException` takes no message argument, deliberately.** The
   401 body is a constant. A constructor that accepted a message would eventually be
   called with a helpful one, and "unknown tenant" vs "wrong password" is an
@@ -358,9 +389,23 @@ Rules for this package:
 
 ## Testing
 
-- **Not every test needs a database.** C1's 23 tests run with none — `MockMvc` over
-  the real `WebConfig` exercises controllers, converters and the advice without
-  Jetty or MySQL. Reach for a database when the test is *about* persistence.
+- **Not every test needs a database.** 46 of the current 96 run with none —
+  `MockMvc` over the real `WebConfig` exercises controllers, converters and the
+  advice without Jetty or MySQL. Reach for a database when the test is *about*
+  persistence.
+- **A servlet-context-only test must stub the service layer.** `WebConfig`
+  component-scans `com.pos.controller`, so every controller is built whether or
+  not a suite is about it. `StubServiceConfig` (test sources) supplies inert
+  stubs; **add a `@Bean` to it in the same change that adds a controller**, or
+  three unrelated suites go red.
+- **A test context is not the container.** `AuthControllerIT` flattens the root
+  and servlet contexts into one, which is convenient and, for one class of
+  failure, actively misleading — anything a root-context config accidentally takes
+  from the servlet context resolves there and is missing in production. That is
+  how C3 shipped a fully green suite against an application that would not start.
+  `SecurityConfigIT` boots the root context **alone** for exactly this reason;
+  **run it whenever `SecurityConfig` changes**, and don't "fix" it by adding
+  `WebConfig`.
 - JUnit against a **local MySQL** (`pos_test`), `create-drop` per run,
   `@Transactional` rollback per test. Setup is documented in `../README.md`.
 - **A test that deliberately triggers an ERROR log silences that logger** in
