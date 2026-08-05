@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.pos.config.OpenApiConfig;
+import com.pos.config.StubServiceConfig;
 import com.pos.config.WebConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,7 +25,7 @@ import org.springframework.web.context.WebApplicationContext;
  */
 @ExtendWith(SpringExtension.class)
 @WebAppConfiguration
-@ContextConfiguration(classes = { WebConfig.class, OpenApiConfig.class })
+@ContextConfiguration(classes = { WebConfig.class, OpenApiConfig.class, StubServiceConfig.class })
 class HealthControllerTest {
 
     @Autowired

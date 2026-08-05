@@ -1,5 +1,6 @@
 package com.pos.config;
 
+import java.util.Arrays;
 import java.util.List;
 
 import com.pos.exception.InvalidCredentialsException;
@@ -16,6 +17,8 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -120,8 +123,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // Preflight requests are unauthenticated by definition; the CORS
                         // filter configured above is what answers them.
-                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers(PUBLIC_PATHS).permitAll()
+                        .requestMatchers(AntPathRequestMatcher.antMatcher(HttpMethod.OPTIONS, "/**")).permitAll()
+                        .requestMatchers(publicMatchers()).permitAll()
                         // Default-deny. A new endpoint is protected the moment it exists
                         // rather than when someone remembers to list it -- the inverse
                         // rule is how an endpoint ships unguarded.
@@ -146,6 +149,32 @@ public class SecurityConfig {
                 // the rest of the chain is built around.
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
+    }
+
+    /**
+     * {@link #PUBLIC_PATHS} as explicit Ant matchers.
+     *
+     * <p><b>Why not just {@code requestMatchers("/api/health", ...)}.</b> That overload
+     * builds an {@code MvcRequestMatcher} whenever Spring MVC is on the classpath, which
+     * needs the {@code mvcHandlerMappingIntrospector} bean — and that bean is created by
+     * {@code @EnableWebMvc}, so it lives in the <b>servlet</b> context, which this
+     * root-context config cannot see. The application then fails to start with
+     * "Please ensure Spring Security &amp; Spring MVC are configured in a shared
+     * ApplicationContext", which they deliberately are not.
+     *
+     * <p>Ant matching is not a downgrade here: {@code MvcRequestMatcher} exists to account
+     * for a servlet path prefix, and the {@code DispatcherServlet} is mapped at
+     * {@code "/"}, so the two agree on every URL this application has.
+     *
+     * <p>This is the one C3 failure that no test caught before {@code mvn jetty:run} did —
+     * {@code AuthControllerIT} flattens both contexts into one, where the introspector is
+     * present. {@code SecurityConfigIT} now boots the root context alone, as the container
+     * does, so it cannot happen again.
+     */
+    private RequestMatcher[] publicMatchers() {
+        return Arrays.stream(PUBLIC_PATHS)
+                .map(AntPathRequestMatcher::antMatcher)
+                .toArray(RequestMatcher[]::new);
     }
 
     /**

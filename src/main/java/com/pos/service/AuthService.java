@@ -53,17 +53,32 @@ public class AuthService {
     private static final String ABSENT_USER_HASH =
             "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
 
-    @Autowired
-    private TenantDao tenantDao;
+    private final TenantDao tenantDao;
+    private final AppUserDao appUserDao;
+    private final PasswordEncoder passwordEncoder;
+    private final JwtTokenService jwtTokenService;
 
+    /**
+     * Constructor injection rather than {@code @Autowired} fields, which is what the rest
+     * of the codebase uses.
+     *
+     * <p>The reason is concrete rather than stylistic. {@code WebConfig} component-scans
+     * {@code com.pos.controller}, so any test booting the servlet context alone —
+     * {@code HealthControllerTest}, {@code OpenApiGeneratorTest} — has to satisfy
+     * {@code AuthController}'s dependency on this class. Field injection makes that
+     * impossible to stub: Spring applies it to <i>every</i> bean, including one handed
+     * back from a {@code @Bean} method, so the stub would drag in the DAOs, which drag in
+     * an entity manager, which drags in a database. A constructor makes the object
+     * constructible outside Spring, which is what {@code StubServiceConfig} needs.
+     */
     @Autowired
-    private AppUserDao appUserDao;
-
-    @Autowired
-    private PasswordEncoder passwordEncoder;
-
-    @Autowired
-    private JwtTokenService jwtTokenService;
+    public AuthService(TenantDao tenantDao, AppUserDao appUserDao,
+                       PasswordEncoder passwordEncoder, JwtTokenService jwtTokenService) {
+        this.tenantDao = tenantDao;
+        this.appUserDao = appUserDao;
+        this.passwordEncoder = passwordEncoder;
+        this.jwtTokenService = jwtTokenService;
+    }
 
     /**
      * {@code POST /api/auth/login}. Resolves the tenant by code, then the user by

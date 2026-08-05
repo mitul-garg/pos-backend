@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.List;
 
 import com.pos.config.OpenApiConfig;
+import com.pos.config.StubServiceConfig;
 import com.pos.config.WebConfig;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.Operation;
@@ -28,7 +29,7 @@ import org.springframework.test.context.web.WebAppConfiguration;
  */
 @ExtendWith(SpringExtension.class)
 @WebAppConfiguration
-@ContextConfiguration(classes = { WebConfig.class, OpenApiConfig.class })
+@ContextConfiguration(classes = { WebConfig.class, OpenApiConfig.class, StubServiceConfig.class })
 class OpenApiGeneratorTest {
 
     @Autowired
