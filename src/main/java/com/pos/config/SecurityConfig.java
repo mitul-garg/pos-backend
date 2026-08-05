@@ -203,6 +203,13 @@ public class SecurityConfig {
                 AntPathRequestMatcher.antMatcher(HttpMethod.POST, "/api/products"),
                 AntPathRequestMatcher.antMatcher(HttpMethod.PUT, "/api/products/*"),
                 AntPathRequestMatcher.antMatcher(HttpMethod.DELETE, "/api/products/*"),
+                // Variants. The single-star pattern matters: "/api/products/*/variants"
+                // matches the sub-resource and NOT "/api/products/{id}", which the PUT
+                // rule above already covers with its own verb.
+                AntPathRequestMatcher.antMatcher(HttpMethod.POST, "/api/products/*/variants"),
+                AntPathRequestMatcher.antMatcher(HttpMethod.PUT, "/api/variants/*"),
+                AntPathRequestMatcher.antMatcher(HttpMethod.DELETE, "/api/variants/*"),
+                AntPathRequestMatcher.antMatcher(HttpMethod.POST, "/api/variants/*/qr-code"),
         };
     }
 

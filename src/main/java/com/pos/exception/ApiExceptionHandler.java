@@ -1,11 +1,15 @@
 package com.pos.exception;
 
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 
 import com.pos.model.ApiError;
+import jakarta.persistence.PersistenceException;
+import org.hibernate.exception.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -35,6 +39,24 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 public class ApiExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
+
+    /**
+     * Unique keys a caller can actually violate, mapped to the field and the message the
+     * pre-check in the service would have produced for the same mistake — so the
+     * uncontended path and the raced one are indistinguishable on the wire.
+     *
+     * <p>Lower-cased keys: MySQL reports constraint names as declared, but the comparison
+     * should not be what breaks if a name is ever declared in a different case.
+     *
+     * <p><b>Add a row here in the same change that adds a unique constraint a request can
+     * trip.</b> Anything absent answers 500 rather than a misleading 400, which is the
+     * right default — a constraint nobody mapped is a constraint nobody thought about.
+     */
+    private static final Map<String, String[]> CONSTRAINT_FIELDS = Map.of(
+            "uk_variant_tenant_sku",
+            new String[] { "sku", "SKU is already in use" },
+            "uk_variant_tenant_qrcode",
+            new String[] { "qrCode", "This QR code is already assigned to another variant" });
 
     /**
      * Never varied and never derived from the exception — see
@@ -80,6 +102,63 @@ public class ApiExceptionHandler {
         log.debug("Request body failed validation: {}", fields);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(new ApiError("Validation failed", fields));
+    }
+
+    /**
+     * <b>The unique index rejecting a duplicate — the enforcing half of uniqueness</b>
+     * (C5).
+     *
+     * <p>A service-level "is this SKU free?" is a read and a write with a gap, and another
+     * transaction fits in the gap. The pre-check exists to give the uncontended case a
+     * clean field-level message; <i>this</i> is what actually prevents the duplicate, and
+     * mapping it to the same 400 with the same field and the same words is what makes the
+     * race invisible to the caller rather than a different bug to report.
+     *
+     * <p>Both exception types are caught because which one arrives depends on where the
+     * statement ran. A flush inside a service raises Hibernate's, wrapped in a
+     * {@code PersistenceException}; Spring's translated form appears on other paths. The
+     * constraint name is read from the Hibernate exception in the cause chain either way.
+     *
+     * <p><b>An unrecognised constraint is deliberately not turned into a 400.</b> Only the
+     * ones listed in {@link #CONSTRAINT_FIELDS} have a field to blame and a sentence a user
+     * can act on; anything else — a foreign key, a check constraint, something added later
+     * and forgotten here — is a bug in this application rather than in the request, and
+     * saying "400" about it would hide it. Those fall through to the 500 below, with the
+     * stack trace logged.
+     */
+    @ExceptionHandler({ DataIntegrityViolationException.class, PersistenceException.class })
+    public ResponseEntity<ApiError> handleConstraintViolation(RuntimeException ex) {
+        String constraint = constraintNameOf(ex);
+        String[] fieldAndMessage = constraint == null
+                ? null
+                : CONSTRAINT_FIELDS.get(constraint.toLowerCase(Locale.ROOT));
+
+        if (fieldAndMessage == null) {
+            log.error("Unmapped data integrity violation (constraint: {})", constraint, ex);
+            return respond(HttpStatus.INTERNAL_SERVER_ERROR, "Something went wrong");
+        }
+
+        log.debug("Constraint {} rejected a duplicate", constraint);
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ApiError(fieldAndMessage[1],
+                        Map.of(fieldAndMessage[0], fieldAndMessage[1])));
+    }
+
+    /**
+     * Walks to Hibernate's exception, which is the only one that knows which key was
+     * violated. Spring's {@code DataIntegrityViolationException} wraps it, and a flush
+     * raises it inside a {@code PersistenceException}.
+     */
+    private String constraintNameOf(Throwable ex) {
+        for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
+            if (cause instanceof ConstraintViolationException violation) {
+                return violation.getConstraintName();
+            }
+            if (cause.getCause() == cause) {
+                break;
+            }
+        }
+        return null;
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)

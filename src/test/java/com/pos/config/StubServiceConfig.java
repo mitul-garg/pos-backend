@@ -2,6 +2,7 @@ package com.pos.config;
 
 import com.pos.service.AuthService;
 import com.pos.service.ProductService;
+import com.pos.service.VariantService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -37,5 +38,10 @@ public class StubServiceConfig {
     @Bean
     public ProductService productService() {
         return new ProductService(null, null, null);
+    }
+
+    @Bean
+    public VariantService variantService() {
+        return new VariantService(null, null, null);
     }
 }
