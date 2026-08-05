@@ -90,6 +90,20 @@ public class ProductDao {
                 .getResultList();
     }
 
+    /**
+     * The only write here until C5, and its one caller is {@code DevSeeder}.
+     *
+     * <p>Nothing sets {@code tenant_id} on the way through: it comes from the
+     * {@link Product} handed in, which the caller stamped from the session (or, for the
+     * seeder, from the store being created). The filter does <b>not</b> police inserts —
+     * it appends to {@code WHERE} clauses, and an {@code INSERT} has none. Writes are
+     * scoped by whoever builds the entity, which is why CONVENTIONS.md states the rule
+     * separately: stamp from the context, never from the request body.
+     */
+    public void insert(Product product) {
+        em.persist(product);
+    }
+
     private String where(String search, String category, boolean includeInactive) {
         List<String> conditions = new ArrayList<>();
         if (!includeInactive) {

@@ -1,12 +1,18 @@
 package com.pos.service;
 
+import java.math.BigDecimal;
+import java.util.List;
+
 import com.pos.config.AppProperties;
 import com.pos.dao.AppUserDao;
+import com.pos.dao.ProductDao;
 import com.pos.dao.TenantDao;
 import com.pos.pojo.AppUser;
+import com.pos.pojo.Product;
 import com.pos.pojo.Role;
 import com.pos.pojo.Tenant;
 import com.pos.pojo.TenantStatus;
+import com.pos.util.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,20 +33,69 @@ import org.springframework.transaction.annotation.Transactional;
  * that forgets to set it must end up with no accounts rather than with those. Turn it on
  * with {@code mvn jetty:run -DPOS_SEED_DEV=true}.
  *
- * <p><b>Seeds users and tenants only.</b> Products, variants and orders arrive with the
- * steps that own them (C5-C7) — seeding an order here would mean duplicating the pricing
- * and sequence logic those steps are about to write, and the duplicate would be the one
- * nobody updates.
+ * <p><b>Tenants, users and the two catalogues.</b> Products joined in C4 out of necessity
+ * rather than plan: there is no {@code POST /api/products} until C5, so without seeded
+ * rows the tenant filter cannot be exercised by hand at all, and CONVENTIONS.md puts
+ * manual testing before automated tests. Variants and orders still wait for C5-C7 —
+ * seeding an order here would duplicate the pricing and sequence logic those steps are
+ * about to write, and the duplicate would be the one nobody updates.
  *
  * <p>The deliberate collisions are the point and must survive: {@code admin} and
- * {@code cashier} exist in <i>both</i> stores with the same passwords. A schema that
- * rejects that has a global constraint where a per-tenant one belongs, and the isolation
- * suite loses its fixtures.
+ * {@code cashier} exist in <i>both</i> stores with the same passwords, and both stores
+ * stock Bisleri. A schema that rejects either has a global constraint where a per-tenant
+ * one belongs, and the isolation suite loses its fixtures.
  */
 @Service
 public class DevSeeder {
 
     private static final Logger log = LoggerFactory.getLogger(DevSeeder.class);
+
+    /** One catalogue row, in the order requirements.md section 3 lists the fields. */
+    private record CatalogueEntry(String name, String brand, String category,
+                                  String hsnCode, int taxRatePercent) {
+    }
+
+    /**
+     * MG Road's 18 products, copied from {@code frontend/src/mocks/products.js} so the
+     * same store looks the same against real persistence and the B6 checklist can be
+     * re-run. Variants (34 of them) belong to C5.
+     */
+    private static final List<CatalogueEntry> MG_ROAD_CATALOGUE = List.of(
+            new CatalogueEntry("Amul Taaza Toned Milk", "Amul", "Dairy", "0401", 5),
+            new CatalogueEntry("Amul Butter", "Amul", "Dairy", "0405", 12),
+            new CatalogueEntry("Lay's Classic Salted", "Lay's", "Snacks", "2005", 12),
+            new CatalogueEntry("Coca-Cola", "Coca-Cola", "Beverages", "2202", 28),
+            new CatalogueEntry("Maggi 2-Minute Noodles", "Nestlé", "Instant Food", "1902", 12),
+            new CatalogueEntry("Tata Salt", "Tata", "Staples", "2501", 0),
+            new CatalogueEntry("Colgate MaxFresh Toothpaste", "Colgate", "Personal Care", "3306", 18),
+            new CatalogueEntry("Surf Excel Easy Wash Detergent", "Surf Excel", "Household", "3402", 18),
+            new CatalogueEntry("Britannia Good Day Cashew Cookies", "Britannia", "Snacks", "1905", 18),
+            new CatalogueEntry("Parle-G Biscuits", "Parle", "Snacks", "1905", 18),
+            new CatalogueEntry("Nescafé Classic Instant Coffee", "Nestlé", "Beverages", "2101", 18),
+            new CatalogueEntry("Red Bull Energy Drink", "Red Bull", "Beverages", "2202", 28),
+            new CatalogueEntry("Dettol Original Handwash", "Dettol", "Personal Care", "3401", 18),
+            new CatalogueEntry("Kissan Mixed Fruit Jam", "Kissan", "Bakery & Spreads", "2007", 12),
+            new CatalogueEntry("Fortune Sunlite Sunflower Oil", "Fortune", "Staples", "1512", 5),
+            new CatalogueEntry("Cadbury Dairy Milk", "Cadbury", "Snacks", "1806", 18),
+            new CatalogueEntry("Aashirvaad Whole Wheat Atta", "Aashirvaad", "Staples", "1101", 5),
+            new CatalogueEntry("Bisleri Packaged Drinking Water", "Bisleri", "Beverages", "2201", 18));
+
+    /**
+     * Airport's five, travel-convenience flavoured and deliberately distinct — the
+     * difference is what makes a cross-tenant list obvious at a glance rather than
+     * something you have to compare ids to notice.
+     *
+     * <p>Two overlaps are load-bearing rather than sloppy copying. <b>Bisleri appears in
+     * both stores</b>, so a search that crossed the boundary would return two rows instead
+     * of one; and <b>Travel Essentials exists only here</b>, so a categories list that
+     * crossed would contain it. Both are cases in the frontend's {@code isolation.test.js}.
+     */
+    private static final List<CatalogueEntry> AIRPORT_CATALOGUE = List.of(
+            new CatalogueEntry("Bisleri Packaged Drinking Water", "Bisleri", "Beverages", "2201", 18),
+            new CatalogueEntry("Haldiram's Aloo Bhujia", "Haldiram's", "Snacks", "2106", 12),
+            new CatalogueEntry("Travel Neck Pillow", "Wildcraft", "Travel Essentials", "9404", 18),
+            new CatalogueEntry("Starbucks Bottled Frappuccino", "Starbucks", "Beverages", "2202", 18),
+            new CatalogueEntry("Kurkure Masala Munch", "Kurkure", "Snacks", "2005", 12));
 
     @Autowired
     private AppProperties props;
@@ -50,6 +105,9 @@ public class DevSeeder {
 
     @Autowired
     private AppUserDao appUserDao;
+
+    @Autowired
+    private ProductDao productDao;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -92,6 +150,9 @@ public class DevSeeder {
         seedUser(mgRoad, "cashier", "cashier123", "MG Road Cashier", Role.CASHIER);
         seedUser(airport, "admin", "admin123", "Airport Admin", Role.ADMIN);
         seedUser(airport, "cashier", "cashier123", "Airport Cashier", Role.CASHIER);
+
+        seedCatalogue(mgRoad, MG_ROAD_CATALOGUE);
+        seedCatalogue(airport, AIRPORT_CATALOGUE);
     }
 
     private Tenant seedTenant(String name, String code, boolean platform) {
@@ -107,6 +168,47 @@ public class DevSeeder {
         tenantDao.insert(tenant);
         log.info("Seeded tenant {} ({})", name, code);
         return tenant;
+    }
+
+    /**
+     * The store's opening catalogue, skipped if it already has one.
+     *
+     * <p><b>This is the one place outside a request that sets {@link TenantContext}, and it
+     * has to.</b> The seeder runs at startup, so there is no request and no tenant on the
+     * thread — which means the "does this store already have products?" check would be
+     * evaluated against {@code NO_TENANT}, answer "none" every time, and re-insert all 23
+     * rows on every boot under {@code hbm2ddl.auto=update}. Setting the context makes the
+     * check ask the question it looks like it is asking. {@code seedUser} needs none of
+     * this because {@code AppUser} is unfiltered.
+     *
+     * <p>Cleared in a {@code finally} for the same reason every other caller does, even
+     * though the startup thread serves nothing afterwards. The habit is the safeguard; an
+     * exception here must not leave a tenant on a thread the container may reuse.
+     */
+    private void seedCatalogue(Tenant tenant, List<CatalogueEntry> catalogue) {
+        TenantContext.set(tenant.getId());
+        try {
+            if (productDao.count(null, null, true) > 0) {
+                return;
+            }
+            for (CatalogueEntry entry : catalogue) {
+                Product product = new Product();
+                // Stamped from the tenant being seeded, never from the row's own data --
+                // the same rule the API follows, where it comes from the session. The
+                // filter does not police inserts; only whoever builds the entity does.
+                product.setTenant(tenant);
+                product.setName(entry.name());
+                product.setBrand(entry.brand());
+                product.setCategory(entry.category());
+                product.setHsnCode(entry.hsnCode());
+                product.setTaxRatePercent(BigDecimal.valueOf(entry.taxRatePercent()));
+                product.setActive(true);
+                productDao.insert(product);
+            }
+            log.info("Seeded {} products for tenant {}", catalogue.size(), tenant.getCode());
+        } finally {
+            TenantContext.clear();
+        }
     }
 
     private void seedUser(Tenant tenant, String username, String password,
