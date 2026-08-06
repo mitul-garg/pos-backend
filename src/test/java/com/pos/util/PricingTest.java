@@ -28,8 +28,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *       so neither failure mode is reachable in Java. Nothing to assert.</li>
  * </ul>
  *
- * <p>{@code computeRefundTotals}'s case is deferred to C7, the step that adds a caller for
- * it.
+ * <p>{@code computeRefundTotals} has no Java equivalent either (C7): the frontend's
+ * version is a thin wrapper — {@code computeOrderTotals} with the refund lines and no
+ * order-level discount, then a field-name remap ({@code subtotal} → {@code
+ * refundSubtotal}, {@code lineTotal} → {@code lineRefund}, and so on). {@code
+ * ReturnService.create} does exactly that remap itself rather than through a second
+ * {@link Pricing} method, so the frontend's {@code computeRefundTotals} case below is
+ * ported as a {@code computeOrderTotals} call and asserted against the same numbers —
+ * see {@code ReturnWriteIT} for the same property proven through the real endpoint.
  */
 @DisplayName("Pricing")
 class PricingTest {
@@ -191,6 +197,26 @@ class PricingTest {
             assertEquals(money("0.00"), totals.subtotal);
             assertEquals(money("0.00"), totals.grandTotal);
             assertTrue(totals.taxBreakup.isEmpty());
+        }
+    }
+
+    @Nested
+    @DisplayName("computeOrderTotals used as a refund (C7)")
+    class ComputeRefundTotals {
+
+        @Test
+        @DisplayName("reuses order math and the field-remapped result matches pricing.test.js's case")
+        void reusesOrderMathForARefund() {
+            // pricing.test.js: computeRefundTotals([{ unitPrice: 59, quantity: 1,
+            // taxRatePercent: 18 }]) -> refundSubtotal 59, refundTax extractInclusiveTax(59,18),
+            // refundTotal 59, lines[0].lineRefund 59. No order-level discount on a refund.
+            Pricing.OrderTotals totals = Pricing.computeOrderTotals(
+                    List.of(line(money("59"), 1, money("18"))), BigDecimal.ZERO);
+
+            assertEquals(money("59.00"), totals.subtotal); // -> refundSubtotal
+            assertEquals(Pricing.extractInclusiveTax(money("59"), money("18")), totals.totalTax); // -> refundTax
+            assertEquals(money("59.00"), totals.grandTotal); // -> refundTotal
+            assertEquals(money("59.00"), totals.lines.get(0).lineTotal); // -> lineRefund
         }
     }
 

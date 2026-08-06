@@ -653,6 +653,141 @@ class TenantIsolationIT {
         }
     }
 
+    /**
+     * The order-lookup cases from {@code isolation.test.js} (C7). Order numbers repeat
+     * across tenants — both stores' first sale can be {@code -0001} — so the case worth
+     * proving is not just "an unknown number is 404" but that the <b>same</b> number
+     * resolves to each caller's own order, never the other tenant's.
+     */
+    @Nested
+    @DisplayName("order lookup (for returns) is scoped too")
+    class OrderLookupIsScopedToo {
+
+        @Test
+        @DisplayName("the same order number resolves to each tenant's own order, not the other's")
+        void sameNumberResolvesToTheCallersOwnOrder() throws Exception {
+            PaidOrder mgOrder = createAndPayOrder(asMgRoadCashier(), mgRoadBisleriVariant, 1);
+            PaidOrder airportOrder = createAndPayOrder(asAirportAdmin(), airportBisleriVariant, 2);
+            assertEquals(mgOrder.orderNumber(), airportOrder.orderNumber(),
+                    "fixture assumption: both stores' first sale shares a number — if this "
+                            + "ever fails, the two lookups below just prove less than intended");
+            em.flush();
+            em.clear();
+
+            lookupOrder(asMgRoadCashier(), mgOrder.orderNumber())
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.tenantId").value(id(mgRoad)))
+                    .andExpect(jsonPath("$.items[0].quantity").value(1));
+
+            lookupOrder(asAirportAdmin(), airportOrder.orderNumber())
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.tenantId").value(id(airport)))
+                    .andExpect(jsonPath("$.items[0].quantity").value(2));
+        }
+
+        @Test
+        @DisplayName("a number that exists only in the other tenant is 404, identical to one that never existed")
+        void aForeignOnlyNumberIs404() throws Exception {
+            createAndPayOrder(asAirportAdmin(), airportBisleriVariant, 1);
+            // Airport's SECOND number, guaranteed absent from MG Road regardless of
+            // whether the two stores' FIRST numbers happen to collide.
+            PaidOrder airportSecond = createAndPayOrder(asAirportAdmin(), airportBisleriVariant, 1);
+            em.flush();
+            em.clear();
+
+            String crossTenant = lookupOrder(asMgRoadCashier(), airportSecond.orderNumber())
+                    .andExpect(status().isNotFound())
+                    .andReturn().getResponse().getContentAsString();
+            String neverExisted = lookupOrder(asMgRoadCashier(), "NOPE-9999")
+                    .andExpect(status().isNotFound())
+                    .andReturn().getResponse().getContentAsString();
+
+            assertEquals(neverExisted, crossTenant,
+                    "an order number from another tenant must be indistinguishable from one "
+                            + "that never existed");
+        }
+    }
+
+    /**
+     * The return cases from {@code isolation.test.js} (C7). A return references its
+     * original order by id and inherits that order's tenant rather than re-reading the
+     * session — everything downstream (get, list, the return number itself) has to stay
+     * inside the boundary exactly like an order does.
+     */
+    @Nested
+    @DisplayName("returns are scoped too")
+    class ReturnsAreScopedToo {
+
+        @Test
+        @DisplayName("a t2 caller cannot return against a t1 order, and its stock stays decremented")
+        void crossTenantCreateIs404AndLeavesStockAlone() throws Exception {
+            PaidOrder mgOrder = createAndPayOrder(asMgRoadCashier(), mgRoadBisleriVariant, 1);
+            em.flush();
+            em.clear();
+
+            createReturn(asAirportAdmin(), mgOrder.id(), mgRoadBisleriVariant, 1)
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.message").value("Order not found"));
+
+            em.flush();
+            em.clear();
+            // Stock was decremented by the payment above (80 -> 79) and must NOT have been
+            // restored by a return that should never have been allowed to happen.
+            lookup(asMgRoadCashier(), mgRoadBisleriQr)
+                    .andExpect(jsonPath("$.stockQuantity").value(79));
+        }
+
+        @Test
+        @DisplayName("a t2 return id is 404 for a t1 caller, identical to one that never existed")
+        void crossTenantGetIs404() throws Exception {
+            PaidOrder mgOrder = createAndPayOrder(asMgRoadCashier(), mgRoadBisleriVariant, 1);
+            String mgReturnId = createReturnId(asMgRoadCashier(), mgOrder.id(), mgRoadBisleriVariant, 1);
+            em.flush();
+            em.clear();
+
+            String crossTenant = getReturn(asAirportAdmin(), mgReturnId)
+                    .andExpect(status().isNotFound())
+                    .andReturn().getResponse().getContentAsString();
+            String neverExisted = getReturn(asAirportAdmin(), String.valueOf(UNISSUED_ID))
+                    .andExpect(status().isNotFound())
+                    .andReturn().getResponse().getContentAsString();
+
+            assertEquals(neverExisted, crossTenant,
+                    "another tenant's return id must be indistinguishable from one that never existed");
+        }
+
+        @Test
+        @DisplayName("list never crosses over — each store sees only its own returns")
+        void listNeverCrossesOver() throws Exception {
+            PaidOrder mgOrder = createAndPayOrder(asMgRoadCashier(), mgRoadBisleriVariant, 1);
+            createReturn(asMgRoadCashier(), mgOrder.id(), mgRoadBisleriVariant, 1)
+                    .andExpect(status().isCreated());
+
+            PaidOrder airportOrder = createAndPayOrder(asAirportAdmin(), airportBisleriVariant, 1);
+            createReturn(asAirportAdmin(), airportOrder.id(), airportBisleriVariant, 1)
+                    .andExpect(status().isCreated());
+
+            listReturns(asMgRoadCashier())
+                    .andExpect(jsonPath("$.total").value(1))
+                    .andExpect(jsonPath("$.items[0].tenantId").value(id(mgRoad)));
+            listReturns(asAirportAdmin())
+                    .andExpect(jsonPath("$.total").value(1))
+                    .andExpect(jsonPath("$.items[0].tenantId").value(id(airport)));
+        }
+
+        @Test
+        @DisplayName("both stores' first return is numbered -0001 — the sequences don't share a counter")
+        void returnNumbersAreScopedPerTenant() throws Exception {
+            PaidOrder mgOrder = createAndPayOrder(asMgRoadCashier(), mgRoadBisleriVariant, 1);
+            PaidOrder airportOrder = createAndPayOrder(asAirportAdmin(), airportBisleriVariant, 1);
+
+            createReturn(asMgRoadCashier(), mgOrder.id(), mgRoadBisleriVariant, 1)
+                    .andExpect(jsonPath("$.returnNumber", matchesRegex("RET-\\d{4}-0001")));
+            createReturn(asAirportAdmin(), airportOrder.id(), airportBisleriVariant, 1)
+                    .andExpect(jsonPath("$.returnNumber", matchesRegex("RET-\\d{4}-0001")));
+        }
+    }
+
     @Nested
     @DisplayName("a SUPER_ADMIN has no tenant context")
     class PlatformAdminHasNoTenant {
@@ -799,6 +934,63 @@ class TenantIsolationIT {
 
     private ResultActions listOrders(String token) throws Exception {
         return mvc.perform(get("/api/orders")
+                .header("Authorization", "Bearer " + token)
+                .param("pageSize", "200"));
+    }
+
+    /** What a return case needs from a completed order: the id to return against, and
+     * the number two fixtures can compare without a second round trip. */
+    private record PaidOrder(String id, String orderNumber) {
+    }
+
+    private PaidOrder createAndPayOrder(String token, Long variantId, int quantity) throws Exception {
+        String response = createOrder(token, variantId, quantity)
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String orderId = JsonPath.read(response, "$.id");
+        String orderNumber = JsonPath.read(response, "$.orderNumber");
+
+        mvc.perform(post("/api/orders/" + orderId + "/payments")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {"method":"CARD"}
+                                """))
+                .andExpect(status().isOk());
+
+        return new PaidOrder(orderId, orderNumber);
+    }
+
+    private ResultActions lookupOrder(String token, String orderNumber) throws Exception {
+        return mvc.perform(get("/api/orders/lookup")
+                .header("Authorization", "Bearer " + token)
+                .param("orderNumber", orderNumber));
+    }
+
+    private ResultActions createReturn(String token, String originalOrderId, Long variantId, int quantity)
+            throws Exception {
+        return mvc.perform(post("/api/returns")
+                .header("Authorization", "Bearer " + token)
+                .contentType(APPLICATION_JSON)
+                .content("""
+                        {"originalOrderId":"%s","items":[{"variantId":"%s","quantity":%d}]}
+                        """.formatted(originalOrderId, variantId, quantity)));
+    }
+
+    private String createReturnId(String token, String originalOrderId, Long variantId, int quantity)
+            throws Exception {
+        String response = createReturn(token, originalOrderId, variantId, quantity)
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return JsonPath.read(response, "$.id");
+    }
+
+    private ResultActions getReturn(String token, String id) throws Exception {
+        return mvc.perform(get("/api/returns/" + id).header("Authorization", "Bearer " + token));
+    }
+
+    private ResultActions listReturns(String token) throws Exception {
+        return mvc.perform(get("/api/returns")
                 .header("Authorization", "Bearer " + token)
                 .param("pageSize", "200"));
     }
