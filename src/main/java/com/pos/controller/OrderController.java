@@ -2,11 +2,13 @@ package com.pos.controller;
 
 import com.pos.model.OrderData;
 import com.pos.model.OrderForm;
+import com.pos.model.OrderLookupData;
 import com.pos.model.PageData;
 import com.pos.model.PaymentForm;
 import com.pos.pojo.OrderStatus;
 import com.pos.service.OrderService;
 import com.pos.service.PaymentService;
+import com.pos.service.ReturnService;
 import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -21,7 +23,8 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * {@code /api/orders} — requirements.md section 9 (C6).
+ * {@code /api/orders} — requirements.md section 9 (C6, plus the {@code /lookup}
+ * endpoint C7 adds).
  *
  * <p><b>No endpoint here takes a {@code tenantId}, a {@code cashierId} on a write, or a
  * {@code processedBy}.</b> Tenant and actor both ride the token, exactly as
@@ -33,6 +36,11 @@ import org.springframework.web.bind.annotation.RestController;
  * payment and hold/resume to a {@code CASHIER} as much as an {@code ADMIN}. A
  * {@code SUPER_ADMIN} is still turned away — not by a role rule, but by
  * {@code TenantContext.requireTenant()}, since it has no store to hold an order in.
+ *
+ * <p><b>{@code GET /lookup} belongs to returns, not orders</b> (C7) — it exists so a
+ * return can be started from an order number — but it lives here because its URL does:
+ * requirements.md section 9 names it {@code /api/orders/lookup}, not
+ * {@code /api/returns/lookup}. {@code ReturnController} owns the rest of the feature.
  */
 @RestController
 @RequestMapping("/api/orders")
@@ -43,6 +51,21 @@ public class OrderController {
 
     @Autowired
     private PaymentService paymentService;
+
+    @Autowired
+    private ReturnService returnService;
+
+    @Operation(summary = "Look up a completed order for return",
+               description = "Resolves within the caller's own tenant only — order "
+                       + "numbers repeat across stores, each running its own "
+                       + "ORD-YYYY-#### sequence from 1. 404 if no such order exists in "
+                       + "this tenant; 400 if it exists but was never completed. Each "
+                       + "line carries returnedQuantity/returnableQuantity alongside "
+                       + "its usual fields.")
+    @GetMapping("/lookup")
+    public OrderLookupData lookup(@RequestParam String orderNumber) {
+        return returnService.lookupOrder(orderNumber);
+    }
 
     @Operation(summary = "List orders",
                description = "One page of the caller's own tenant, newest first. A "
