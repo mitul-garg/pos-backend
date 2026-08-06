@@ -1,6 +1,8 @@
 package com.pos.config;
 
 import com.pos.service.AuthService;
+import com.pos.service.OrderService;
+import com.pos.service.PaymentService;
 import com.pos.service.ProductService;
 import com.pos.service.VariantService;
 import org.springframework.context.annotation.Bean;
@@ -43,5 +45,15 @@ public class StubServiceConfig {
     @Bean
     public VariantService variantService() {
         return new VariantService(null, null, null);
+    }
+
+    @Bean
+    public OrderService orderService() {
+        return new OrderService(null, null, null, null, null, null);
+    }
+
+    @Bean
+    public PaymentService paymentService() {
+        return new PaymentService(null, null, null);
     }
 }

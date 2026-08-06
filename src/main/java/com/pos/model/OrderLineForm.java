@@ -17,7 +17,9 @@ import java.math.BigDecimal;
  */
 public class OrderLineForm {
 
+    @JsonId
     private Long variantId;
+
     private Integer quantity;
 
     /** Defaults to zero when absent — matching the mock's {@code lineDiscount || 0}. */
