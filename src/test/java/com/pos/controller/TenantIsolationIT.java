@@ -45,6 +45,7 @@ import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.matchesRegex;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -52,6 +53,7 @@ import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -115,6 +117,7 @@ class TenantIsolationIT {
     private Long mgRoadRetired;
 
     /** And the variant-shaped half of it, including a label from each store. */
+    private Long mgRoadBisleriVariant;
     private Long airportBisleriVariant;
     private String mgRoadBisleriQr;
     private String airportBisleriQr;
@@ -146,7 +149,7 @@ class TenantIsolationIT {
         // and a label from each. Both stores' runs start at 000001, so the two codes differ
         // only in the tenant segment, which is exactly the confusion a scan has to survive.
         mgRoadBisleriQr = "POS-QR-" + mgRoad.getId() + "-000001";
-        variant(mgRoad, mgRoadBisleri, "1 L", "BISLERI-1L", mgRoadBisleriQr, 80);
+        mgRoadBisleriVariant = variant(mgRoad, mgRoadBisleri, "1 L", "BISLERI-1L", mgRoadBisleriQr, 80);
         variant(mgRoad, mgRoadBisleri, "500 ml", "BISLERI-500", "POS-QR-" + mgRoad.getId() + "-000002", 100);
 
         airportBisleriQr = "POS-QR-" + airport.getId() + "-000001";
@@ -550,6 +553,106 @@ class TenantIsolationIT {
         }
     }
 
+    /**
+     * The order cases from {@code isolation.test.js} (C6). Orders have no cross-tenant
+     * <i>write</i> case shaped like {@code aCreateIgnoresTheTenantInTheBody} above —
+     * {@code OrderForm} has no {@code tenantId} field to smuggle one through in the first
+     * place, unlike {@code ProductForm} — so what is worth proving here is different: that
+     * the per-tenant order-number sequence really is independent (both stores' first order
+     * can be {@code -0001}), and that every other endpoint answers the same 404-not-403 for
+     * an id that leaked across the boundary, exactly like every resource before it.
+     */
+    @Nested
+    @DisplayName("orders — per-tenant numbering, and every endpoint scoped")
+    class OrdersAreScopedToo {
+
+        @Test
+        @DisplayName("both stores' first order is numbered -0001 — the sequences don't share a counter")
+        void orderNumbersAreScopedPerTenant() throws Exception {
+            createOrder(asMgRoadCashier(), mgRoadBisleriVariant, 1)
+                    .andExpect(jsonPath("$.orderNumber", matchesRegex("ORD-\\d{4}-0001")));
+            createOrder(asAirportAdmin(), airportBisleriVariant, 1)
+                    .andExpect(jsonPath("$.orderNumber", matchesRegex("ORD-\\d{4}-0001")));
+        }
+
+        @Test
+        @DisplayName("a t2 order id is 404 for a t1 caller, identical to one that never existed")
+        void crossTenantGetIs404() throws Exception {
+            Long orderId = createOrderId(asMgRoadCashier(), mgRoadBisleriVariant, 1);
+            // The order just created is still MANAGED in this transaction's shared
+            // persistence context -- em.find() would hand it back from the first-level
+            // cache without issuing SQL at all, and a filter can only scope a query that
+            // actually runs. See setUp()'s identical note on the em.persist fixtures.
+            em.flush();
+            em.clear();
+
+            String crossTenant = getOrder(asAirportAdmin(), orderId)
+                    .andExpect(status().isNotFound())
+                    .andReturn().getResponse().getContentAsString();
+            String neverExisted = getOrder(asAirportAdmin(), UNISSUED_ID)
+                    .andExpect(status().isNotFound())
+                    .andReturn().getResponse().getContentAsString();
+
+            assertEquals(neverExisted, crossTenant,
+                    "another tenant's order id must be indistinguishable from one that never existed");
+        }
+
+        @Test
+        @DisplayName("a t2 caller cannot patch a t1 order, and nothing about it changed")
+        void crossTenantPatchIs404AndChangesNothing() throws Exception {
+            Long orderId = createOrderId(asMgRoadCashier(), mgRoadBisleriVariant, 1);
+            em.flush();
+            em.clear();
+
+            mvc.perform(patch("/api/orders/" + orderId)
+                            .header("Authorization", "Bearer " + asAirportAdmin())
+                            .contentType(APPLICATION_JSON)
+                            .content("""
+                                    {"status":"CANCELLED"}
+                                    """))
+                    .andExpect(status().isNotFound());
+
+            getOrder(asMgRoadCashier(), orderId)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value("DRAFT"));
+        }
+
+        @Test
+        @DisplayName("a t2 caller cannot pay a t1 order, and it is still unpaid")
+        void crossTenantPaymentIs404AndLeavesItUnpaid() throws Exception {
+            Long orderId = createOrderId(asMgRoadCashier(), mgRoadBisleriVariant, 1);
+            em.flush();
+            em.clear();
+
+            mvc.perform(post("/api/orders/" + orderId + "/payments")
+                            .header("Authorization", "Bearer " + asAirportAdmin())
+                            .contentType(APPLICATION_JSON)
+                            .content("""
+                                    {"method":"CARD"}
+                                    """))
+                    .andExpect(status().isNotFound());
+
+            getOrder(asMgRoadCashier(), orderId)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value("DRAFT"))
+                    .andExpect(jsonPath("$.payment").doesNotExist());
+        }
+
+        @Test
+        @DisplayName("list never crosses over — each store sees only its own order")
+        void listNeverCrossesOver() throws Exception {
+            createOrder(asMgRoadCashier(), mgRoadBisleriVariant, 1);
+            createOrder(asAirportAdmin(), airportBisleriVariant, 1);
+
+            listOrders(asMgRoadCashier())
+                    .andExpect(jsonPath("$.total").value(1))
+                    .andExpect(jsonPath("$.items[0].tenantId").value(id(mgRoad)));
+            listOrders(asAirportAdmin())
+                    .andExpect(jsonPath("$.total").value(1))
+                    .andExpect(jsonPath("$.items[0].tenantId").value(id(airport)));
+        }
+    }
+
     @Nested
     @DisplayName("a SUPER_ADMIN has no tenant context")
     class PlatformAdminHasNoTenant {
@@ -672,6 +775,32 @@ class TenantIsolationIT {
                 .content("""
                         {"variantLabel":"probe","sku":"%s","mrp":20,"sellingPrice":20}
                         """.formatted(sku)));
+    }
+
+    private ResultActions createOrder(String token, Long variantId, int quantity) throws Exception {
+        return mvc.perform(post("/api/orders")
+                .header("Authorization", "Bearer " + token)
+                .contentType(APPLICATION_JSON)
+                .content("""
+                        {"items":[{"variantId":"%s","quantity":%d}]}
+                        """.formatted(variantId, quantity)));
+    }
+
+    private Long createOrderId(String token, Long variantId, int quantity) throws Exception {
+        String response = createOrder(token, variantId, quantity)
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return Long.valueOf((String) JsonPath.read(response, "$.id"));
+    }
+
+    private ResultActions getOrder(String token, Long orderId) throws Exception {
+        return mvc.perform(get("/api/orders/" + orderId).header("Authorization", "Bearer " + token));
+    }
+
+    private ResultActions listOrders(String token) throws Exception {
+        return mvc.perform(get("/api/orders")
+                .header("Authorization", "Bearer " + token)
+                .param("pageSize", "200"));
     }
 
     private String asMgRoadCashier() throws Exception {
