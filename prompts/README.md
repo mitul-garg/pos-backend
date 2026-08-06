@@ -8,9 +8,10 @@ something in `backend/`.
 > nine entities, a committed `schema.sql`, a JWT security chain, a Hibernate filter
 > that scopes every query to the caller's tenant, products and variants with
 > server-minted QR codes, and orders that recompute their own pricing and
-> atomically decrement stock at payment; `mvn jetty:run`, **196 automated tests**
-> — C6 has been verified manually per CONVENTIONS.md's testing order and its
-> automated suite is still to come. The plan is `../../backend-plan.md` (steps
+> atomically decrement stock at payment; `mvn jetty:run`, **250 automated tests**
+> — C6 was verified manually per CONVENTIONS.md's testing order first, then
+> covered by its own automated suite (pricing, order/payment writes, tenant
+> isolation, and a stock-race concurrency test). The plan is `../../backend-plan.md` (steps
 > C1–C9); the spec is `../../requirements.md`. The database in
 > [database/](./database/) is **implemented as documented** — `SchemaConstraintsIT`
 > proves the isolation-critical parts of it exist in MySQL.

@@ -12,9 +12,10 @@ multi-tenancy rules.
 > cancel, server-recomputed pricing, and an atomic stock decrement at checkout.
 > All nine tables exist and `schema.sql` is committed. **A local MySQL is required
 > to run `mvn test`**, and **a JWT signing key is required to run the app at all**
-> (see Credentials below). C6's endpoints are manually verified (see
-> [`prompts/c6-orders.md`](./prompts/c6-orders.md)); its automated suite is still
-> to come. Returns are next (C7). Build sequence is
+> (see Credentials below). C6's endpoints were verified manually first (see
+> [`prompts/c6-orders.md`](./prompts/c6-orders.md)), then covered by an automated
+> suite — pricing, order/payment writes, tenant isolation, and a stock-race
+> concurrency test. Returns are next (C7). Build sequence is
 > [`../backend-plan.md`](../backend-plan.md) (steps C1–C9).
 
 Before changing anything here, read [`prompts/README.md`](./prompts/README.md) —
@@ -239,9 +240,10 @@ this table, so the two cannot drift apart silently.
 port the frontend's, which already specify correct behaviour — see
 [`../backend-plan.md`](../backend-plan.md) §8 for the mapping.
 
-As of C5 there are **196 tests, 130 of which need `pos_test`**. The other 66 run with
+As of C6 there are **250 tests, 172 of which need `pos_test`**. The other 78 run with
 nothing but a JVM — `MockMvc` covers the controllers and error mapping without Jetty,
-`SchemaSqlTest` generates DDL offline, and `JwtTokenServiceTest` needs neither.
+`SchemaSqlTest` generates DDL offline, `JwtTokenServiceTest` needs neither, and
+`PricingTest` is a pure port of `pricing.test.js` with no Spring context at all.
 Reach for a database when the test is genuinely *about* persistence. The suffix is
 the marker: `*IT` needs `pos_test`, `*Test` needs nothing.
 
