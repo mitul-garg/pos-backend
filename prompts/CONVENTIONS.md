@@ -3,17 +3,21 @@
 Cross-cutting patterns for `backend/`. Check here before inventing a new pattern
 or grepping the source tree for "how do we usually do X".
 
-> **Status: substantiated (C1–C7 landing).** The layout, error mapping, DTO naming,
+> **Status: substantiated (C1–C8 landing).** The layout, error mapping, DTO naming,
 > config-package, **persistence**, **security**, **tenant scoping**, **writes,
 > validation and per-tenant sequences** (C5), **atomic stock mutation and
-> server-side price recomputation** (C6) and — as of C7 — **a pessimistic row lock
-> as the referee for a check an atomic statement can't express** all describe real
-> classes. See [c1-skeleton.md](./c1-skeleton.md),
+> server-side price recomputation** (C6), **a pessimistic row lock as the referee
+> for a check an atomic statement can't express** (C7) and — as of C8 — **that lock
+> has to be the first read in its transaction, not merely the one right before the
+> count it protects** all describe real classes. See [c1-skeleton.md](./c1-skeleton.md),
 > [c2-persistence.md](./c2-persistence.md), [c3-auth.md](./c3-auth.md),
 > [c4-tenancy.md](./c4-tenancy.md), [c5-catalogue.md](./c5-catalogue.md),
-> [c6-orders.md](./c6-orders.md) and [c7-returns.md](./c7-returns.md).
+> [c6-orders.md](./c6-orders.md), [c7-returns.md](./c7-returns.md) and
+> [c8-users-tenants.md](./c8-users-tenants.md).
 > **Scoping is now enforced rather than intended**: a query written against a
-> tenant-owned entity is scoped whether or not its author thought about tenancy.
+> tenant-owned entity is scoped whether or not its author thought about tenancy —
+> except `AppUser`, the one entity C8 has to scope by hand for a documented reason
+> (`c4-tenancy.md`, `c8-users-tenants.md`).
 > As each C-step lands, replace intent with what was actually built and link the
 > class that establishes it; an unsubstantiated convention is worse than none.
 
@@ -428,6 +432,17 @@ Rules for this package:
   narrowest row that makes two conflicting callers actually conflict — a return
   locks the one order it's returning against, not (like `TenantSequenceDao`) the
   whole tenant, because only two returns against the *same* order can race.
+- **The lock must be the *first* read in its transaction, not merely the statement
+  right before the aggregate** (`AppUserDao.lockTenant`, C8). MySQL's REPEATABLE
+  READ answers every later *plain* `SELECT` in a transaction from the snapshot
+  taken at that transaction's first read — a locking read always sees the latest
+  committed row regardless, which is what makes it safe to go first, but an
+  ordinary read placed before it poisons the snapshot for everything after,
+  including the aggregate the lock exists to protect. `ReturnService.create` never
+  had to say this because `OrderDao.findForUpdate` already happens to be its first
+  statement; `UserService.deactivate` needed a real concurrency-test failure
+  (`LastAdminRaceIT`) to find it, because the natural reading order — load the row,
+  decide whether the guard applies, then lock and count — puts a read first.
 
 ## API and errors
 
@@ -525,8 +540,11 @@ Rules for this package:
   writing a QR code by hand means moving `tenant_sequence` to match.
 - **Concurrency tests find what review cannot.** `VariantSequenceIT` caught both of
   C5's bugs on its first run, and in each case the broken code carried a comment
-  explaining why it was correct. Write one for anything that mints a number, decrements
-  stock, or checks uniqueness.
+  explaining why it was correct. `LastAdminRaceIT` did it again in C8: a lock taken
+  in the "obviously" correct place (right before the count) still let two racing
+  admins both deactivate, because it wasn't the *first* read in its transaction —
+  see the "Transactions" section above. Write one for anything that mints a number,
+  decrements stock, or checks uniqueness.
 - **A `@Transactional` IT can assert nothing without `em.flush()` / `em.clear()`
   after its fixtures.** Rows persisted in the test's own transaction are managed,
   so `em.find()` answers from the persistence context without running SQL — and a

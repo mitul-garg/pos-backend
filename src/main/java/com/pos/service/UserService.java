@@ -170,6 +170,28 @@ public class UserService {
      * still counted among the active admins it is being compared against — exactly the
      * mock's {@code activeAdmins.length <= 1} check, not an off-by-one.
      *
+     * <p><b>Locks the tenant row before anything else runs in this transaction</b> — see
+     * {@link AppUserDao#lockTenant}'s Javadoc for why this count needs a lock the same
+     * way a return's returnable-quantity check does, and why the lock has to come
+     * <i>first</i>, not merely before the count. Found the hard way: an earlier version
+     * called {@link AppUserDao#findInTenant} before the lock, and {@code LastAdminRaceIT}
+     * still failed — two admins racing to deactivate each other both read "2 active
+     * admins" and both succeeded. MySQL's REPEATABLE READ anchors every plain
+     * (non-locking) read in a transaction to the snapshot taken at that transaction's
+     * <i>first</i> read; {@code findInTenant} was that first read, so
+     * {@link AppUserDao#countActiveAdmins}'s plain {@code SELECT} kept answering from a
+     * snapshot taken before the lock wait even after the wait ended, never seeing the
+     * other transaction's commit. {@code OrderDao.findForUpdate} being the first
+     * statement in {@code ReturnService.create} is the same requirement, met by
+     * construction there; this method needed it stated explicitly once it was violated.
+     *
+     * <p>This costs every deactivation a lock, not only an {@code ADMIN}'s — deliberately:
+     * knowing whether the target is an {@code ADMIN} requires reading it, and any read
+     * before the lock reintroduces the stale-snapshot bug. A low-throughput admin screen
+     * is exactly where CONVENTIONS.md's "simple lock order beats need-for-speed" applies
+     * (the same trade {@code TenantSequenceDao.next()} makes locking the whole tenant
+     * rather than one sequence row).
+     *
      * <p>Idempotent, matching {@code ProductService.deactivate}: deactivating an
      * already-inactive user is a no-op that answers 200. Returns the row, as the mock
      * does, so the client can update in place.
@@ -179,6 +201,7 @@ public class UserService {
         TenantContext.requireTenant();
         Long tenantId = authService.currentSession().getTenantId();
 
+        appUserDao.lockTenant(tenantId);
         AppUser user = appUserDao.findInTenant(id, tenantId);
         if (user == null) {
             throw new NotFoundException(NOT_FOUND);

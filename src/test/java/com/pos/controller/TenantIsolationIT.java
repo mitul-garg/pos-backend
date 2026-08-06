@@ -1,6 +1,7 @@
 package com.pos.controller;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 import com.jayway.jsonpath.JsonPath;
 import com.pos.config.OpenApiConfig;
@@ -788,6 +789,59 @@ class TenantIsolationIT {
         }
     }
 
+    /**
+     * {@code AppUser} carries no {@code @Filter} (see its own class Javadoc) — the one
+     * entity this suite exercises where scoping is enforced by hand rather than by the
+     * Hibernate filter every other case here relies on. A regression in
+     * {@code AppUserDao.findByTenant}/{@code findInTenant} would show up nowhere else:
+     * {@code TenantFilterCoverageTest} explicitly excludes {@code AppUser} as unfiltered
+     * by design, so this is the only automated check that a t1 admin cannot read or write
+     * a t2 user.
+     */
+    @Nested
+    @DisplayName("users are scoped too")
+    class UsersAreScopedToo {
+
+        @Test
+        @DisplayName("list never crosses over -- each store sees only its own users")
+        void listNeverCrossesOver() throws Exception {
+            listUsers(asMgRoadAdmin())
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$", hasSize(2)))
+                    .andExpect(jsonPath("$[*].tenantId", everyItem(is(id(mgRoad)))));
+            listUsers(asAirportAdmin())
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$", hasSize(1)))
+                    .andExpect(jsonPath("$[*].tenantId", everyItem(is(id(airport)))));
+        }
+
+        @Test
+        @DisplayName("a t2 user id is 404 for a t1 admin on both PUT and DELETE, identical to one that never existed")
+        void crossTenantWriteIs404() throws Exception {
+            Long airportAdminId = userId(asAirportAdmin(), "admin");
+
+            String crossTenant = updateUser(asMgRoadAdmin(), airportAdminId, """
+                    {"displayName":"pwned"}
+                    """)
+                    .andExpect(status().isNotFound())
+                    .andReturn().getResponse().getContentAsString();
+            String neverExisted = updateUser(asMgRoadAdmin(), UNISSUED_ID, """
+                    {"displayName":"pwned"}
+                    """)
+                    .andExpect(status().isNotFound())
+                    .andReturn().getResponse().getContentAsString();
+            assertEquals(neverExisted, crossTenant,
+                    "another tenant's user id must be indistinguishable from one that never existed");
+
+            deleteUser(asMgRoadAdmin(), airportAdminId).andExpect(status().isNotFound());
+
+            // And nothing changed -- the airport admin is still there, active, untouched.
+            listUsers(asAirportAdmin())
+                    .andExpect(jsonPath("$[?(@.username=='admin')].isActive").value(hasItem(true)))
+                    .andExpect(jsonPath("$[?(@.username=='admin')].displayName").value(hasItem("admin")));
+        }
+    }
+
     @Nested
     @DisplayName("a SUPER_ADMIN has no tenant context")
     class PlatformAdminHasNoTenant {
@@ -993,6 +1047,28 @@ class TenantIsolationIT {
         return mvc.perform(get("/api/returns")
                 .header("Authorization", "Bearer " + token)
                 .param("pageSize", "200"));
+    }
+
+    private ResultActions listUsers(String token) throws Exception {
+        return mvc.perform(get("/api/users").header("Authorization", "Bearer " + token));
+    }
+
+    private ResultActions updateUser(String token, Long id, String body) throws Exception {
+        return mvc.perform(put("/api/users/" + id)
+                .header("Authorization", "Bearer " + token)
+                .contentType(APPLICATION_JSON)
+                .content(body));
+    }
+
+    private ResultActions deleteUser(String token, Long id) throws Exception {
+        return mvc.perform(delete("/api/users/" + id).header("Authorization", "Bearer " + token));
+    }
+
+    /** Reads a seeded user's id back off the list, so a fixture never has to guess one. */
+    private Long userId(String token, String username) throws Exception {
+        String response = listUsers(token).andReturn().getResponse().getContentAsString();
+        List<String> ids = JsonPath.read(response, "$[?(@.username == '" + username + "')].id");
+        return Long.valueOf(ids.get(0));
     }
 
     private String asMgRoadCashier() throws Exception {

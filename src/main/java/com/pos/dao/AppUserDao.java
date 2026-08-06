@@ -4,8 +4,10 @@ import java.util.List;
 
 import com.pos.pojo.AppUser;
 import com.pos.pojo.Role;
+import com.pos.pojo.Tenant;
 import com.pos.util.PlatformOperation;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import jakarta.persistence.PersistenceContext;
 import org.springframework.stereotype.Repository;
 
@@ -128,9 +130,50 @@ public class AppUserDao {
     }
 
     /**
+     * Locks the tenant row before {@link #countActiveAdmins} is trusted (C8) — the same
+     * fix C7 needed for a check that is a {@code SUM}/aggregate rather than one row's
+     * column, so an atomic conditional {@code UPDATE} has nothing to bind to
+     * (CONVENTIONS.md, "Transactions"). Without it, two concurrent
+     * {@code DELETE /api/users/{id}} calls against a tenant's last two active admins
+     * could each read "2 active admins" before either writes, both pass the guard, and
+     * the store is left with none — the identical read-then-write gap
+     * {@code OrderDao.findForUpdate} closes for a return's returnable-quantity check.
+     *
+     * <p><b>The tenant row, not the two {@code AppUser} rows being raced</b> — there is no
+     * single row to lock the way a return locks one order, because the aggregate spans
+     * every admin in the tenant and a concurrent {@code POST /api/users} could be adding
+     * one mid-check. The tenant row is the one thing guaranteed to exist and common to
+     * every write this guard could ever race against, mirroring
+     * {@code TenantSequenceDao.next()}'s identical reasoning for taking the wider lock
+     * over a narrower one that doesn't exist yet.
+     *
+     * <p><b>Must be the first read {@code UserService.deactivate} performs — before even
+     * {@link #findInTenant}, not merely before {@link #countActiveAdmins}.</b> Found by
+     * {@code LastAdminRaceIT}, not by reasoning: an earlier version locked only after
+     * confirming the target was an {@code ADMIN}, which meant {@code findInTenant} ran
+     * first. MySQL's REPEATABLE READ anchors every later plain {@code SELECT} in a
+     * transaction to the snapshot taken at that transaction's <i>first</i> read; with
+     * {@code findInTenant} as that first read, {@link #countActiveAdmins} kept answering
+     * from a snapshot taken before this lock's wait, even after the wait ended — so two
+     * racing deactivations both still read "2 active admins" and both succeeded, exactly
+     * the bug this method exists to prevent. A locking read (this one) always reads the
+     * latest committed row regardless of snapshot, which is what makes it safe to be
+     * first; nothing else in the transaction has that property.
+     *
+     * <p>The consequence: {@code UserService.deactivate} pays for this lock on every
+     * call, not only when the target turns out to be an {@code ADMIN} — there is no way
+     * to know that without a read, and any read before this one reopens the bug. Cheap on
+     * a low-throughput admin screen; the same trade {@code TenantSequenceDao.next()}
+     * makes locking the whole tenant rather than a narrower row that doesn't exist yet.
+     */
+    public void lockTenant(Long tenantId) {
+        em.find(Tenant.class, tenantId, LockModeType.PESSIMISTIC_WRITE);
+    }
+
+    /**
      * How many <b>active</b> admins this tenant has right now — the count
      * {@code UserService.deactivate} checks before letting the last one go, so a store
-     * can never lock itself out of its own account.
+     * can never lock itself out of its own account. Call {@link #lockTenant} first.
      */
     public long countActiveAdmins(Long tenantId) {
         return em.createQuery(

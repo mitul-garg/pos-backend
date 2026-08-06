@@ -3,24 +3,30 @@
 Read this file first, before opening any source file, when asked to change
 something in `backend/`.
 
-> **Status: C7 landing** (skeleton + persistence + auth + the tenant spine + the
-> catalogue + orders/payment + **returns** — Spring MVC on Jetty, Hibernate on MySQL,
-> all nine entities, a committed `schema.sql`, a JWT security chain, a Hibernate
-> filter that scopes every query to the caller's tenant, products and variants with
-> server-minted QR codes, orders that recompute their own pricing and atomically
-> decrement stock at payment, and now returns that refund against the original
-> sale's own snapshot, restore stock, and bound a request to what remains
-> unreturned under real concurrency; `mvn jetty:run`, **280 automated tests**
-> — C7 was verified manually per CONVENTIONS.md's testing order first, then
-> covered by its own automated suite (pricing, return writes, six new tenant
-> isolation cases, and a return-race concurrency test). The plan is `../../backend-plan.md` (steps
-> C1–C9); the spec is `../../requirements.md`. The database in
-> [database/](./database/) is **implemented as documented** — `SchemaConstraintsIT`
-> proves the isolation-critical parts of it exist in MySQL.
+> **Status: C8 landing** (skeleton + persistence + auth + the tenant spine + the
+> catalogue + orders/payment + returns + **users and the platform surface** —
+> Spring MVC on Jetty, Hibernate on MySQL, all nine entities, a committed
+> `schema.sql`, a JWT security chain, a Hibernate filter that scopes every query to
+> the caller's tenant, products and variants with server-minted QR codes, orders
+> that recompute their own pricing and atomically decrement stock at payment,
+> returns that refund against the original sale's own snapshot and restore stock
+> under real concurrency, and now tenant-scoped user management plus a
+> `SUPER_ADMIN`-only platform surface that creates a tenant and its first admin
+> atomically, rejects reserved/duplicate/malformed codes, and suspends/reactivates;
+> `mvn jetty:run`, **327 automated tests** — C8 was verified manually per
+> CONVENTIONS.md's testing order first, then covered by its own automated suite
+> (user writes, the platform's 12 ported `tenantService.test.js` cases, two new
+> tenant isolation cases, and a last-active-admin race that failed on its first
+> real run). The plan is `../../backend-plan.md` (steps C1–C9); the spec is
+> `../../requirements.md`. The database in [database/](./database/) is
+> **implemented as documented** — `SchemaConstraintsIT` proves the
+> isolation-critical parts of it exist in MySQL.
 > **Scoping is now enforced, not intended:** a query written against a
 > tenant-owned entity is scoped whether or not its author thought about tenancy.
 > The one thing a new entity must not forget is `@Filter`, and
-> `TenantFilterCoverageTest` fails the build if it does.
+> `TenantFilterCoverageTest` fails the build if it does. **`AppUser` is the one
+> exception** — see [c8-users-tenants.md](./c8-users-tenants.md) for what a service
+> over an unfiltered entity has to do that every other service gets for free.
 > **What a write still has to do by hand** is in [c5-catalogue.md](./c5-catalogue.md):
 > stamp the tenant, take a sequence value in the same transaction as the insert it
 > numbers, and map any new unique constraint to a field.
@@ -31,6 +37,11 @@ something in `backend/`.
 > returnable-quantity check has no single-statement referee the way stock does, so
 > it locks the original order row instead — read that before writing anything else
 > that reads-then-acts against an order.
+> **What the platform surface adds on top of that** is in
+> [c8-users-tenants.md](./c8-users-tenants.md): a lock taken to protect a
+> read-then-act aggregate has to be the *first* read in its transaction, not merely
+> the one right before the count — read that before writing anything else that
+> locks a row to guard a check.
 
 ## How to use this folder
 
@@ -64,6 +75,7 @@ something in `backend/`.
 | [c5-catalogue.md](./c5-catalogue.md) | Products and variants, the merge-patch forms, server-minted QR codes and the per-tenant sequence. **Read before writing anything that inserts a row or mints a number** — it says why `TenantSequenceDao` locks the tenant first (it deadlocked without it), why a unique-constraint name arrives table-qualified, and why a green isolation case does not prove a child entity is filtered |
 | [c6-orders.md](./c6-orders.md) | Orders, hold/resume/cancel, and payment. **Read before touching stock or order pricing** — it says why every amount is recomputed from the variant's current row, why the hard stock check is one atomic conditional update at payment (not a check at order creation), and how `DevSeeder` fakes an actor for a startup task that has no request to read one from |
 | [c7-returns.md](./c7-returns.md) | Returns — lookup, create, get, list. **Read before touching return math or a returnable-quantity check** — it says why a return locks its original order rather than using an atomic update (the check is a `SUM` over several rows, not one column), why the same request can't split one returnable quantity across two lines, and why lookup/create split "missing" from "not completed" unlike the mock |
+| [c8-users-tenants.md](./c8-users-tenants.md) | Users (`/api/users`, scoped by hand) and the platform surface (`/api/tenants`, `SUPER_ADMIN`-only). **Read before touching the last-active-admin guard or any other lock protecting a read-then-act aggregate** — the lock has to be the *first read in its transaction*, not merely before the count, or MySQL's REPEATABLE READ still hands the later read a stale snapshot; found by `LastAdminRaceIT` failing on its first run, not by reasoning. Also where `@PlatformOperation` — the cross-tenant-reach marker `c4-tenancy.md` named in advance — actually gets used |
 
 Keep these tables in sync — they're the only thing agents read unconditionally.
 
@@ -96,11 +108,15 @@ out-of-tenant id must resolve as **404**, never 403.
 The frontend already proved this contract end-to-end —
 `frontend/src/services/isolation.test.js` is 23 executable statements of what
 "isolated" means, and `TenantIsolationIT` has to reproduce all of them. The
-product-shaped ones landed in C4, the variant ones in C5, the order ones in C6, and
-the return ones join them in C7 — see [c7-returns.md](./c7-returns.md)'s Tenant
-scoping section for what they cover. The user ones join last, as C8 gives them
-endpoints to aim at. **Adding an endpoint without adding its case there is how a
-leak ships**, because the browser cannot show you one you did not think to look for.
+product-shaped ones landed in C4, the variant ones in C5, the order ones in C6, the
+return ones joined in C7 — see [c7-returns.md](./c7-returns.md)'s Tenant scoping
+section for what they cover — and the user ones close it out in C8, the last
+resource type the frontend's suite names. **Adding an endpoint without adding its
+case there is how a leak ships**, because the browser cannot show you one you did
+not think to look for. The user cases are the one set in the whole suite proving
+something no other test can: `AppUser` carries no `@Filter` at all, so
+`TenantFilterCoverageTest` has nothing to say about it — see
+[c8-users-tenants.md](./c8-users-tenants.md)'s Tenant scoping section.
 
 C5 added a corollary worth knowing before you write that case: **a passing isolation
 case does not prove the entity it exercises is filtered.** A query that joins a
