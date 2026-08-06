@@ -1,24 +1,77 @@
 # PoS — backend
 
 Spring MVC + Hibernate + MySQL API for the point-of-sale app, served by Jetty.
-Implements the contract the frontend already proves out — see
-[`../requirements.md`](../requirements.md) §9 for the endpoints and §13 for the
-multi-tenancy rules.
+This repo is the API only — it pairs with
+**[pos-frontend](https://github.com/mitul-garg/pos-frontend)** for the actual
+point-of-sale UI, or can be driven directly via `curl`/Swagger. Spec:
+[`requirements.md`](./requirements.md).
 
-> **Status: C7 landing** — the app boots on Jetty, serves JSON, persists to MySQL
+> **Status: C8 complete** — the app boots on Jetty, serves JSON, persists to MySQL
 > through Hibernate, authenticates with JWTs, **scopes every query to the caller's
 > tenant**, serves the catalogue (products, variants, QR codes minted from each
 > store's own sequence), takes orders through to payment (hold/resume/cancel,
-> server-recomputed pricing, an atomic stock decrement at checkout), and now takes
-> returns: refund against the original sale's own snapshot, stock restored, and a
-> returnable-quantity check that locks the original order rather than racing it.
-> All nine tables exist and `schema.sql` is committed. **A local MySQL is required
-> to run `mvn test`**, and **a JWT signing key is required to run the app at all**
-> (see Credentials below). C7's endpoints were verified manually first (see
-> [`prompts/c7-returns.md`](./prompts/c7-returns.md)), then covered by an automated
-> suite — pricing, return writes, six new tenant isolation cases, and a return-race
-> concurrency test. Users and the platform surface are next (C8). Build sequence is
-> [`../backend-plan.md`](../backend-plan.md) (steps C1–C9).
+> server-recomputed pricing, an atomic stock decrement at checkout), takes returns
+> (refund against the original sale's own snapshot, stock restored, a
+> returnable-quantity check that locks the original order rather than racing it),
+> and manages users and tenants — a tenant-scoped admin can't mint a `SUPER_ADMIN`
+> or lock out the last active admin, and `/api/tenants/**` is the one cross-tenant
+> surface, `SUPER_ADMIN`-only with the Hibernate filter disabled. All nine tables
+> exist and `schema.sql` is committed. **A local MySQL is required to run
+> `mvn test`**, and **a JWT signing key is required to run the app at all** (see
+> Credentials below). Every C-step's endpoints were verified manually first (see
+> [`prompts/README.md`](./prompts/README.md) for the per-step write-ups), then
+> covered by an automated suite. `pos-frontend` now points at this API over HTTP
+> (see Pairing it with the frontend, below) rather than its own mock store.
+
+## Getting Started
+
+**Prerequisites:** JDK 17+, Maven, a MySQL 8.0.16+ server running locally.
+
+```sh
+git clone https://github.com/mitul-garg/pos-backend.git
+cd pos-backend
+```
+
+Two secrets don't ship with a working default, on purpose (see
+[Credentials](#credentials) below for why) — add them to a gitignored local
+file before the app will boot:
+
+```properties
+# src/main/resources/application-local.properties  (create this file)
+pos.db.password=your-mysql-password
+pos.jwt.secret=<32+ random bytes — e.g. output of `openssl rand -base64 48`>
+```
+
+```sh
+mvn clean install
+mvn jetty:run          # http://localhost:8080
+```
+
+This creates the `pos_dev` database on first connect, builds the schema from
+the entities, and seeds demo tenants/users/catalogue (see
+[Seed data](#seed-data-dev-only) below). Confirm it's up:
+
+```sh
+curl http://localhost:8080/api/health
+```
+
+or browse [`/swagger-ui/`](http://localhost:8080/swagger-ui/) for the whole
+API. `POST /api/auth/login` with `{"tenantCode":"mg-road","username":"admin","password":"admin123"}`
+gets you a token to try the rest with.
+
+```sh
+mvn test                # needs pos_test — see Database setup below
+```
+
+### Pairing it with the frontend
+
+This repo has no UI of its own. Clone
+**[pos-frontend](https://github.com/mitul-garg/pos-frontend)** alongside it
+and run `npm install && npm run dev` — it talks to `http://localhost:8080/api`
+by default, and this backend's CORS chain (`SecurityConfig`) already allows
+its dev server's origin (`http://localhost:5173`) out of the box. See
+pos-frontend's own README for its setup, including a mock-data-only mode that
+needs no backend running at all.
 
 Before changing anything here, read [`prompts/README.md`](./prompts/README.md) —
 it indexes the conventions and the database documentation.
@@ -31,15 +84,9 @@ Maven · Log4j2 · JUnit.
 No Boot means no auto-configuration — wiring is explicit Java config. That's
 deliberate: seeing what Boot normally hides is part of the point.
 
-Requires **JDK 17+** (the build targets 17) and Maven.
-
 ## Running it
 
-```sh
-mvn clean install
-mvn jetty:run          # http://localhost:8080
-mvn test
-```
+Endpoints, once the app is up (see [Getting Started](#getting-started) above):
 
 | URL | Auth | What |
 |---|---|---|
@@ -170,9 +217,10 @@ Two costs, both handled:
 
 ## Multi-tenancy in one paragraph
 
-> **Built, as of C4, except the last sentence.** `/api/tenants/**` is C8; everything
-> before it describes real classes. See
-> [`prompts/c4-tenancy.md`](./prompts/c4-tenancy.md).
+> **All of it built**, including `/api/tenants/**`, the platform surface added in
+> C8. See [`prompts/c4-tenancy.md`](./prompts/c4-tenancy.md) for the mechanism and
+> [`prompts/c8-users-tenants.md`](./prompts/c8-users-tenants.md) for the platform
+> surface specifically.
 
 Every tenant-owned row carries `tenant_id`. A Spring Security filter reads the
 `tenantId` claim from the JWT into a request-scoped `TenantContext`, and a
@@ -189,7 +237,7 @@ disabled, quarantined in its own package.
 opening sales at startup, so the same logins work end to end and the B6 isolation
 checklist can be re-run against real persistence. **Tenants, users, 23 products, 40
 variants, and 3 completed orders** (2 for `mg-road`, 1 for `airport`) — no seeded
-returns. `backend-plan.md` §9's seed table never listed any, and adding them would
+returns. Nothing in the build plan called for any, and adding them would
 mean duplicating `ReturnService`'s own math and sequence-minting the way
 `seedOrders` already avoids duplicating `OrderService`'s — the manual and automated
 return coverage exercises the real endpoints against the seeded orders instead.
@@ -242,10 +290,12 @@ this table, so the two cannot drift apart silently.
 ## Testing
 
 `mvn test` runs unit tests plus integration tests against `pos_test`. The suites
-port the frontend's, which already specify correct behaviour — see
-[`../backend-plan.md`](../backend-plan.md) §8 for the mapping.
+port the frontend's (`pos-frontend`'s `pricing.test.js`, `isolation.test.js`,
+`authService.test.js`, `tenantService.test.js`), which already specify correct
+behaviour — see [`prompts/README.md`](./prompts/README.md) for how each backend
+suite maps to its frontend original.
 
-As of C7 there are **280 tests, 201 of which need `pos_test`**. The other 79 run with
+As of C8 there are **327 tests, 246 of which need `pos_test`**. The other 81 run with
 nothing but a JVM — `MockMvc` covers the controllers and error mapping without Jetty,
 `SchemaSqlTest` generates DDL offline, `JwtTokenServiceTest` needs neither, and
 `PricingTest` is a pure port of `pricing.test.js` with no Spring context at all.
@@ -289,11 +339,15 @@ same variant's stock, exactly one winning. C7 needed a different shape rather th
 the identical pair: a returnable-quantity check is a `SUM` over several rows, not one
 column, so there's no atomic conditional update to race — `ReturnRaceIT` instead
 proves `OrderDao.findForUpdate`'s row lock serializes two returns against the same
-order rather than letting both see the same stale baseline. All four run under
-`mvn test`.
+order rather than letting both see the same stale baseline. C8's
+`LastAdminRaceIT` is the same shape as `ReturnRaceIT` — a lock, not an atomic
+column update, because "is this the last active admin" is a count over several
+rows — and caught a real bug on its first run: the obvious version locked and
+counted *after* checking the user was an `ADMIN`, so two admins racing to
+deactivate each other could still both succeed. All five run under `mvn test`.
 
 ## Bugs
 
-Bugs found by manual testing go in [`../BUGS.md`](../BUGS.md) with `Area = Backend`.
+Bugs found by manual testing go in [`BUGS.md`](./BUGS.md) with `Area = Backend`.
 Its "Code smells fixed" section is worth reading before writing a second copy of
 anything.
