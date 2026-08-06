@@ -2,7 +2,6 @@ package com.pos.dao;
 
 import java.util.List;
 
-import com.pos.pojo.PosOrder;
 import com.pos.pojo.Product;
 import com.pos.pojo.Tenant;
 import com.pos.util.PlatformOperation;
