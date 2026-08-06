@@ -3,12 +3,13 @@
 Cross-cutting patterns for `backend/`. Check here before inventing a new pattern
 or grepping the source tree for "how do we usually do X".
 
-> **Status: substantiated (C1–C5 done).** The layout, error mapping, DTO naming,
-> config-package, **persistence**, **security**, **tenant scoping** and — as of C5 —
-> **writes, validation and per-tenant sequences** all describe real classes. See
+> **Status: substantiated (C1–C6 landing).** The layout, error mapping, DTO naming,
+> config-package, **persistence**, **security**, **tenant scoping**, **writes,
+> validation and per-tenant sequences** (C5) and — as of C6 — **atomic stock
+> mutation and server-side price recomputation** all describe real classes. See
 > [c1-skeleton.md](./c1-skeleton.md), [c2-persistence.md](./c2-persistence.md),
-> [c3-auth.md](./c3-auth.md), [c4-tenancy.md](./c4-tenancy.md) and
-> [c5-catalogue.md](./c5-catalogue.md).
+> [c3-auth.md](./c3-auth.md), [c4-tenancy.md](./c4-tenancy.md),
+> [c5-catalogue.md](./c5-catalogue.md) and [c6-orders.md](./c6-orders.md).
 > **Scoping is now enforced rather than intended**: a query written against a
 > tenant-owned entity is scoped whether or not its author thought about tenancy.
 > As each C-step lands, replace intent with what was actually built and link the

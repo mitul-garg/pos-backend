@@ -5,13 +5,16 @@ Implements the contract the frontend already proves out — see
 [`../requirements.md`](../requirements.md) §9 for the endpoints and §13 for the
 multi-tenancy rules.
 
-> **Status: C5 done** — the app boots on Jetty, serves JSON, persists to MySQL
+> **Status: C6 landing** — the app boots on Jetty, serves JSON, persists to MySQL
 > through Hibernate, authenticates with JWTs, **scopes every query to the caller's
-> tenant**, and serves the catalogue: products, variants, and QR codes minted from
-> each store's own sequence. All nine tables exist and `schema.sql` is committed.
-> **A local MySQL is required to run `mvn test`**, and **a JWT signing key is
-> required to run the app at all** (see Credentials below). Orders, payments and
-> returns are next (C6–C7). Build sequence is
+> tenant**, serves the catalogue (products, variants, QR codes minted from each
+> store's own sequence), and now takes orders through to payment: hold/resume/
+> cancel, server-recomputed pricing, and an atomic stock decrement at checkout.
+> All nine tables exist and `schema.sql` is committed. **A local MySQL is required
+> to run `mvn test`**, and **a JWT signing key is required to run the app at all**
+> (see Credentials below). C6's endpoints are manually verified (see
+> [`prompts/c6-orders.md`](./prompts/c6-orders.md)); its automated suite is still
+> to come. Returns are next (C7). Build sequence is
 > [`../backend-plan.md`](../backend-plan.md) (steps C1–C9).
 
 Before changing anything here, read [`prompts/README.md`](./prompts/README.md) —
@@ -179,10 +182,18 @@ disabled, quarantined in its own package.
 
 ## Seed data (dev only)
 
-`com.pos.service.DevSeeder` loads the frontend's demo tenants, users and catalogue at
-startup, so the same logins work end to end and the B6 isolation checklist can be
-re-run against real persistence. **Tenants, users, 23 products and 40 variants** —
-orders and returns arrive with the steps that own them (C6–C7).
+`com.pos.service.DevSeeder` loads the frontend's demo tenants, users, catalogue and
+opening sales at startup, so the same logins work end to end and the B6 isolation
+checklist can be re-run against real persistence. **Tenants, users, 23 products, 40
+variants, and 3 completed orders** (2 for `mg-road`, 1 for `airport`) — returns
+arrive with the step that owns them (C7).
+
+The seeded orders are created **through `OrderService` and `PaymentService`**, so
+their numbers come from each store's real sequence and their stock decrement is
+the genuine atomic one, not a literal that would drift out of step. See
+[`prompts/c6-orders.md`](./prompts/c6-orders.md) for how the seeder fakes an actor
+(a `SecurityContext`, not just a `TenantContext`) for a startup task that has no
+request to read one from.
 
 The variants are created **through `VariantService`**, so their QR codes come from
 each store's real sequence rather than from literals that would drift out of step the
@@ -266,9 +277,11 @@ tenant on a thread the next one reuses.
 creates against one store's QR sequence and found two on its first run: a deadlock in
 the sequence generator, and a constraint-name mismatch that turned every raced
 duplicate into a 500. In both cases the broken code carried a comment explaining why
-it was correct. C6 and C7 mint order and return numbers through the same class, where
-the failure is a duplicate invoice number — write the equivalent suite before
-trusting either.
+it was correct. C6 mints order numbers through the same class, where the failure is a
+duplicate invoice number rather than a duplicate label, and payment adds a second
+concurrency case of its own — two terminals decrementing the same variant's stock.
+Neither has its concurrency suite written yet; write both before trusting either
+(C7 will need the identical pair for returns).
 
 ## Bugs
 
