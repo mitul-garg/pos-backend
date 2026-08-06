@@ -14,6 +14,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -150,16 +151,40 @@ class JwtAuthenticationFilterTest {
                 "the specific message is the point of a mid-session 403");
     }
 
+    @Test
+    @DisplayName("BUGS.md #15 -- never rejects a public path, even with an unusable token")
+    void publicPathIsSkippedRegardlessOfTheToken() throws Exception {
+        request.addHeader(HttpHeaders.AUTHORIZATION, TOKEN);
+        boolean[] chainRan = { false };
+
+        // A matcher that says yes to everything, standing in for SecurityConfig's real
+        // one matching e.g. POST /api/auth/login -- the exact path this bug broke. The
+        // stub throws on any resolveSession call, so the ONLY way this test passes is if
+        // the filter never asks it to.
+        JwtAuthenticationFilter filter = new JwtAuthenticationFilter(
+                new StubAuthService(null, new InvalidCredentialsException()),
+                new ApiErrorResponder(), req -> true);
+
+        filter.doFilter(request, response, (req, res) -> chainRan[0] = true);
+
+        assertTrue(chainRan[0], "a public path must reach the handler regardless of the token");
+        assertEquals(200, response.getStatus(), "nothing here should have written a rejection");
+        assertFalse(TenantContext.isPresent());
+    }
+
     // --- helpers -----------------------------------------------------------------
+
+    /** Matches nothing, so every test above exercises the ordinary (non-public-path) flow. */
+    private static final RequestMatcher NO_PUBLIC_PATHS = req -> false;
 
     private JwtAuthenticationFilter filterFor(SessionUserData session) {
         return new JwtAuthenticationFilter(new StubAuthService(session, null),
-                new ApiErrorResponder());
+                new ApiErrorResponder(), NO_PUBLIC_PATHS);
     }
 
     private JwtAuthenticationFilter filterRejectingWith(RuntimeException failure) {
         return new JwtAuthenticationFilter(new StubAuthService(null, failure),
-                new ApiErrorResponder());
+                new ApiErrorResponder(), NO_PUBLIC_PATHS);
     }
 
     private SessionUserData session(Long tenantId) {

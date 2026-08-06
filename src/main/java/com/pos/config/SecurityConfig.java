@@ -19,6 +19,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -84,7 +85,7 @@ public class SecurityConfig {
     @Bean
     public JwtAuthenticationFilter jwtAuthenticationFilter(AuthService authService,
                                                            ApiErrorResponder responder) {
-        return new JwtAuthenticationFilter(authService, responder);
+        return new JwtAuthenticationFilter(authService, responder, publicPathMatcher());
     }
 
     @Bean
@@ -186,6 +187,19 @@ public class SecurityConfig {
         return Arrays.stream(PUBLIC_PATHS)
                 .map(AntPathRequestMatcher::antMatcher)
                 .toArray(RequestMatcher[]::new);
+    }
+
+    /**
+     * {@link #publicMatchers()}, combined into the single matcher
+     * {@code JwtAuthenticationFilter} needs (BUGS.md #15) — that filter runs in front of
+     * {@code authorizeHttpRequests} entirely, so it cannot ask "is this request already
+     * permitted" the way the DSL above does; it can only ask "does this request's path
+     * match the same list". {@code OrRequestMatcher} is that one-matcher form of an array
+     * of alternatives, built from the identical {@link #PUBLIC_PATHS} so the two can never
+     * name different paths.
+     */
+    private RequestMatcher publicPathMatcher() {
+        return new OrRequestMatcher(publicMatchers());
     }
 
     /**

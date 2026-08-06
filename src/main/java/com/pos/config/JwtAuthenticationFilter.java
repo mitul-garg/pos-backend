@@ -19,6 +19,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
@@ -30,10 +31,19 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * around it: where the token comes from, what the {@code SecurityContext} gets, and what
  * a caller sees when it fails.
  *
- * <p><b>A missing header is not a rejection.</b> The request continues unauthenticated
- * and the chain's URL rules decide — that is what lets {@code /api/health} and
- * {@code POST /api/auth/login} stay open while everything else 401s. Rejecting here
- * would make every public endpoint need an exception.
+ * <p><b>A public path is skipped outright, before the token is even read (BUGS.md #15).</b>
+ * The original version of this class skipped processing only for a <i>missing</i> header,
+ * on the theory that "the request continues unauthenticated and the chain's URL rules
+ * decide" — true for {@code authorizeHttpRequests}, but this filter runs
+ * <i>in front of</i> that decision (see {@code SecurityConfig#securityFilterChain}'s
+ * {@code addFilterBefore}), so a <i>present but unusable</i> token — expired, signed by
+ * a rotated key, simply stale in the client — was rejected right here regardless of
+ * {@code permitAll()}. In practice: a client that keeps its last token in
+ * {@code localStorage} and attaches it to every request, the frontend's own pattern,
+ * could never log back in with fresh credentials once that token expired, because the
+ * login attempt itself never reached {@code AuthController}. Matching against
+ * {@link #publicPathMatcher} up front makes a present-but-bad token on a public path
+ * behave exactly like a missing one, rather than only reasoning about the header.
  *
  * <p><b>This is also where {@link TenantContext} is populated (C4)</b> — and, the part
  * that matters, cleared in a {@code finally}. Jetty pools threads, so a context left
@@ -50,14 +60,28 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final AuthService authService;
     private final ApiErrorResponder responder;
 
-    public JwtAuthenticationFilter(AuthService authService, ApiErrorResponder responder) {
+    /** {@code SecurityConfig}'s own public-path list, wrapped for a single {@code matches()}. */
+    private final RequestMatcher publicPathMatcher;
+
+    public JwtAuthenticationFilter(AuthService authService, ApiErrorResponder responder,
+                                   RequestMatcher publicPathMatcher) {
         this.authService = authService;
         this.responder = responder;
+        this.publicPathMatcher = publicPathMatcher;
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
+        if (publicPathMatcher.matches(request)) {
+            // BUGS.md #15. A public path needs no session at all, so nothing here should
+            // depend on whatever token the client happens to be carrying -- not even to
+            // reject it. TenantContext is never touched on this path either, matching
+            // the missing-header case just below.
+            chain.doFilter(request, response);
+            return;
+        }
+
         String token = bearerToken(request);
         if (token == null) {
             chain.doFilter(request, response);
