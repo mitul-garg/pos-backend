@@ -5,6 +5,8 @@ import com.pos.service.OrderService;
 import com.pos.service.PaymentService;
 import com.pos.service.ProductService;
 import com.pos.service.ReturnService;
+import com.pos.service.TenantService;
+import com.pos.service.UserService;
 import com.pos.service.VariantService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -61,5 +63,15 @@ public class StubServiceConfig {
     @Bean
     public ReturnService returnService() {
         return new ReturnService(null, null, null, null, null, null);
+    }
+
+    @Bean
+    public UserService userService() {
+        return new UserService(null, null, null, null);
+    }
+
+    @Bean
+    public TenantService tenantService() {
+        return new TenantService(null, null, null);
     }
 }

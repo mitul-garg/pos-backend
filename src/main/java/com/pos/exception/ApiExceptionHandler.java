@@ -56,7 +56,15 @@ public class ApiExceptionHandler {
             "uk_variant_tenant_sku",
             new String[] { "sku", "SKU is already in use" },
             "uk_variant_tenant_qrcode",
-            new String[] { "qrCode", "This QR code is already assigned to another variant" });
+            new String[] { "qrCode", "This QR code is already assigned to another variant" },
+            // C8: the enforcing half of user/tenant uniqueness, behind UserService's and
+            // TenantService's own pre-checks -- see AppUserDao.insert / TenantDao.insert
+            // for why both now flush so a raced duplicate still lands here instead of at
+            // commit, wrapped in an exception this handler never sees.
+            "uk_user_tenant_username",
+            new String[] { "username", "Username is already taken" },
+            "uk_tenant_code",
+            new String[] { "code", "That tenant code is already taken" });
 
     /**
      * Never varied and never derived from the exception — see

@@ -131,6 +131,11 @@ public class SecurityConfig {
                         // these are METHOD-scoped: GET /api/products stays open to both,
                         // so the rules cannot be collapsed into one path pattern.
                         .requestMatchers(adminMatchers()).hasRole(Role.ADMIN.name())
+                        // The platform surface (C8) -- every /api/tenants/** verb, and
+                        // only a SUPER_ADMIN reaches it. Unlike adminMatchers() this is
+                        // NOT method-scoped: requirements.md section 5.10 gates the
+                        // whole screen, so even GET /api/tenants requires the role.
+                        .requestMatchers(platformMatchers()).hasRole(Role.SUPER_ADMIN.name())
                         // Default-deny. A new endpoint is protected the moment it exists
                         // rather than when someone remembers to list it -- the inverse
                         // rule is how an endpoint ships unguarded.
@@ -210,6 +215,30 @@ public class SecurityConfig {
                 AntPathRequestMatcher.antMatcher(HttpMethod.PUT, "/api/variants/*"),
                 AntPathRequestMatcher.antMatcher(HttpMethod.DELETE, "/api/variants/*"),
                 AntPathRequestMatcher.antMatcher(HttpMethod.POST, "/api/variants/*/qr-code"),
+                // User management (C8) -- requirements.md section 5.7 gates the whole
+                // screen, not just its writes, so GET /api/users joins the other three
+                // verbs here rather than staying open the way GET /api/products is.
+                AntPathRequestMatcher.antMatcher(HttpMethod.GET, "/api/users"),
+                AntPathRequestMatcher.antMatcher(HttpMethod.POST, "/api/users"),
+                AntPathRequestMatcher.antMatcher(HttpMethod.PUT, "/api/users/*"),
+                AntPathRequestMatcher.antMatcher(HttpMethod.DELETE, "/api/users/*"),
+        };
+    }
+
+    /**
+     * The platform surface (C8) — every verb {@code TenantController} exposes.
+     * {@code SUPER_ADMIN}-gated in the chain above rather than by a check inside
+     * {@code TenantService}, the same division of labour {@link #adminMatchers()}
+     * already establishes for {@code ADMIN}. Kept as its own array rather than folded
+     * into {@code adminMatchers()}: the two lists are gated on different roles, and
+     * merging them would mean this method's name stops describing what it returns.
+     */
+    private RequestMatcher[] platformMatchers() {
+        return new RequestMatcher[] {
+                AntPathRequestMatcher.antMatcher(HttpMethod.GET, "/api/tenants"),
+                AntPathRequestMatcher.antMatcher(HttpMethod.GET, "/api/tenants/*"),
+                AntPathRequestMatcher.antMatcher(HttpMethod.POST, "/api/tenants"),
+                AntPathRequestMatcher.antMatcher(HttpMethod.PATCH, "/api/tenants/*"),
         };
     }
 

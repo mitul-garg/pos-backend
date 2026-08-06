@@ -1,0 +1,215 @@
+package com.pos.service;
+
+import java.util.List;
+import java.util.Locale;
+
+import com.pos.dao.AppUserDao;
+import com.pos.dao.TenantDao;
+import com.pos.exception.NotFoundException;
+import com.pos.exception.ValidationException;
+import com.pos.model.UserData;
+import com.pos.model.UserForm;
+import com.pos.pojo.AppUser;
+import com.pos.pojo.Role;
+import com.pos.util.TenantContext;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * Tenant-scoped user management (C8) — the port of {@code userService.js}, whose scope
+ * is deliberately narrow: list, create, deactivate, and a merge-patch update that never
+ * touches {@code username}. No arbitrary field-edit endpoint exists, matching
+ * requirements.md section 5.7.
+ *
+ * <p><b>The one service that has to scope itself by hand.</b> Every other tenant-scoped
+ * service (see {@code ProductService}) does nothing but call
+ * {@link TenantContext#requireTenant()} as a guard and let the Hibernate filter do the
+ * rest. {@link AppUser} carries no {@code @Filter} — authentication has to read it
+ * before there is a tenant to scope by — so this class both guards <i>and</i> filters,
+ * passing {@code authService.currentSession().getTenantId()} into every
+ * {@code AppUserDao} call the way a pre-C4 service would have had to. See
+ * {@code prompts/c4-tenancy.md}'s note on {@code AppUser} for why the exception exists
+ * and why it is not a precedent for anything else.
+ */
+@Service
+public class UserService {
+
+    /** Matches the frontend's {@code 'User not found'} exactly. */
+    static final String NOT_FOUND = "User not found";
+
+    /** Verbatim from {@code userService.js}. */
+    static final String USERNAME_REQUIRED = "Username is required";
+    static final String PASSWORD_REQUIRED = "Password is required";
+    static final String ROLE_INVALID = "Choose a valid role";
+    static final String USERNAME_TAKEN = "Username is already taken";
+    static final String LAST_ADMIN = "Cannot deactivate the last active admin";
+
+    private final AppUserDao appUserDao;
+    private final TenantDao tenantDao;
+    private final AuthService authService;
+    private final PasswordEncoder passwordEncoder;
+
+    /**
+     * Constructor injection, for the reason recorded on {@code AuthService}: a servlet-
+     * context-only test has to be able to stub this without dragging in a database.
+     */
+    @Autowired
+    public UserService(AppUserDao appUserDao, TenantDao tenantDao, AuthService authService,
+                       PasswordEncoder passwordEncoder) {
+        this.appUserDao = appUserDao;
+        this.tenantDao = tenantDao;
+        this.authService = authService;
+        this.passwordEncoder = passwordEncoder;
+    }
+
+    /**
+     * {@code GET /api/users} — the caller's tenant only, sorted by username. A platform
+     * {@code SUPER_ADMIN} never reaches this: {@code SecurityConfig} gates the whole path
+     * on {@code ROLE_ADMIN}, and a {@code SUPER_ADMIN} holds no tenant role at all.
+     */
+    @Transactional(readOnly = true)
+    public List<UserData> list() {
+        TenantContext.requireTenant();
+        Long tenantId = authService.currentSession().getTenantId();
+        return appUserDao.findByTenant(tenantId).stream().map(this::toData).toList();
+    }
+
+    /**
+     * {@code POST /api/users}.
+     *
+     * <p><b>{@code role} is checked against {@link Role#TENANT_ROLES}, not every role.</b>
+     * A tenant {@code ADMIN} minting a {@code SUPER_ADMIN} would be privilege escalation
+     * out of its own tenant — the exact hole that opened in the frontend when the role
+     * was added to the shared list (BUGS.md, Phase 8/B4).
+     *
+     * <p>Reports every broken field in one 400 rather than the first, matching
+     * {@code ProductService.validate}'s reasoning rather than the mock's sequential
+     * throws — the response carries a field map either way, so there is no cost to
+     * telling the caller everything wrong with the request at once.
+     */
+    @Transactional
+    public UserData create(UserForm form) {
+        TenantContext.requireTenant();
+        Long tenantId = authService.currentSession().getTenantId();
+
+        String username = trimToNull(form.getUsername());
+        if (username == null) {
+            throw ValidationException.field("username", USERNAME_REQUIRED);
+        }
+        if (form.getPassword() == null || form.getPassword().isEmpty()) {
+            throw ValidationException.field("password", PASSWORD_REQUIRED);
+        }
+        if (form.getRole() == null || !Role.TENANT_ROLES.contains(form.getRole())) {
+            throw ValidationException.field("role", ROLE_INVALID);
+        }
+        // Friendly half of uniqueness only -- uk_user_tenant_username is the enforcing
+        // half, and AppUserDao.insert now flushes so a raced duplicate still lands here.
+        if (appUserDao.findByTenantAndUsername(tenantId, username.toLowerCase(Locale.ROOT)) != null) {
+            throw ValidationException.field("username", USERNAME_TAKEN);
+        }
+
+        AppUser user = new AppUser();
+        user.setTenant(tenantDao.reference(tenantId));
+        user.setUsername(username);
+        user.setPasswordHash(passwordEncoder.encode(form.getPassword()));
+        String displayName = trimToNull(form.getDisplayName());
+        user.setDisplayName(displayName == null ? username : displayName);
+        user.setRole(form.getRole());
+        // Never from the form, matching ProductService.create: a created user is always
+        // active, so a caller asking for isActive:false would be creating a dead row.
+        user.setActive(true);
+
+        appUserDao.insert(user);
+        return toData(user);
+    }
+
+    /**
+     * {@code PUT /api/users/{id}} — a <b>merge patch</b> over {@code displayName},
+     * {@code role}, {@code password} and {@code isActive}. {@code username} is on
+     * {@link UserForm} but never read here, matching {@code userService.js}'s
+     * {@code update}: an account's username is permanent once created.
+     */
+    @Transactional
+    public UserData update(Long id, UserForm form) {
+        TenantContext.requireTenant();
+        Long tenantId = authService.currentSession().getTenantId();
+
+        AppUser user = appUserDao.findInTenant(id, tenantId);
+        if (user == null) {
+            throw new NotFoundException(NOT_FOUND);
+        }
+
+        if (form.getRole() != null) {
+            if (!Role.TENANT_ROLES.contains(form.getRole())) {
+                throw ValidationException.field("role", ROLE_INVALID);
+            }
+            user.setRole(form.getRole());
+        }
+        if (form.getDisplayName() != null) {
+            user.setDisplayName(form.getDisplayName());
+        }
+        if (form.getPassword() != null && !form.getPassword().isEmpty()) {
+            user.setPasswordHash(passwordEncoder.encode(form.getPassword()));
+        }
+        if (form.getActive() != null) {
+            user.setActive(form.getActive());
+        }
+        return toData(user);
+    }
+
+    /**
+     * {@code DELETE /api/users/{id}} — a soft delete, guarded against locking a store out
+     * of its own account.
+     *
+     * <p><b>Per tenant, matching {@code userService.js}'s identical guard</b>: another
+     * store's admins can't keep this one out of its own account, so
+     * {@link AppUserDao#countActiveAdmins} only ever counts the caller's own tenant. The
+     * count runs <i>before</i> the row is deactivated, so the user about to be removed is
+     * still counted among the active admins it is being compared against — exactly the
+     * mock's {@code activeAdmins.length <= 1} check, not an off-by-one.
+     *
+     * <p>Idempotent, matching {@code ProductService.deactivate}: deactivating an
+     * already-inactive user is a no-op that answers 200. Returns the row, as the mock
+     * does, so the client can update in place.
+     */
+    @Transactional
+    public UserData deactivate(Long id) {
+        TenantContext.requireTenant();
+        Long tenantId = authService.currentSession().getTenantId();
+
+        AppUser user = appUserDao.findInTenant(id, tenantId);
+        if (user == null) {
+            throw new NotFoundException(NOT_FOUND);
+        }
+        if (user.getRole() == Role.ADMIN && appUserDao.countActiveAdmins(tenantId) <= 1) {
+            throw new ValidationException(LAST_ADMIN);
+        }
+        user.setActive(false);
+        return toData(user);
+    }
+
+    /**
+     * Mapped inside the transaction, so {@code user.getTenant()} is safe to read despite
+     * being {@code LAZY} — only the id is read, which Hibernate answers from the proxy
+     * without a second statement.
+     */
+    private UserData toData(AppUser user) {
+        return new UserData(
+                user.getId(),
+                user.getTenant().getId(),
+                user.getUsername(),
+                user.getDisplayName(),
+                user.getRole(),
+                user.isActive(),
+                user.getCreatedAt());
+    }
+
+    private String trimToNull(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
+    }
+}
