@@ -1,6 +1,7 @@
 package com.pos.pojo;
 
 import java.time.Instant;
+import java.util.List;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -50,6 +51,16 @@ public class Tenant {
      * on this string.
      */
     public static final String PLATFORM_CODE = "platform";
+
+    /**
+     * Codes no tenant may register (C8), {@link #PLATFORM_CODE} among them — mirrors the
+     * frontend's {@code RESERVED_TENANT_CODES}. {@code TenantService.create} rejects any
+     * of these before the unique index ever sees them, so the 400 names the field rather
+     * than falling through to a duplicate-code message that would be technically true but
+     * point at the wrong reason.
+     */
+    public static final List<String> RESERVED_CODES =
+            List.of(PLATFORM_CODE, "admin", "super", "system");
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
