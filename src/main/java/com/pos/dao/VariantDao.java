@@ -189,6 +189,27 @@ public class VariantDao {
         return updated > 0;
     }
 
+    /**
+     * Stock restore (C7) — the mirror of {@link #decrementStock}. Unconditional: unlike
+     * a sale, a return has no "insufficient" case to reject, so there is nothing to
+     * check, only the same atomic increment for the same reason — a read, an add and a
+     * write would lose an update racing against a concurrent sale's decrement on the
+     * same row.
+     *
+     * <p>Bulk JPQL again, and therefore not scoped by the tenant filter, safe for the
+     * identical reason {@link #decrementStock} is: every caller reaches this with a
+     * {@code variantId} already resolved through a filtered read earlier in the same
+     * transaction — the original order line's own variant, in {@code ReturnService}'s
+     * case.
+     */
+    public void restoreStock(Long variantId, int quantity) {
+        em.createQuery("UPDATE Variant v SET v.stockQuantity = v.stockQuantity + :quantity"
+                        + " WHERE v.id = :id")
+                .setParameter("quantity", quantity)
+                .setParameter("id", variantId)
+                .executeUpdate();
+    }
+
     public List<Variant> search(String term, int limit) {
         return em.createQuery(SELECT_WITH_PRODUCT
                                 + " WHERE v.active = true AND p.active = true"

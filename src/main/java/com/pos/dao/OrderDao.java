@@ -6,6 +6,7 @@ import java.util.List;
 import com.pos.pojo.OrderStatus;
 import com.pos.pojo.PosOrder;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.TypedQuery;
 import org.springframework.stereotype.Repository;
@@ -41,6 +42,40 @@ public class OrderDao {
      */
     public PosOrder find(Long id) {
         return em.find(PosOrder.class, id);
+    }
+
+    /**
+     * By primary key, locked for the rest of this transaction (C7). {@code
+     * ReturnService.create} takes this before reading how much of an order has already
+     * been returned, so two returns racing against the <b>same order</b> serialize
+     * rather than both computing a returnable quantity against the same unreturned
+     * baseline — the identical race {@code TenantSequenceDao.next} locks a tenant row
+     * to prevent, scoped here to one order rather than the whole store, since only two
+     * returns against the same order can conflict.
+     *
+     * <p>Plain {@code em.find} for the same reason {@link #find} is: the
+     * {@code @FilterDef}'s {@code applyToLoadByKey} is what keeps this scoped, and
+     * rewriting it as JPQL to "add" scoping would hide a regression there instead of
+     * catching one.
+     */
+    public PosOrder findForUpdate(Long id) {
+        return em.find(PosOrder.class, id, LockModeType.PESSIMISTIC_WRITE);
+    }
+
+    /**
+     * By order number, within the caller's tenant (C7). Order numbers repeat across
+     * tenants — each store runs its own {@code ORD-YYYY-####} sequence from 1 — so this
+     * <b>must</b> resolve through the filter, or {@code "ORD-2026-0001"} could hand back
+     * whichever tenant happens to have inserted it first. {@code ReturnService.lookupOrder}
+     * is the one caller.
+     */
+    public PosOrder findByOrderNumber(String orderNumber) {
+        return em.createQuery("SELECT o FROM PosOrder o WHERE o.orderNumber = :orderNumber",
+                        PosOrder.class)
+                .setParameter("orderNumber", orderNumber)
+                .getResultStream()
+                .findFirst()
+                .orElse(null);
     }
 
     /** One page, newest first — matching {@code orderService.list}'s sort. */
