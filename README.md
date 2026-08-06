@@ -5,17 +5,19 @@ Implements the contract the frontend already proves out — see
 [`../requirements.md`](../requirements.md) §9 for the endpoints and §13 for the
 multi-tenancy rules.
 
-> **Status: C6 landing** — the app boots on Jetty, serves JSON, persists to MySQL
+> **Status: C7 landing** — the app boots on Jetty, serves JSON, persists to MySQL
 > through Hibernate, authenticates with JWTs, **scopes every query to the caller's
 > tenant**, serves the catalogue (products, variants, QR codes minted from each
-> store's own sequence), and now takes orders through to payment: hold/resume/
-> cancel, server-recomputed pricing, and an atomic stock decrement at checkout.
+> store's own sequence), takes orders through to payment (hold/resume/cancel,
+> server-recomputed pricing, an atomic stock decrement at checkout), and now takes
+> returns: refund against the original sale's own snapshot, stock restored, and a
+> returnable-quantity check that locks the original order rather than racing it.
 > All nine tables exist and `schema.sql` is committed. **A local MySQL is required
 > to run `mvn test`**, and **a JWT signing key is required to run the app at all**
-> (see Credentials below). C6's endpoints were verified manually first (see
-> [`prompts/c6-orders.md`](./prompts/c6-orders.md)), then covered by an automated
-> suite — pricing, order/payment writes, tenant isolation, and a stock-race
-> concurrency test. Returns are next (C7). Build sequence is
+> (see Credentials below). C7's endpoints were verified manually first (see
+> [`prompts/c7-returns.md`](./prompts/c7-returns.md)), then covered by an automated
+> suite — pricing, return writes, six new tenant isolation cases, and a return-race
+> concurrency test. Users and the platform surface are next (C8). Build sequence is
 > [`../backend-plan.md`](../backend-plan.md) (steps C1–C9).
 
 Before changing anything here, read [`prompts/README.md`](./prompts/README.md) —
@@ -186,8 +188,11 @@ disabled, quarantined in its own package.
 `com.pos.service.DevSeeder` loads the frontend's demo tenants, users, catalogue and
 opening sales at startup, so the same logins work end to end and the B6 isolation
 checklist can be re-run against real persistence. **Tenants, users, 23 products, 40
-variants, and 3 completed orders** (2 for `mg-road`, 1 for `airport`) — returns
-arrive with the step that owns them (C7).
+variants, and 3 completed orders** (2 for `mg-road`, 1 for `airport`) — no seeded
+returns. `backend-plan.md` §9's seed table never listed any, and adding them would
+mean duplicating `ReturnService`'s own math and sequence-minting the way
+`seedOrders` already avoids duplicating `OrderService`'s — the manual and automated
+return coverage exercises the real endpoints against the seeded orders instead.
 
 The seeded orders are created **through `OrderService` and `PaymentService`**, so
 their numbers come from each store's real sequence and their stock decrement is
@@ -240,7 +245,7 @@ this table, so the two cannot drift apart silently.
 port the frontend's, which already specify correct behaviour — see
 [`../backend-plan.md`](../backend-plan.md) §8 for the mapping.
 
-As of C6 there are **250 tests, 172 of which need `pos_test`**. The other 78 run with
+As of C7 there are **280 tests, 201 of which need `pos_test`**. The other 79 run with
 nothing but a JVM — `MockMvc` covers the controllers and error mapping without Jetty,
 `SchemaSqlTest` generates DDL offline, `JwtTokenServiceTest` needs neither, and
 `PricingTest` is a pure port of `pricing.test.js` with no Spring context at all.
@@ -279,11 +284,13 @@ tenant on a thread the next one reuses.
 creates against one store's QR sequence and found two on its first run: a deadlock in
 the sequence generator, and a constraint-name mismatch that turned every raced
 duplicate into a 500. In both cases the broken code carried a comment explaining why
-it was correct. C6 mints order numbers through the same class, where the failure is a
-duplicate invoice number rather than a duplicate label, and payment adds a second
-concurrency case of its own — two terminals decrementing the same variant's stock.
-Neither has its concurrency suite written yet; write both before trusting either
-(C7 will need the identical pair for returns).
+it was correct. `StockRaceIT` covers C6's own case — two terminals decrementing the
+same variant's stock, exactly one winning. C7 needed a different shape rather than
+the identical pair: a returnable-quantity check is a `SUM` over several rows, not one
+column, so there's no atomic conditional update to race — `ReturnRaceIT` instead
+proves `OrderDao.findForUpdate`'s row lock serializes two returns against the same
+order rather than letting both see the same stale baseline. All four run under
+`mvn test`.
 
 ## Bugs
 

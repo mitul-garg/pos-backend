@@ -3,15 +3,17 @@
 Read this file first, before opening any source file, when asked to change
 something in `backend/`.
 
-> **Status: C6 landing** (skeleton + persistence + auth + the tenant spine + the
-> catalogue + **orders and payment** — Spring MVC on Jetty, Hibernate on MySQL, all
-> nine entities, a committed `schema.sql`, a JWT security chain, a Hibernate filter
-> that scopes every query to the caller's tenant, products and variants with
-> server-minted QR codes, and orders that recompute their own pricing and
-> atomically decrement stock at payment; `mvn jetty:run`, **250 automated tests**
-> — C6 was verified manually per CONVENTIONS.md's testing order first, then
-> covered by its own automated suite (pricing, order/payment writes, tenant
-> isolation, and a stock-race concurrency test). The plan is `../../backend-plan.md` (steps
+> **Status: C7 landing** (skeleton + persistence + auth + the tenant spine + the
+> catalogue + orders/payment + **returns** — Spring MVC on Jetty, Hibernate on MySQL,
+> all nine entities, a committed `schema.sql`, a JWT security chain, a Hibernate
+> filter that scopes every query to the caller's tenant, products and variants with
+> server-minted QR codes, orders that recompute their own pricing and atomically
+> decrement stock at payment, and now returns that refund against the original
+> sale's own snapshot, restore stock, and bound a request to what remains
+> unreturned under real concurrency; `mvn jetty:run`, **280 automated tests**
+> — C7 was verified manually per CONVENTIONS.md's testing order first, then
+> covered by its own automated suite (pricing, return writes, six new tenant
+> isolation cases, and a return-race concurrency test). The plan is `../../backend-plan.md` (steps
 > C1–C9); the spec is `../../requirements.md`. The database in
 > [database/](./database/) is **implemented as documented** — `SchemaConstraintsIT`
 > proves the isolation-critical parts of it exist in MySQL.
@@ -25,6 +27,10 @@ something in `backend/`.
 > **What a payment adds on top** is in [c6-orders.md](./c6-orders.md): recompute
 > every amount from the variant's current row rather than the request, and the hard
 > stock check is one atomic conditional update, never a read-then-write.
+> **What a return adds on top of that** is in [c7-returns.md](./c7-returns.md): a
+> returnable-quantity check has no single-statement referee the way stock does, so
+> it locks the original order row instead — read that before writing anything else
+> that reads-then-acts against an order.
 
 ## How to use this folder
 
@@ -57,6 +63,7 @@ something in `backend/`.
 | [c4-tenancy.md](./c4-tenancy.md) | `TenantContext`, the Hibernate `@Filter`, and `/api/products` as the first scoped resource. **Read before adding any entity or endpoint** — it says what a new one must carry, why `applyToLoadByKey` is not optional, why a read outside a transaction is unscoped, and which mutations the isolation suite actually catches |
 | [c5-catalogue.md](./c5-catalogue.md) | Products and variants, the merge-patch forms, server-minted QR codes and the per-tenant sequence. **Read before writing anything that inserts a row or mints a number** — it says why `TenantSequenceDao` locks the tenant first (it deadlocked without it), why a unique-constraint name arrives table-qualified, and why a green isolation case does not prove a child entity is filtered |
 | [c6-orders.md](./c6-orders.md) | Orders, hold/resume/cancel, and payment. **Read before touching stock or order pricing** — it says why every amount is recomputed from the variant's current row, why the hard stock check is one atomic conditional update at payment (not a check at order creation), and how `DevSeeder` fakes an actor for a startup task that has no request to read one from |
+| [c7-returns.md](./c7-returns.md) | Returns — lookup, create, get, list. **Read before touching return math or a returnable-quantity check** — it says why a return locks its original order rather than using an atomic update (the check is a `SUM` over several rows, not one column), why the same request can't split one returnable quantity across two lines, and why lookup/create split "missing" from "not completed" unlike the mock |
 
 Keep these tables in sync — they're the only thing agents read unconditionally.
 
@@ -89,12 +96,11 @@ out-of-tenant id must resolve as **404**, never 403.
 The frontend already proved this contract end-to-end —
 `frontend/src/services/isolation.test.js` is 23 executable statements of what
 "isolated" means, and `TenantIsolationIT` has to reproduce all of them. The
-product-shaped ones landed in C4 and the variant ones in C5; the order cases are
-next up for C6 (endpoints exist and were verified by hand — see
-[c6-orders.md](./c6-orders.md)'s manual-test list — but the automated cases aren't
-written yet), and the return and user ones join them as C7–C8 give them endpoints
-to aim at. **Adding an endpoint without adding its case there is how a leak ships**,
-because the browser cannot show you one you did not think to look for.
+product-shaped ones landed in C4, the variant ones in C5, the order ones in C6, and
+the return ones join them in C7 — see [c7-returns.md](./c7-returns.md)'s Tenant
+scoping section for what they cover. The user ones join last, as C8 gives them
+endpoints to aim at. **Adding an endpoint without adding its case there is how a
+leak ships**, because the browser cannot show you one you did not think to look for.
 
 C5 added a corollary worth knowing before you write that case: **a passing isolation
 case does not prove the entity it exercises is filtered.** A query that joins a

@@ -3,13 +3,15 @@
 Cross-cutting patterns for `backend/`. Check here before inventing a new pattern
 or grepping the source tree for "how do we usually do X".
 
-> **Status: substantiated (C1–C6 landing).** The layout, error mapping, DTO naming,
+> **Status: substantiated (C1–C7 landing).** The layout, error mapping, DTO naming,
 > config-package, **persistence**, **security**, **tenant scoping**, **writes,
-> validation and per-tenant sequences** (C5) and — as of C6 — **atomic stock
-> mutation and server-side price recomputation** all describe real classes. See
-> [c1-skeleton.md](./c1-skeleton.md), [c2-persistence.md](./c2-persistence.md),
-> [c3-auth.md](./c3-auth.md), [c4-tenancy.md](./c4-tenancy.md),
-> [c5-catalogue.md](./c5-catalogue.md) and [c6-orders.md](./c6-orders.md).
+> validation and per-tenant sequences** (C5), **atomic stock mutation and
+> server-side price recomputation** (C6) and — as of C7 — **a pessimistic row lock
+> as the referee for a check an atomic statement can't express** all describe real
+> classes. See [c1-skeleton.md](./c1-skeleton.md),
+> [c2-persistence.md](./c2-persistence.md), [c3-auth.md](./c3-auth.md),
+> [c4-tenancy.md](./c4-tenancy.md), [c5-catalogue.md](./c5-catalogue.md),
+> [c6-orders.md](./c6-orders.md) and [c7-returns.md](./c7-returns.md).
 > **Scoping is now enforced rather than intended**: a query written against a
 > tenant-owned entity is scoped whether or not its author thought about tenancy.
 > As each C-step lands, replace intent with what was actually built and link the
@@ -418,6 +420,14 @@ Rules for this package:
 - Stock changes use an atomic conditional update
   (`… WHERE stock_quantity >= ?`) and treat zero affected rows as the rejection —
   not a read, a check, and a write.
+- **When the check is a `SUM`/aggregate rather than one row's column, an atomic
+  conditional update has nothing to bind to — lock the parent row instead**
+  (`OrderDao.findForUpdate`, C7). Read the aggregate only after taking the lock, so
+  a second racing transaction waits and then reads the *updated* value rather than
+  the same stale one the first transaction started from. Scope the lock to the
+  narrowest row that makes two conflicting callers actually conflict — a return
+  locks the one order it's returning against, not (like `TenantSequenceDao`) the
+  whole tenant, because only two returns against the *same* order can race.
 
 ## API and errors
 
