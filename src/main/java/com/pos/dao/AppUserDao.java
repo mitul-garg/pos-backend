@@ -59,6 +59,17 @@ public class AppUserDao {
                 .orElse(null);
     }
 
+    /**
+     * A proxy for the caller's own user row, for stamping {@code cashier_id} on a new
+     * order without a read (C6) — the same device as {@code TenantDao.reference}, and for
+     * the identical reason: an {@code INSERT} only needs the parent's id, and the id here
+     * is never anything but {@code AuthService.currentSession().getId()}, i.e. the JWT
+     * subject. A caller-supplied {@code cashierId} must never reach this method.
+     */
+    public AppUser reference(Long id) {
+        return em.getReference(AppUser.class, id);
+    }
+
     public void insert(AppUser user) {
         em.persist(user);
     }

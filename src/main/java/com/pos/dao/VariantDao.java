@@ -48,6 +48,21 @@ public class VariantDao {
         return em.find(Variant.class, id);
     }
 
+    /**
+     * By primary key, product pre-fetched (C6). {@link #find} stays a plain {@code em.find}
+     * for the reason on its own Javadoc; this is a second, JPQL, method for the one caller
+     * that needs the association loaded up front — {@code OrderService}, building a line
+     * snapshot from the product's name and GST slab. Ordinary-query scoping is exactly
+     * what is wanted here, since this method has no by-id regression to hide.
+     */
+    public Variant findWithProduct(Long id) {
+        return em.createQuery(SELECT_WITH_PRODUCT + " WHERE v.id = :id", Variant.class)
+                .setParameter("id", id)
+                .getResultStream()
+                .findFirst()
+                .orElse(null);
+    }
+
     /** The variants of one product, oldest first, inactive ones included. */
     public List<Variant> findByProduct(Long productId) {
         return em.createQuery(SELECT_WITH_PRODUCT + " WHERE p.id = :productId ORDER BY v.id",
@@ -101,6 +116,19 @@ public class VariantDao {
      * {@code ApiExceptionHandler}'s constraint mapping turns the loser's violation into
      * the same 400 this produces for the uncontended case.
      */
+    /**
+     * By SKU, product pre-fetched. {@code DevSeeder}'s only caller: seeded orders
+     * (C6) reference variants by the same stable SKU literals the variant fixtures use,
+     * rather than by an id that only exists after that variant has been inserted.
+     */
+    public Variant findBySku(String sku) {
+        return em.createQuery(SELECT_WITH_PRODUCT + " WHERE v.sku = :sku", Variant.class)
+                .setParameter("sku", sku)
+                .getResultStream()
+                .findFirst()
+                .orElse(null);
+    }
+
     public boolean skuExists(String sku, Long excludeId) {
         return em.createQuery(
                         "SELECT count(v) FROM Variant v WHERE v.sku = :sku"
@@ -128,6 +156,37 @@ public class VariantDao {
     public void insert(Variant variant) {
         em.persist(variant);
         em.flush();
+    }
+
+    /**
+     * The hard stock check (C6) — one atomic statement rather than a read, a check and a
+     * write with a gap between them. Two terminals racing the last unit both read
+     * {@code stockQuantity = 1} under MySQL's default REPEATABLE READ (a plain
+     * {@code SELECT} is a non-locking snapshot, so both seeing "1 left" is legal, not a
+     * bug); this instead asks the database to decrement <b>and</b> check in one round
+     * trip, and the row count <b>is</b> the availability answer — zero means "someone got
+     * there first", not "nothing happened".
+     *
+     * <p><b>A bulk statement, and therefore not scoped by the tenant filter</b> — it
+     * appends to {@code WHERE} clauses on ordinary queries, and this is neither: it names
+     * no entity alias for Hibernate to filter. Safe anyway, because every caller reaches
+     * this with an id already resolved through a filtered read ({@link #find} or
+     * {@link #findWithProduct}) earlier in the same transaction — the id in hand is
+     * already proven to belong to the caller's tenant, the same reasoning
+     * {@code TenantSequenceDao.next} relies on for the {@code Tenant} it locks. This
+     * method must never be called with an id taken from anywhere else.
+     *
+     * @return {@code true} if a row was decremented, {@code false} if stock was
+     * insufficient (or the id no longer resolves) — the caller's rejection signal.
+     */
+    public boolean decrementStock(Long variantId, int quantity) {
+        int updated = em.createQuery(
+                        "UPDATE Variant v SET v.stockQuantity = v.stockQuantity - :quantity"
+                                + " WHERE v.id = :id AND v.stockQuantity >= :quantity")
+                .setParameter("quantity", quantity)
+                .setParameter("id", variantId)
+                .executeUpdate();
+        return updated > 0;
     }
 
     public List<Variant> search(String term, int limit) {
