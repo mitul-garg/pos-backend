@@ -7,21 +7,34 @@ import java.util.Map;
 
 import com.pos.config.AppProperties;
 import com.pos.dao.AppUserDao;
+import com.pos.dao.OrderDao;
 import com.pos.dao.ProductDao;
 import com.pos.dao.TenantDao;
 import com.pos.dao.VariantDao;
+import com.pos.model.OrderData;
+import com.pos.model.OrderForm;
+import com.pos.model.OrderLineForm;
+import com.pos.model.PaymentForm;
+import com.pos.model.SessionUserData;
 import com.pos.model.VariantForm;
 import com.pos.pojo.AppUser;
+import com.pos.pojo.PaymentMethod;
 import com.pos.pojo.Product;
 import com.pos.pojo.Role;
 import com.pos.pojo.Tenant;
 import com.pos.pojo.TenantStatus;
+import com.pos.pojo.Variant;
 import com.pos.util.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -191,6 +204,55 @@ public class DevSeeder {
                 mrp, sellingPrice, stockQuantity);
     }
 
+    /** One requested line of a seeded order, keyed by SKU rather than a not-yet-issued id. */
+    private record OrderLineSeed(String sku, int quantity) {
+    }
+
+    /**
+     * One completed sale, run through {@link OrderService#create} and
+     * {@link PaymentService#pay} exactly as a real checkout would (C6) — see
+     * {@link #seedOrders} for why. {@code createdAt} is not here: {@code PosOrder} stamps
+     * it with {@code @CreationTimestamp}, so a seeded order is dated the moment the app
+     * booted rather than the mock's back-dated July timestamps. Nothing downstream reads
+     * seeded orders for their age, so that is a difference worth knowing rather than
+     * worth fixing.
+     */
+    private record OrderSeed(PaymentMethod method, BigDecimal amountTendered, String reference,
+                             List<OrderLineSeed> lines) {
+    }
+
+    private static OrderLineSeed line(String sku, int quantity) {
+        return new OrderLineSeed(sku, quantity);
+    }
+
+    private static OrderSeed cashOrder(BigDecimal amountTendered, OrderLineSeed... lines) {
+        return new OrderSeed(PaymentMethod.CASH, amountTendered, null, List.of(lines));
+    }
+
+    private static OrderSeed cardOrUpiOrder(PaymentMethod method, String reference, OrderLineSeed... lines) {
+        return new OrderSeed(method, null, reference, List.of(lines));
+    }
+
+    /**
+     * MG Road's two, copied from {@code frontend/src/mocks/orders.js} (same SKUs, same
+     * quantities, same payment) so the same two sales exist against real persistence.
+     */
+    private static final List<OrderSeed> MG_ROAD_ORDERS = List.of(
+            cashOrder(BigDecimal.valueOf(200),
+                    line("AMUL-MILK-500", 2), line("LAYS-SALT-52", 1), line("PARLEG-70", 3)),
+            cardOrUpiOrder(PaymentMethod.CARD, "TXN-CARD-88213",
+                    line("COKE-750", 2), line("COLG-MAXF-100", 1), line("CDM-55", 2)));
+
+    /**
+     * Airport's one. Reuses {@code ORD-2026-0001} against MG Road's own first order number
+     * purely by both stores starting their sequence at 1 — the collision is legal
+     * ({@code UNIQUE(tenant_id, order_number)}) and is the isolation suite's fixture, not
+     * an accident to fix.
+     */
+    private static final List<OrderSeed> AIRPORT_ORDERS = List.of(
+            cardOrUpiOrder(PaymentMethod.UPI, "UPI-4471029",
+                    line("BISLERI-1L", 2), line("SBUX-FRAP-281", 1)));
+
     @Autowired
     private AppProperties props;
 
@@ -208,6 +270,15 @@ public class DevSeeder {
 
     @Autowired
     private VariantService variantService;
+
+    @Autowired
+    private OrderDao orderDao;
+
+    @Autowired
+    private OrderService orderService;
+
+    @Autowired
+    private PaymentService paymentService;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -253,6 +324,14 @@ public class DevSeeder {
 
         seedCatalogue(mgRoad, MG_ROAD_CATALOGUE, MG_ROAD_VARIANTS);
         seedCatalogue(airport, AIRPORT_CATALOGUE, AIRPORT_VARIANTS);
+
+        // Both stores' variants have to exist before an order can reference one by SKU,
+        // hence a separate pass after both catalogues rather than folded into
+        // seedCatalogue.
+        seedOrders(mgRoad, appUserDao.findByTenantAndUsername(mgRoad.getId(), "cashier"),
+                MG_ROAD_ORDERS);
+        seedOrders(airport, appUserDao.findByTenantAndUsername(airport.getId(), "cashier"),
+                AIRPORT_ORDERS);
     }
 
     private Tenant seedTenant(String name, String code, boolean platform) {
@@ -375,6 +454,91 @@ public class DevSeeder {
         form.setSellingPrice(BigDecimal.valueOf(entry.sellingPrice()));
         form.setStockQuantity(entry.stockQuantity());
         return form;
+    }
+
+    /**
+     * The store's opening sales, run through {@link OrderService#create} and
+     * {@link PaymentService#pay} rather than inserted directly (C6) — the same choice
+     * {@link #seedVariants} made and for the same reason: an order's number comes from
+     * the tenant's own sequence and its totals from {@link com.pos.util.Pricing}, and
+     * seeding through the real endpoints means a bug in either shows up as broken seed
+     * data at startup rather than as a silently-diverging fixture. It also means the stock
+     * these sales ring up is genuinely decremented, exactly as a real till would leave it.
+     *
+     * <p><b>Both services read the caller from {@code AuthService.currentSession()}</b>,
+     * which reads {@code SecurityContextHolder}, not a parameter — there being no request
+     * to derive it from is exactly the problem {@link TenantContext#set} solves for
+     * tenancy, and this is the identical problem one layer up. The fix is the identical
+     * shape: build the {@code Authentication} {@link JwtAuthenticationFilter} would have
+     * built for this cashier, install it for the duration of this method, and clear it in
+     * a {@code finally} — {@link SecurityContextHolder} is a {@code ThreadLocal} exactly
+     * like {@link TenantContext}, so the same leak concern applies even though this
+     * startup thread will not go on to serve a pooled request.
+     *
+     * <p>Gated on {@link OrderDao#count}, tenant-scoped and therefore already inside the
+     * {@link TenantContext} this method sets — idempotent the same way
+     * {@link #seedCatalogue}'s product check is, and for the same reason: re-running
+     * {@code seed()} against a database that already has this store's orders must not
+     * mint a second set with new, higher numbers.
+     */
+    private void seedOrders(Tenant tenant, AppUser cashier, List<OrderSeed> orders) {
+        TenantContext.set(tenant.getId());
+        SecurityContextHolder.getContext().setAuthentication(authenticationFor(cashier, tenant));
+        try {
+            if (orderDao.count(null, null) > 0) {
+                return;
+            }
+            for (OrderSeed seed : orders) {
+                List<OrderLineForm> items = seed.lines().stream()
+                        .map(this::orderLineForm)
+                        .toList();
+
+                OrderForm createForm = new OrderForm();
+                createForm.setItems(items);
+                OrderData order = orderService.create(createForm);
+
+                PaymentForm paymentForm = new PaymentForm();
+                paymentForm.setMethod(seed.method());
+                paymentForm.setAmountTendered(seed.amountTendered());
+                paymentForm.setReference(seed.reference());
+                paymentService.pay(order.getId(), paymentForm);
+            }
+            log.info("Seeded {} orders for tenant {}", orders.size(), tenant.getCode());
+        } finally {
+            SecurityContextHolder.clearContext();
+            TenantContext.clear();
+        }
+    }
+
+    private OrderLineForm orderLineForm(OrderLineSeed seedLine) {
+        Variant variant = variantDao.findBySku(seedLine.sku());
+        if (variant == null) {
+            // A typo in the seed data -- see seedVariants' identical guard for why this
+            // is the right place to fail rather than leaving a puzzling gap in the order.
+            throw new IllegalStateException(
+                    "Seed order names an unknown SKU: " + seedLine.sku());
+        }
+        OrderLineForm form = new OrderLineForm();
+        form.setVariantId(variant.getId());
+        form.setQuantity(seedLine.quantity());
+        return form;
+    }
+
+    /**
+     * The {@code Authentication} {@code JwtAuthenticationFilter} would have built for a
+     * request bearing this cashier's token — same principal shape
+     * ({@code SessionUserData}), same {@code ROLE_*} authority Spring Security's
+     * {@code hasRole} looks for. Built here rather than reused from {@code AuthService}
+     * because there is no token to resolve; the {@code AppUser} row (already in hand from
+     * seeding) is the input instead.
+     */
+    private Authentication authenticationFor(AppUser cashier, Tenant tenant) {
+        SessionUserData session = new SessionUserData(
+                cashier.getId(), tenant.getId(), cashier.getUsername(), cashier.getDisplayName(),
+                cashier.getRole(), cashier.isActive(), tenant.getCode(), tenant.getName());
+        List<GrantedAuthority> authorities =
+                List.of(new SimpleGrantedAuthority("ROLE_" + cashier.getRole().name()));
+        return UsernamePasswordAuthenticationToken.authenticated(session, null, authorities);
     }
 
     private void seedUser(Tenant tenant, String username, String password,
