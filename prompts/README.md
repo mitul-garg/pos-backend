@@ -18,7 +18,7 @@ something in `backend/`.
 > (user writes, the platform's 12 ported `tenantService.test.js` cases, two new
 > tenant isolation cases, and a last-active-admin race that failed on its first
 > real run). The plan is `../../backend-plan.md` (steps C1–C9); the spec is
-> `../../requirements.md`. The database in [database/](./database/) is
+> `../requirements.md`. The database in [database/](./database/) is
 > **implemented as documented** — `SchemaConstraintsIT` proves the
 > isolation-critical parts of it exist in MySQL.
 > **Scoping is now enforced, not intended:** a query written against a
@@ -95,9 +95,9 @@ Keep these tables in sync — they're the only thing agents read unconditionally
   update `requirements.md` itself in the same change — it's the spec, this folder
   is implementation notes. They should never disagree.
 - **When the user reports a bug found by manually testing**, log it in
-  [`../../BUGS.md`](../../BUGS.md) with `Area = Backend` and update its status when
-  fixed. That file covers frontend and backend, and its "Code smells fixed" section
-  is worth reading before you write a second copy of anything.
+  [`../BUGS.md`](../BUGS.md) (this repo, backend-only — frontend bugs go in
+  `frontend/BUGS.md` in that repo) and update its status when fixed. Its "Code
+  smells fixed" section is worth reading before you write a second copy of anything.
 
 ## The one rule you cannot get wrong
 

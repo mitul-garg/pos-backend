@@ -103,9 +103,10 @@ plus any deliberate deviation from `../../backend-plan.md`. **Don't run
 rather than accumulating.
 
 ⚠️ **`backend/` is its own git repo. The parent `pos-application/` directory is
-not.** So `../backend-plan.md`, `../requirements.md` and `../BUGS.md` are **not**
-versioned by this repo — editing them is not captured by a backend commit, and
-`git status` here will never show them. Mention it when a change spans both.
+not.** So `../backend-plan.md` is **not** versioned by this repo — editing it is
+not captured by a backend commit, and `git status` here will never show it.
+`requirements.md` and `BUGS.md` live inside `backend/`, so they're ordinary
+tracked files. Mention `backend-plan.md` specifically when a change touches it.
 
 **No cross-cutting rewrites.** If a change starts touching every package, stop and
 split it — the frontend's Phase 8 worked because each of its seven steps was
@@ -118,7 +119,7 @@ moved.
 ## Stack
 
 Spring MVC (**not** Spring Boot) · Spring Security · Hibernate · MySQL 8 · Jetty ·
-Maven · Log4j2 · JUnit. Java, no Kotlin. See `../../requirements.md` §1.
+Maven · Log4j2 · JUnit. Java, no Kotlin. See `../requirements.md` §1.
 
 Because there's no Boot, there's no auto-configuration: wiring is explicit Java
 config. That's deliberate — the point of the project includes learning what Boot
@@ -446,7 +447,7 @@ Rules for this package:
 
 ## API and errors
 
-- Paths and payloads follow `../../requirements.md` §9 exactly. The frontend's
+- Paths and payloads follow `../requirements.md` §9 exactly. The frontend's
   service signatures are the contract; **what's absent from them is part of it.**
 - One `@ControllerAdvice` maps exceptions to status codes — `ApiExceptionHandler`
   (C1), in `com.pos.exception` beside the failures it translates:
