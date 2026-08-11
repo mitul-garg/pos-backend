@@ -26,7 +26,7 @@ The tenant boundary. A tenant is a single store.
 |---|---|---|---|
 | `name` | `VARCHAR(120)` | no | Display name, e.g. "MG Road Store" |
 | `code` | `VARCHAR(64)` | no | **Globally unique.** The login discriminator |
-| `status` | `VARCHAR(16)` | no | `ACTIVE` \| `SUSPENDED` \| `PENDING_VERIFICATION` |
+| `status` | `VARCHAR(32)` | no | `ACTIVE` \| `SUSPENDED` \| `PENDING_VERIFICATION`. Widened from the usual `VARCHAR(16)` (see `app_user.role`/`pos_order.status`) — `PENDING_VERIFICATION` is 21 characters, and a 16-length column rejects the insert outright rather than truncating (BUGS.md) |
 | `is_platform` | `BOOLEAN` | no | `TRUE` for exactly one reserved row — see below |
 | `created_at` | `DATETIME(6)` | no | |
 | `verification_token` | `VARCHAR(64)` | yes | C9, self-registration only. **Globally unique when present** — MySQL treats `NULL` as distinct in a unique index, so any number of verified/never-registered tenants can share it. Cleared the moment `verify()` succeeds, so a spent token can never be replayed |

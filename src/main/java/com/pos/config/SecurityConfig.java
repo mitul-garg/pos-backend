@@ -54,10 +54,23 @@ public class SecurityConfig {
      * (backend-plan.md section 11) it has to know who is calling. The cost of requiring a
      * token is nil: the frontend clears its own state and redirects to login on any 401,
      * which is the end state a logout wants anyway.
+     *
+     * <p>The three {@code /api/tenants/register|verify|resend-verification} entries
+     * (C9) are the second public surface this application has, after login — and, like
+     * login, each is its own abuse-prone unauthenticated write, not a read.
+     * {@code TenantRegistrationController} is what actually guards them
+     * ({@code RegistrationRateLimiter}, the honeypot); this list only says a caller may
+     * reach them with no token, exactly as it already does for
+     * {@code /api/auth/login}. Deliberately <b>not</b> {@code /api/tenants/**} — that
+     * broader pattern is {@link #platformMatchers()}'s, gated {@code SUPER_ADMIN}, and
+     * would swallow these three routes into the wrong gate if it came first.
      */
     private static final String[] PUBLIC_PATHS = {
             "/api/health",
             "/api/auth/login",
+            "/api/tenants/register",
+            "/api/tenants/verify",
+            "/api/tenants/resend-verification",
             "/api/openapi.json",
             "/swagger-ui",
             "/swagger-ui/**",

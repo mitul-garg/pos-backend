@@ -33,6 +33,7 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
  *   <tr><td>Deactivated user, suspended tenant, wrong role</td><td>403</td></tr>
  *   <tr><td>Missing, or belonging to another tenant</td><td>404</td></tr>
  *   <tr><td>Validation failure</td><td>400, field → message</td></tr>
+ *   <tr><td>{@code RegistrationRateLimiter} refused the request (C9)</td><td>429</td></tr>
  * </table>
  */
 @RestControllerAdvice
@@ -86,6 +87,12 @@ public class ApiExceptionHandler {
     public ResponseEntity<ApiError> handleNotFound(NotFoundException ex) {
         log.debug("Not found: {}", ex.getMessage());
         return respond(HttpStatus.NOT_FOUND, ex.getMessage());
+    }
+
+    @ExceptionHandler(TooManyRequestsException.class)
+    public ResponseEntity<ApiError> handleTooManyRequests(TooManyRequestsException ex) {
+        log.debug("Rate limit exceeded");
+        return respond(HttpStatus.TOO_MANY_REQUESTS, ex.getMessage());
     }
 
     @ExceptionHandler(ValidationException.class)

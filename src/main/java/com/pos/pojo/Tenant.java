@@ -80,9 +80,14 @@ public class Tenant {
     // VARCHAR, not MySQL's native ENUM: adding a value to a MySQL ENUM is a table
     // alter, and hbm2ddl.auto=update will not perform it. Hibernate 6 defaults to the
     // native type on MySQL, so this has to be said explicitly on every enum field.
+    // length 32, not the usual 16: PENDING_VERIFICATION (C9) is 21 characters, and
+    // MySQL truncation on an over-length value is a hard insert failure, not a
+    // silent trim -- found by manually testing POST /api/tenants/register against
+    // real MySQL (BUGS.md), since nothing in the automated suite persists this
+    // status until C9's register() existed to produce one.
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.VARCHAR)
-    @Column(name = "status", nullable = false, length = 16)
+    @Column(name = "status", nullable = false, length = 32)
     private TenantStatus status = TenantStatus.ACTIVE;
 
     /**

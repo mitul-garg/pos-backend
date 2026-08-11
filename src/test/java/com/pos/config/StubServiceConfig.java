@@ -5,9 +5,12 @@ import com.pos.service.OrderService;
 import com.pos.service.PaymentService;
 import com.pos.service.ProductService;
 import com.pos.service.ReturnService;
+import com.pos.service.TenantRegistrationService;
+import com.pos.service.TenantRegistrationWriter;
 import com.pos.service.TenantService;
 import com.pos.service.UserService;
 import com.pos.service.VariantService;
+import com.pos.util.RegistrationRateLimiter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -73,5 +76,22 @@ public class StubServiceConfig {
     @Bean
     public TenantService tenantService() {
         return new TenantService(null, null, null);
+    }
+
+    @Bean
+    public TenantRegistrationService tenantRegistrationService() {
+        return new TenantRegistrationService(new TenantRegistrationWriter(null, null, null), null, null, null);
+    }
+
+    /**
+     * Not stubbed inert like the rest of this file — it has no collaborator to null
+     * out (just an in-memory map), so a real instance is both the simplest thing to
+     * write and no less "inert" for what these suites actually assert: that
+     * {@code TenantRegistrationController} exists and serializes correctly, never
+     * that its behavior is correct.
+     */
+    @Bean
+    public RegistrationRateLimiter registrationRateLimiter() {
+        return new RegistrationRateLimiter();
     }
 }

@@ -48,9 +48,15 @@ import org.springframework.transaction.annotation.Transactional;
  * moment it returns, and {@code AppUser.tenant} is {@code LAZY} (CONVENTIONS.md), so
  * handing back an entity would invite exactly the post-transaction lazy access the
  * "entities never leave the service layer" rule exists to avoid, one layer removed.
+ *
+ * <p><b>{@code public}, not package-private,</b> despite being an internal
+ * implementation detail with exactly one real caller — {@code StubServiceConfig}
+ * (test sources) has to name this type from {@code com.pos.config} to stub {@link
+ * TenantRegistrationService} for the servlet-context-only suites, the same reason
+ * every other service class in this codebase is {@code public}.
  */
 @Service
-class TenantRegistrationWriter {
+public class TenantRegistrationWriter {
 
     static final String STORE_NAME_REQUIRED = "Store name is required";
     static final String ADMIN_USERNAME_REQUIRED = "The admin's username is required";
@@ -65,7 +71,7 @@ class TenantRegistrationWriter {
     private final PasswordEncoder passwordEncoder;
 
     @Autowired
-    TenantRegistrationWriter(TenantDao tenantDao, AppUserDao appUserDao, PasswordEncoder passwordEncoder) {
+    public TenantRegistrationWriter(TenantDao tenantDao, AppUserDao appUserDao, PasswordEncoder passwordEncoder) {
         this.tenantDao = tenantDao;
         this.appUserDao = appUserDao;
         this.passwordEncoder = passwordEncoder;

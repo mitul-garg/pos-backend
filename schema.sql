@@ -98,7 +98,7 @@
         created_at datetime(6) not null,
         name varchar(120) not null,
         is_platform tinyint default false not null,
-        status varchar(16) not null check (status in ('ACTIVE','SUSPENDED','PENDING_VERIFICATION')),
+        status varchar(32) not null check (status in ('ACTIVE','SUSPENDED','PENDING_VERIFICATION')),
         verification_expires_at datetime(6),
         verification_token varchar(64),
         primary key (id)
