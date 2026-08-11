@@ -96,14 +96,18 @@ parent. That's mild denormalisation, taken deliberately: it lets the Hibernate
 filter apply uniformly to every entity, so no table depends on a *join* being
 scoped correctly to stay safe. Each table is independently isolated.
 
-**2. Uniqueness is `(tenant_id, …)`, never global — except `tenant.code`.**
+**2. Uniqueness is `(tenant_id, …)`, never global — except on `tenant` itself.**
 
 `(tenant_id, username)`, `(tenant_id, sku)`, `(tenant_id, qr_code)`,
 `(tenant_id, order_number)`, `(tenant_id, return_number)`. Two stores legitimately
 both have an `admin`, a `BISLERI-1L`, and an `ORD-2026-0001`. A schema that
 rejects those has a global constraint where a per-tenant one belongs.
 
-`tenant.code` is the single globally-unique field — it's the login discriminator.
+`tenant.code` and `tenant.verification_token` (C9, nullable — self-registration
+only) are the two globally-unique fields, and both live on the row that *is* the
+tenant rather than one owned by it, so there's no `tenant_id` for either to be
+scoped by in the first place. `code` is the login discriminator;
+`verification_token` is the one-time email-verification link's key.
 
 ## The reserved platform tenant
 

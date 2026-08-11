@@ -83,6 +83,17 @@ public class AppUser {
     @Column(name = "display_name", nullable = false, length = 120)
     private String displayName;
 
+    /**
+     * Never used for login — username/password is unchanged (C9,
+     * `tenant-registration-plan.md` §3). Nullable: every existing seeded/platform-created
+     * user has none, and it's required going forward only for a self-registered tenant's
+     * first admin, as the address {@code TenantRegistrationService} sends the
+     * verification/resend email to. Not unique — nothing looks a user up by it, globally
+     * or per tenant.
+     */
+    @Column(name = "email", length = 254)
+    private String email;
+
     // VARCHAR, not MySQL's native ENUM: adding a value to a MySQL ENUM is a table
     // alter, and hbm2ddl.auto=update will not perform it. Hibernate 6 defaults to the
     // native type on MySQL, so this has to be said explicitly on every enum field.
@@ -138,6 +149,14 @@ public class AppUser {
 
     public void setDisplayName(String displayName) {
         this.displayName = displayName;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
     }
 
     public Role getRole() {

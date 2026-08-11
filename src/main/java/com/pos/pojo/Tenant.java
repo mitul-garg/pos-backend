@@ -32,7 +32,10 @@ import org.hibernate.type.SqlTypes;
 @Entity
 @Table(
         name = "tenant",
-        uniqueConstraints = @UniqueConstraint(name = "uk_tenant_code", columnNames = "code")
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uk_tenant_code", columnNames = "code"),
+                @UniqueConstraint(name = "uk_tenant_verification_token", columnNames = "verification_token")
+        }
 )
 public class Tenant {
 
@@ -104,6 +107,32 @@ public class Tenant {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    /**
+     * The self-registration email-verification token (C9), {@code null} once verified
+     * (or for a tenant that was never self-registered at all — {@code SUPER_ADMIN}-created
+     * tenants start {@code ACTIVE} and never mint one).
+     *
+     * <p><b>Nullable and unique</b> — MySQL treats {@code NULL} as distinct in a unique
+     * index (the same fact {@link #isPlatform()}'s Javadoc explains for
+     * {@code app_user}'s composite key), so any number of verified/never-registered
+     * tenants can carry {@code NULL} here without tripping {@code uk_tenant_verification_token}.
+     * {@code TenantRegistrationService.verify} nulls this the moment it succeeds, so a
+     * spent token can never be replayed.
+     */
+    @Column(name = "verification_token", length = 64)
+    private String verificationToken;
+
+    /**
+     * Paired with {@link #verificationToken} — both are set together on
+     * {@code register}/{@code resendVerification} and cleared together on a successful
+     * {@code verify}. An expired-but-still-present token is what lets
+     * {@code TenantRegistrationService.verify} tell "expired" apart from "never issued"
+     * without a separate flag; the caller-facing message is the same generic one either
+     * way (`tenant-registration-plan.md` §4).
+     */
+    @Column(name = "verification_expires_at")
+    private Instant verificationExpiresAt;
+
     public Long getId() {
         return id;
     }
@@ -150,5 +179,21 @@ public class Tenant {
 
     public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public String getVerificationToken() {
+        return verificationToken;
+    }
+
+    public void setVerificationToken(String verificationToken) {
+        this.verificationToken = verificationToken;
+    }
+
+    public Instant getVerificationExpiresAt() {
+        return verificationExpiresAt;
+    }
+
+    public void setVerificationExpiresAt(Instant verificationExpiresAt) {
+        this.verificationExpiresAt = verificationExpiresAt;
     }
 }

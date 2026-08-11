@@ -32,9 +32,11 @@ erDiagram
         bigint id PK
         varchar name
         varchar code UK "globally unique - the login discriminator"
-        varchar status "ACTIVE | SUSPENDED"
+        varchar status "ACTIVE | SUSPENDED | PENDING_VERIFICATION"
         boolean is_platform "true for the one reserved row"
         datetime created_at
+        varchar verification_token UK "C9, nullable, self-registration only"
+        datetime verification_expires_at "C9, paired with the token"
     }
 
     APP_USER {
@@ -43,6 +45,7 @@ erDiagram
         varchar username "unique per tenant"
         varchar password_hash "BCrypt"
         varchar display_name
+        varchar email "C9, nullable, never used for login"
         varchar role "SUPER_ADMIN | ADMIN | CASHIER"
         boolean is_active
     }

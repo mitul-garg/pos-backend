@@ -13,6 +13,7 @@ in [schema.md](./schema.md).
 | Name | Table | Columns | Why |
 |---|---|---|---|
 | `uk_tenant_code` | `tenant` | `code` | **The one globally-unique field in the model.** It's the login discriminator, so it has to be unambiguous across the platform |
+| `uk_tenant_verification_token` | `tenant` | `verification_token` | C9: two self-registrations must never mint the same token. Nullable and unique is safe — MySQL treats `NULL` as distinct in a unique index, the same fact that motivates the reserved platform tenant row below, so any number of verified/never-registered tenants can carry `NULL` here at once |
 | `uk_user_tenant_username` | `app_user` | `tenant_id, username` | Two stores can each have an `admin`. Global uniqueness here would be wrong |
 | `uk_variant_tenant_sku` | `variant` | `tenant_id, sku` | Same SKU may exist in both stores — the seeds use `BISLERI-1L` in both deliberately |
 | `uk_variant_tenant_qrcode` | `variant` | `tenant_id, qr_code` | Per-tenant, though the payload embeds the tenant so codes are distinct in practice anyway |
@@ -136,15 +137,16 @@ rather than assuming the assumption held.
 
 `hbm2ddl.auto=validate` will happily start an app whose unique keys were never
 created. Nothing else in the stack notices either. So the test queries
-`information_schema` and asserts the **six unique keys** above exist, on the right
+`information_schema` and asserts the **seven unique keys** above exist, on the right
 tables, covering the right columns **in order** — order matters, because
 `(username, tenant_id)` would be a different key wearing the same name.
 
 It also asserts two things beyond the list:
 
-- **the rule, not just the examples** — every unique key except `uk_tenant_code`
-  must *lead* with `tenant_id`, so a future global constraint where a per-tenant
-  one belongs fails immediately rather than at seed time;
+- **the rule, not just the examples** — every unique key except `uk_tenant_code` and
+  `uk_tenant_verification_token` (both on `tenant` itself, which has no `tenant_id`
+  column to lead with) must *lead* with `tenant_id`, so a future global constraint
+  where a per-tenant one belongs fails immediately rather than at seed time;
 - **the three check constraints**, which are equally invisible to `validate` and
   additionally depend on the server version.
 

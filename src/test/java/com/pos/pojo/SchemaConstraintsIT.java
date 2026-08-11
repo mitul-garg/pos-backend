@@ -80,7 +80,7 @@ class SchemaConstraintsIT {
     }
 
     /**
-     * The six keys from prompts/database/constraints-and-indexes.md, with the columns
+     * The seven keys from prompts/database/constraints-and-indexes.md, with the columns
      * each must cover <b>in order</b> — a composite key's column order decides which
      * prefix lookups it can serve, so {@code (username, tenant_id)} would be a different
      * key that happens to have the same name.
@@ -89,6 +89,9 @@ class SchemaConstraintsIT {
         return Stream.of(
                 // The one globally-unique field in the model: the login discriminator.
                 Arguments.of("uk_tenant_code", "tenant", List.of("code")),
+                // C9: self-registration's token. Global, like the code above -- nullable
+                // and unique is safe since MySQL treats NULL as distinct in a unique index.
+                Arguments.of("uk_tenant_verification_token", "tenant", List.of("verification_token")),
                 // Two stores can each have an `admin`. Global uniqueness here is wrong.
                 Arguments.of("uk_user_tenant_username", "app_user", List.of("tenant_id", "username")),
                 // The seeds use BISLERI-1L in both tenants deliberately.
@@ -120,13 +123,15 @@ class SchemaConstraintsIT {
     void scopesUniquenessToTheTenant() throws Exception {
         Map<String, KeyDefinition> keys = readUniqueKeys();
 
-        // The inverse of the cases above, stated once as a rule rather than six times as
-        // examples: every unique key except the tenant code must lead with tenant_id.
-        // A global constraint where a per-tenant one belongs is exactly the mistake that
-        // makes the seed data fail to load -- two stores legitimately share usernames,
-        // SKUs and order numbers.
+        // The inverse of the cases above, stated once as a rule rather than seven times
+        // as examples: every unique key except the two on `tenant` itself must lead with
+        // tenant_id. A global constraint where a per-tenant one belongs is exactly the
+        // mistake that makes the seed data fail to load -- two stores legitimately share
+        // usernames, SKUs and order numbers. `tenant`'s own keys are naturally exempt:
+        // the row IS the tenant, so there is no tenant_id column on this table to lead
+        // with in the first place.
         keys.forEach((name, key) -> {
-            if (name.equals("uk_tenant_code")) {
+            if (name.equals("uk_tenant_code") || name.equals("uk_tenant_verification_token")) {
                 return;
             }
             assertEquals("tenant_id", key.columns().get(0),

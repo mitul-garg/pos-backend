@@ -4,6 +4,7 @@
         is_active tinyint default true not null,
         created_at datetime(6) not null,
         display_name varchar(120) not null,
+        email varchar(254),
         password_hash varchar(100) not null,
         role varchar(16) not null check (role in ('SUPER_ADMIN','ADMIN','CASHIER')),
         username varchar(64) not null,
@@ -97,7 +98,9 @@
         created_at datetime(6) not null,
         name varchar(120) not null,
         is_platform tinyint default false not null,
-        status varchar(16) not null check (status in ('ACTIVE','SUSPENDED')),
+        status varchar(16) not null check (status in ('ACTIVE','SUSPENDED','PENDING_VERIFICATION')),
+        verification_expires_at datetime(6),
+        verification_token varchar(64),
         primary key (id)
     ) engine=InnoDB;
 
@@ -167,6 +170,9 @@
 
     alter table tenant 
        add constraint uk_tenant_code unique (code);
+
+    alter table tenant 
+       add constraint uk_tenant_verification_token unique (verification_token);
 
     create index idx_variant_tenant 
        on variant (tenant_id);

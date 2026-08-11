@@ -26,9 +26,18 @@ The tenant boundary. A tenant is a single store.
 |---|---|---|---|
 | `name` | `VARCHAR(120)` | no | Display name, e.g. "MG Road Store" |
 | `code` | `VARCHAR(64)` | no | **Globally unique.** The login discriminator |
-| `status` | `VARCHAR(16)` | no | `ACTIVE` \| `SUSPENDED` |
+| `status` | `VARCHAR(16)` | no | `ACTIVE` \| `SUSPENDED` \| `PENDING_VERIFICATION` |
 | `is_platform` | `BOOLEAN` | no | `TRUE` for exactly one reserved row — see below |
 | `created_at` | `DATETIME(6)` | no | |
+| `verification_token` | `VARCHAR(64)` | yes | C9, self-registration only. **Globally unique when present** — MySQL treats `NULL` as distinct in a unique index, so any number of verified/never-registered tenants can share it. Cleared the moment `verify()` succeeds, so a spent token can never be replayed |
+| `verification_expires_at` | `DATETIME(6)` | yes | Paired with `verification_token`; both set together on register/resend, both cleared together on verify |
+
+**`PENDING_VERIFICATION`** (C9, `tenant-registration-plan.md`) is a self-registered
+tenant's starting status — set by `POST /api/tenants/register`, left only by a
+successful `POST /api/tenants/verify` (→ `ACTIVE`) or a `SUPER_ADMIN` suspending it
+(→ `SUSPENDED`, still reachable from here). `PATCH /api/tenants/{id}` must never
+accept it as a target status — this surface has no way to mint the token that
+status depends on.
 
 **The reserved platform row** (`code = 'platform'`, `is_platform = TRUE`) exists so
 `SUPER_ADMIN` users have a non-null `tenant_id` and the composite unique key on
@@ -50,6 +59,7 @@ tenant could register `platform` and shadow the platform login.
 | `username` | `VARCHAR(64)` | no | Unique **per tenant** — two stores can both have `admin` |
 | `password_hash` | `VARCHAR(100)` | no | BCrypt (60 chars; headroom for cost/algorithm changes) |
 | `display_name` | `VARCHAR(120)` | no | |
+| `email` | `VARCHAR(254)` | yes | C9. **Never used for login** — purely the address a self-registered tenant's verification/resend email goes to. `NULL` for every pre-C9 seeded/platform-created user. Not unique — nothing looks a user up by it |
 | `role` | `VARCHAR(16)` | no | `SUPER_ADMIN` \| `ADMIN` \| `CASHIER` |
 | `is_active` | `BOOLEAN` | no | Default `TRUE`. Soft delete — deactivation, never row removal |
 | `created_at` | `DATETIME(6)` | no | |
