@@ -3,21 +3,25 @@
 Cross-cutting patterns for `backend/`. Check here before inventing a new pattern
 or grepping the source tree for "how do we usually do X".
 
-> **Status: substantiated (C1–C8 landing).** The layout, error mapping, DTO naming,
+> **Status: substantiated (C1–C9 landing).** The layout, error mapping, DTO naming,
 > config-package, **persistence**, **security**, **tenant scoping**, **writes,
 > validation and per-tenant sequences** (C5), **atomic stock mutation and
 > server-side price recomputation** (C6), **a pessimistic row lock as the referee
-> for a check an atomic statement can't express** (C7) and — as of C8 — **that lock
-> has to be the first read in its transaction, not merely the one right before the
-> count it protects** all describe real classes. See [c1-skeleton.md](./c1-skeleton.md),
-> [c2-persistence.md](./c2-persistence.md), [c3-auth.md](./c3-auth.md),
-> [c4-tenancy.md](./c4-tenancy.md), [c5-catalogue.md](./c5-catalogue.md),
-> [c6-orders.md](./c6-orders.md), [c7-returns.md](./c7-returns.md) and
-> [c8-users-tenants.md](./c8-users-tenants.md).
+> for a check an atomic statement can't express** (C7), **that lock has to be the
+> first read in its transaction, not merely the one right before the count it
+> protects** (C8), and — as of C9 — **a second bean is what lets a service send an
+> email only after its own write commits, because `@Transactional`'s proxy doesn't
+> apply to a method calling another method on itself** all describe real classes.
+> See [c1-skeleton.md](./c1-skeleton.md), [c2-persistence.md](./c2-persistence.md),
+> [c3-auth.md](./c3-auth.md), [c4-tenancy.md](./c4-tenancy.md),
+> [c5-catalogue.md](./c5-catalogue.md), [c6-orders.md](./c6-orders.md),
+> [c7-returns.md](./c7-returns.md), [c8-users-tenants.md](./c8-users-tenants.md) and
+> [c9-tenant-registration.md](./c9-tenant-registration.md).
 > **Scoping is now enforced rather than intended**: a query written against a
 > tenant-owned entity is scoped whether or not its author thought about tenancy —
 > except `AppUser`, the one entity C8 has to scope by hand for a documented reason
-> (`c4-tenancy.md`, `c8-users-tenants.md`).
+> (`c4-tenancy.md`, `c8-users-tenants.md`). C9 touches neither `Tenant` nor
+> `AppUser`'s filter status; see `c9-tenant-registration.md`'s "Tenant scoping".
 > As each C-step lands, replace intent with what was actually built and link the
 > class that establishes it; an unsubstantiated convention is worse than none.
 
@@ -444,6 +448,19 @@ Rules for this package:
   statement; `UserService.deactivate` needed a real concurrency-test failure
   (`LastAdminRaceIT`) to find it, because the natural reading order — load the row,
   decide whether the guard applies, then lock and count — puts a read first.
+- **A method that must do a real write *and* something un-transactional (an email,
+  an outbound call) in one request cannot just skip `@Transactional` and call
+  another `@Transactional` method on itself** (`TenantRegistrationService`/`Writer`,
+  C9). Spring's `@Transactional` is proxy-based and only takes effect on a call that
+  arrives through the bean's proxy; a same-class call via `this.` bypasses it, so
+  there is no way for one class to have a non-transactional method that calls a
+  transactional one and observe a real commit in between. The write has to live in
+  a *second bean* — crossing an actual bean boundary is the fix, not a workaround.
+  A test proving this ordering needs `PROPAGATION_REQUIRES_NEW` on whatever reads
+  back the "was it really committed" answer, not the default `REQUIRED` — found by
+  the test failing to catch its own deliberately-reintroduced regression on the
+  first attempt, because a `REQUIRED` probe silently joins whatever transaction is
+  already on the thread instead of opening a genuinely separate one.
 
 ## API and errors
 

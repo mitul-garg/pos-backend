@@ -43,8 +43,9 @@ Keep these as the single source of truth for mock data and the service layer. Fi
 
 - `id`, `name`
 - `code` (short human handle, e.g. `acme` — **globally unique**; the login discriminator, Section 5.1)
-- `status` (`ACTIVE` | `SUSPENDED` — a suspended tenant can't log in or transact)
+- `status` (`ACTIVE` | `SUSPENDED` | `PENDING_VERIFICATION` — a suspended or still-pending tenant can't log in or transact. `PENDING_VERIFICATION` is reachable only via public self-registration (Section 5.11, backend C9) and left only by the emailed verification link, or by a `SUPER_ADMIN` suspending it directly — `PATCH /api/tenants/{id}` never accepts it as a target, only `ACTIVE`/`SUSPENDED`, since it has no way to mint the token that status depends on)
 - `createdAt`
+- `verificationToken`, `verificationExpiresAt` (backend C9, nullable — self-registration only; the token is globally unique when present and cleared the moment `verify()` succeeds, never present in any API response)
 
 **Product**
 
@@ -101,6 +102,7 @@ Keep these as the single source of truth for mock data and the service layer. Fi
 **User** (auth)
 
 - `id`, `tenantId` (**null for a `SUPER_ADMIN`** — platform users belong to no tenant), `username`, `displayName`
+- `email` (backend C9, optional — only ever populated for a self-registered tenant's first admin, where it's where the verification link is sent; **not** used for login, not unique, not present on platform-created users)
 - `role` (`SUPER_ADMIN` | `ADMIN` | `CASHIER`)
 - `isActive`
 - `username` is unique **per tenant** (two tenants can each have an `admin`); platform `SUPER_ADMIN` usernames are globally unique in a reserved platform namespace
@@ -158,9 +160,11 @@ Keep these as the single source of truth for mock data and the service layer. Fi
 
 9. **Return history** — a list of past returns; each row reprints its credit note via a dedicated `/returns/:returnId` credit-note view, which is now the **single** place a credit note is printed (Returns hands off to it on completion, mirroring how Payment hands off to Receipt). Same scoping: **a CASHIER sees only returns they processed; an ADMIN sees all** (with a Processed-by column).
 
-10. **Tenant management** (**`SUPER_ADMIN` only**) — the platform surface (Section 13): list all tenants, create a tenant (name + code) together with its **first ADMIN** user, and **suspend / reactivate** a tenant. `SUPER_ADMIN` does not do day-to-day POS work (no tenant context); the POS/catalog/history screens require belonging to a tenant. This screen is unreachable and hidden for tenant-scoped roles.
+10. **Tenant management** (**`SUPER_ADMIN` only**) — the platform surface (Section 13): list all tenants, create a tenant (name + code) together with its **first ADMIN** user, and **suspend / reactivate** a tenant. `SUPER_ADMIN` does not do day-to-day POS work (no tenant context); the POS/catalog/history screens require belonging to a tenant. This screen is unreachable and hidden for tenant-scoped roles. Lists **every** non-platform tenant regardless of status, so a still-`PENDING_VERIFICATION` self-registration (item 11) shows up here too, with its own badge.
 
-RBAC summary: **CASHIER** → login, checkout, payment, hold/resume, returns, print, and their **own** order/return history — all **within their tenant**. **ADMIN** → everything a cashier can do **plus** products/variants, users, and viewing **all** orders and returns — still **scoped to their own tenant**. **`SUPER_ADMIN`** → the platform: create/suspend tenants and provision tenant admins; **not** a cashier and **cannot** see another tenant's catalog/orders/returns through the POS screens. **Tenant isolation is absolute**: no tenant-scoped role can ever read or write another tenant's data, enforced server-side by filtering every query on the session's `tenantId` (Section 13). The cashier-scoped-vs-admin-sees-all rule (via `cashierId` / `processedBy`) operates *within* that tenant boundary. Enforce with route guards **and** by hiding controls the role can't use. (Note: the mock enforces this client-side for UX; the real backend re-enforces every rule — RBAC *and* tenant scoping — server-side.)
+11. **Public self-registration** (`/register`, `/verify` on the frontend — unauthenticated, no session, not gated by a login at all; backend C9) — `../tenant-registration-plan.md` is the up-front design doc, `backend/prompts/c9-tenant-registration.md` the implementation record. Anyone can create a store: name, code, admin display name/email/username/password. The tenant is created **`PENDING_VERIFICATION`**, not `ACTIVE` — it can't be logged into until the admin clicks a link emailed to the address they gave, the ownership check that makes an otherwise-unauthenticated tenant-creation endpoint safe to expose publicly. Verifying is deliberately a `POST` with the token in the body, not a bare link-`GET`, so an email client's link-preview/scanner bot can't burn the single-use token before a human clicks a button. A `resendVerification({ tenantCode, adminEmail })` action covers an expired or lost link, and answers the identical generic acknowledgement whether or not the pair matched anything real (no enumeration, same reasoning as login's 401). The token is never present in any response body — it only ever travels inside the email. On the platform side (item 10), a `SUPER_ADMIN` can **Suspend** a still-pending tenant to block it before it ever goes live; `verify()` checks the tenant's current status as well as the token, so a suspended-while-pending tenant can't be silently reactivated by someone clicking a still-unexpired link afterward (`frontend/BUGS.md` #17, `backend/BUGS.md` #18).
+
+RBAC summary: **CASHIER** → login, checkout, payment, hold/resume, returns, print, and their **own** order/return history — all **within their tenant**. **ADMIN** → everything a cashier can do **plus** products/variants, users, and viewing **all** orders and returns — still **scoped to their own tenant**. **`SUPER_ADMIN`** → the platform: create/suspend tenants and provision tenant admins; **not** a cashier and **cannot** see another tenant's catalog/orders/returns through the POS screens. **No role at all** — an anonymous caller — reaches `POST /api/tenants/register|verify|resend-verification` (item 11, backend C9); that's the point, and the reason a tenant created that way starts `PENDING_VERIFICATION` rather than `ACTIVE`. **Tenant isolation is absolute**: no tenant-scoped role can ever read or write another tenant's data, enforced server-side by filtering every query on the session's `tenantId` (Section 13). The cashier-scoped-vs-admin-sees-all rule (via `cashierId` / `processedBy`) operates *within* that tenant boundary. Enforce with route guards **and** by hiding controls the role can't use. (Note: the mock enforces this client-side for UX; the real backend re-enforces every rule — RBAC *and* tenant scoping — server-side.)
 
 **Hold / resume lifecycle:** one order record per real-world sale. Resuming a `HELD`/`DRAFT` order loads it into the cart and remembers its id, so a subsequent re-hold or payment **continues the same record** instead of spawning a duplicate. Clearing a resumed cart **cancels** that order (drops it out of the held list); a freshly-held order that was never resumed is untouched.
 
@@ -231,7 +235,7 @@ src/
 
 **Auth**
 
-- `POST /api/auth/login` — body `{ tenantCode, username, password }` (`tenantCode: "platform"` = platform `SUPER_ADMIN` login; a blank or unknown code is simply a failed login) → `{ token, user }` (the token encodes the resolved `tenantId`, or none for a platform user). Failures are distinguished: unknown tenant code / bad username / bad password → **401** ("Invalid tenant, username, or password", no hint which was wrong); valid credentials on a **deactivated user** or a **suspended tenant** → **403**. The 403 only reaches a caller who already supplied correct credentials, so it doesn't leak account/tenant existence.
+- `POST /api/auth/login` — body `{ tenantCode, username, password }` (`tenantCode: "platform"` = platform `SUPER_ADMIN` login; a blank or unknown code is simply a failed login) → `{ token, user }` (the token encodes the resolved `tenantId`, or none for a platform user). Failures are distinguished: unknown tenant code / bad username / bad password → **401** ("Invalid tenant, username, or password", no hint which was wrong); valid credentials on a **deactivated user**, a **suspended tenant**, or a still-`PENDING_VERIFICATION` tenant (Section 5.11, backend C9) → **403**, each with its own message. All three only reach a caller who already supplied correct credentials, so none leaks account/tenant existence.
 - `POST /api/auth/logout`
 - `GET /api/auth/me`
 
@@ -239,7 +243,13 @@ src/
 
 - `GET /api/tenants`, `GET /api/tenants/{id}`
 - `POST /api/tenants` (create a tenant + its first ADMIN in one call)
-- `PATCH /api/tenants/{id}` (suspend / reactivate: `status`)
+- `PATCH /api/tenants/{id}` (suspend / reactivate: `status` — accepts only `ACTIVE`/`SUSPENDED` as a target, never `PENDING_VERIFICATION`; backend C9)
+
+**Tenant self-registration** (public, unauthenticated — Section 5.11, backend C9)
+
+- `POST /api/tenants/register` — body `{ storeName, tenantCode, adminDisplayName, adminEmail, adminUsername, adminPassword, website }` (`website` is a honeypot — must arrive blank; a non-blank value resolves as if it succeeded but creates nothing). Same field validation as the platform `POST /api/tenants` (code format/reserved/duplicate) plus a required, format-checked `adminEmail`. Creates the tenant `PENDING_VERIFICATION` and its first `ADMIN` atomically, mints a verification token (24h expiry), and sends a verification email **after** the transaction commits, never inside it. Returns `201` with `{ tenantCode, adminEmail }` — never the token. Rate-limited per client IP.
+- `POST /api/tenants/verify` — body `{ token }`. Deliberately `POST`, not a bare link-`GET`, so an email client's link-preview/scanner bot can't burn the single-use token before a human clicks a button. Requires the token to both match an unexpired row **and** that tenant's *current* status to still be `PENDING_VERIFICATION` (not just token/expiry — `backend/BUGS.md` #18's frontend counterpart, `frontend/BUGS.md` #17) → flips the tenant to `ACTIVE`, clears the token, returns `{ tenantCode }`. Unknown token, expired token, and a token whose tenant is no longer `PENDING_VERIFICATION` all answer the identical generic 400 — no distinguishing which.
+- `POST /api/tenants/resend-verification` — body `{ tenantCode, adminEmail }`. Re-validates the pair against a `PENDING_VERIFICATION` tenant, regenerates the token (invalidating the old one) and re-sends. Answers the identical generic acknowledgement whether or not the pair matched anything real. Rate-limited per client IP, independently of `register`.
 
 **Users** (admin — always within the caller's tenant)
 
@@ -296,6 +306,12 @@ Note for later: the backend **recomputes prices, totals, and refunds server-side
 **An unrecognised `status` on `PATCH /api/tenants/{id}` is a malformed-body 400, not the mock's `"Invalid tenant status"` field message (decided in backend C8).** `status` is typed as the `TenantStatus` enum on the backend's input DTO, matching `PATCH /api/orders/{id}`'s identical `status` field (backend C6); Jackson rejects an unrecognised value before the service runs. Both are 400s a client can act on.
 
 **User creation/update reject any role outside `ADMIN`/`CASHIER`, server-side (decided in backend C8).** Mirrors the catalogue-writes precedent (C5): the frontend's `TENANT_ROLES` list is UX, and the backend re-checks it on both `POST /api/users` and `PUT /api/users/{id}`, closing the exact escalation BUGS.md's Phase 8/B4 entry describes — a tenant `ADMIN` must never be able to mint a `SUPER_ADMIN` by sending the role directly.
+
+**Self-registration's write and its email are two separate transactions, deliberately (decided in backend C9).** `POST /api/tenants/register`/`resend-verification` must never roll back the tenant/admin row because an outbound SMTP send was slow or failed — and holding a database transaction open across that network round trip is its own problem on a connection pool already sized tightly for free-tier MySQL (§1). `TenantRegistrationService`'s two public methods that send an email therefore carry no `@Transactional` of their own; a second bean (`TenantRegistrationWriter`) owns the actual write so the caller only sends the email once that write has genuinely committed, proven by `TenantRegistrationCommitOrderingIT` rather than assumed.
+
+**The tenant-code validation rule is shared, not duplicated, between the platform and public creation paths (decided in backend C9).** `TenantCodeRule` — required/format/reserved/duplicate — is the same class `TenantService.create` and `TenantRegistrationWriter.register` both call; the two endpoints' other required-field messages differ (`"Tenant name is required"` vs `"Store name is required"`, matching each endpoint's own wire field name), so only the code rule, which is genuinely identical either way, was extracted.
+
+**`tenant.status` is `VARCHAR(32)`, not the usual `VARCHAR(16)` (decided in backend C9, `backend/BUGS.md` #18).** `PENDING_VERIFICATION` is 21 characters; MySQL rejects an over-length `VARCHAR` insert outright rather than truncating, so every `register()` call failed 500 until this was widened. Found by manually testing the new endpoint, not by `mvn test` — nothing in the automated suite persisted that status until C9 gave it a producer.
 
 ---
 

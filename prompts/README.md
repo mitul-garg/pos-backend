@@ -3,21 +3,24 @@
 Read this file first, before opening any source file, when asked to change
 something in `backend/`.
 
-> **Status: C8 landing** (skeleton + persistence + auth + the tenant spine + the
-> catalogue + orders/payment + returns + **users and the platform surface** —
-> Spring MVC on Jetty, Hibernate on MySQL, all nine entities, a committed
-> `schema.sql`, a JWT security chain, a Hibernate filter that scopes every query to
-> the caller's tenant, products and variants with server-minted QR codes, orders
-> that recompute their own pricing and atomically decrement stock at payment,
-> returns that refund against the original sale's own snapshot and restore stock
-> under real concurrency, and now tenant-scoped user management plus a
-> `SUPER_ADMIN`-only platform surface that creates a tenant and its first admin
-> atomically, rejects reserved/duplicate/malformed codes, and suspends/reactivates;
-> `mvn jetty:run`, **327 automated tests** — C8 was verified manually per
-> CONVENTIONS.md's testing order first, then covered by its own automated suite
-> (user writes, the platform's 12 ported `tenantService.test.js` cases, two new
-> tenant isolation cases, and a last-active-admin race that failed on its first
-> real run). The plan is `../../backend-plan.md` (steps C1–C9); the spec is
+> **Status: C9 landing** (skeleton + persistence + auth + the tenant spine + the
+> catalogue + orders/payment + returns + users and the platform surface +
+> **public self-registration** — Spring MVC on Jetty, Hibernate on MySQL, all nine
+> entities, a committed `schema.sql`, a JWT security chain, a Hibernate filter that
+> scopes every query to the caller's tenant, products and variants with
+> server-minted QR codes, orders that recompute their own pricing and atomically
+> decrement stock at payment, returns that refund against the original sale's own
+> snapshot and restore stock under real concurrency, tenant-scoped user management
+> plus a `SUPER_ADMIN`-only platform surface, and now a public, unauthenticated
+> `/api/tenants/register|verify|resend-verification` that email-verifies a
+> self-registered store before it can log in; `mvn jetty:run`, **370 automated
+> tests** — C9 was verified manually per CONVENTIONS.md's testing order at every
+> step against a real `mvn jetty:run` + MySQL (which is how it found and fixed
+> `BUGS.md` #18 before anything downstream was built on the broken endpoint), then
+> covered by its own automated suite (the plan's full test list, plus a
+> commit-then-email ordering proof mutation-checked to confirm it actually catches
+> the regression it exists for). The plan is `../../backend-plan.md` (steps C1–C8)
+> and the root-level `../../tenant-registration-plan.md` (C9); the spec is
 > `../requirements.md`. The database in [database/](./database/) is
 > **implemented as documented** — `SchemaConstraintsIT` proves the
 > isolation-critical parts of it exist in MySQL.
@@ -42,6 +45,13 @@ something in `backend/`.
 > read-then-act aggregate has to be the *first* read in its transaction, not merely
 > the one right before the count — read that before writing anything else that
 > locks a row to guard a check.
+> **What public self-registration adds on top of that** is in
+> [c9-tenant-registration.md](./c9-tenant-registration.md): a service method that
+> must send an email only after its own write commits can't just skip
+> `@Transactional` and call another `@Transactional` method on itself — the proxy
+> that annotation relies on doesn't apply to same-class calls, so the write has to
+> live in a second bean — read that before writing any endpoint that has to do real
+> work *and* something un-transactional (an email, an outbound call) in one request.
 
 ## How to use this folder
 
@@ -76,6 +86,7 @@ something in `backend/`.
 | [c6-orders.md](./c6-orders.md) | Orders, hold/resume/cancel, and payment. **Read before touching stock or order pricing** — it says why every amount is recomputed from the variant's current row, why the hard stock check is one atomic conditional update at payment (not a check at order creation), and how `DevSeeder` fakes an actor for a startup task that has no request to read one from |
 | [c7-returns.md](./c7-returns.md) | Returns — lookup, create, get, list. **Read before touching return math or a returnable-quantity check** — it says why a return locks its original order rather than using an atomic update (the check is a `SUM` over several rows, not one column), why the same request can't split one returnable quantity across two lines, and why lookup/create split "missing" from "not completed" unlike the mock |
 | [c8-users-tenants.md](./c8-users-tenants.md) | Users (`/api/users`, scoped by hand) and the platform surface (`/api/tenants`, `SUPER_ADMIN`-only). **Read before touching the last-active-admin guard or any other lock protecting a read-then-act aggregate** — the lock has to be the *first read in its transaction*, not merely before the count, or MySQL's REPEATABLE READ still hands the later read a stale snapshot; found by `LastAdminRaceIT` failing on its first run, not by reasoning. Also where `@PlatformOperation` — the cross-tenant-reach marker `c4-tenancy.md` named in advance — actually gets used |
+| [c9-tenant-registration.md](./c9-tenant-registration.md) | Public, unauthenticated self-registration (`/api/tenants/register\|verify\|resend-verification`), sitting beside C8's platform surface. **Read before writing any service method that must do a real write *and* something un-transactional (an email, an outbound call) in one request** — it says why that split needs a second bean, not just a missing `@Transactional`, and why the test proving the ordering needed `PROPAGATION_REQUIRES_NEW` to actually catch the regression it was written for |
 
 Keep these tables in sync — they're the only thing agents read unconditionally.
 
