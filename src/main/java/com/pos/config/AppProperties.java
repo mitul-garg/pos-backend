@@ -65,6 +65,11 @@ public class AppProperties {
     @Value("${pos.mail.fromAddress}")
     private String mailFromAddress;
 
+    // --- App-level (C9) -----------------------------------------------------------
+
+    @Value("${pos.app.frontendBaseUrl}")
+    private String frontendBaseUrl;
+
     public String getDbUrl() {
         return dbUrl;
     }
@@ -123,5 +128,9 @@ public class AppProperties {
 
     public String getMailFromAddress() {
         return mailFromAddress;
+    }
+
+    public String getFrontendBaseUrl() {
+        return frontendBaseUrl;
     }
 }

@@ -2,9 +2,7 @@ package com.pos.service;
 
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.regex.Pattern;
 
 import com.pos.dao.AppUserDao;
 import com.pos.dao.TenantDao;
@@ -48,14 +46,8 @@ public class TenantService {
 
     /** Verbatim from {@code domain/validators.js} / {@code tenantService.js}. */
     static final String NAME_REQUIRED = "Tenant name is required";
-    static final String CODE_REQUIRED = "Tenant code is required";
-    static final String CODE_FORMAT = "Use lowercase letters, numbers and hyphens only";
-    static final String CODE_TAKEN = "That tenant code is already taken";
     static final String ADMIN_USERNAME_REQUIRED = "The first admin's username is required";
     static final String ADMIN_PASSWORD_REQUIRED = "The first admin's password is required";
-
-    /** Lowercase letters, digits and hyphens, not starting with a hyphen — the mock's rule. */
-    private static final Pattern CODE_PATTERN = Pattern.compile("^[a-z0-9][a-z0-9-]*$");
 
     private final TenantDao tenantDao;
     private final AppUserDao appUserDao;
@@ -108,7 +100,7 @@ public class TenantService {
         if (name == null) {
             errors.put("name", NAME_REQUIRED);
         }
-        String code = validateCode(form.getCode(), errors);
+        String code = TenantCodeRule.validate(tenantDao, form.getCode(), "code", errors);
         String adminUsername = trimToNull(form.getAdminUsername());
         if (adminUsername == null) {
             errors.put("adminUsername", ADMIN_USERNAME_REQUIRED);
@@ -163,27 +155,6 @@ public class TenantService {
             throw new NotFoundException(NOT_FOUND);
         }
         return tenant;
-    }
-
-    /**
-     * The port of {@code validateTenantCode()} in {@code domain/validators.js}: required,
-     * lowercase-letters-digits-hyphens, not reserved, not already taken. Normalizes and
-     * returns the value regardless of whether it validated, so the caller can still read
-     * back what would have been stored — {@code create} only acts on it once
-     * {@code errors} is confirmed empty.
-     */
-    private String validateCode(String code, Map<String, String> errors) {
-        String value = code == null ? "" : code.trim().toLowerCase(Locale.ROOT);
-        if (value.isEmpty()) {
-            errors.put("code", CODE_REQUIRED);
-        } else if (!CODE_PATTERN.matcher(value).matches()) {
-            errors.put("code", CODE_FORMAT);
-        } else if (Tenant.RESERVED_CODES.contains(value)) {
-            errors.put("code", "\"" + value + "\" is reserved and cannot be used as a tenant code");
-        } else if (tenantDao.findByCode(value) != null) {
-            errors.put("code", CODE_TAKEN);
-        }
-        return value;
     }
 
     /**

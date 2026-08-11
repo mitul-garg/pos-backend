@@ -2,6 +2,7 @@ package com.pos.service;
 
 import java.util.List;
 
+import com.pos.config.MailConfig;
 import com.pos.config.PersistenceConfig;
 import com.pos.config.RootConfig;
 import com.pos.config.SecurityConfig;
@@ -42,7 +43,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 @ExtendWith(SpringExtension.class)
 @ContextConfiguration(classes = {
-        RootConfig.class, PersistenceConfig.class, SecurityConfig.class })
+        RootConfig.class, PersistenceConfig.class, SecurityConfig.class, MailConfig.class })
 @TestPropertySource(
         locations = "classpath:application-test.properties",
         // The gate itself. Everywhere else it is false, which is what keeps an IT's own

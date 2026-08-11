@@ -3,6 +3,7 @@ package com.pos.controller;
 import java.util.stream.Stream;
 
 import com.jayway.jsonpath.JsonPath;
+import com.pos.config.MailConfig;
 import com.pos.config.OpenApiConfig;
 import com.pos.config.PersistenceConfig;
 import com.pos.config.RootConfig;
@@ -76,7 +77,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 // OpenApiController needs the generator -- a reminder that a component scan makes every
 // controller everyone's dependency.
 @ContextConfiguration(classes = {
-        RootConfig.class, PersistenceConfig.class, SecurityConfig.class,
+        RootConfig.class, PersistenceConfig.class, SecurityConfig.class, MailConfig.class,
         WebConfig.class, OpenApiConfig.class })
 @TestPropertySource("classpath:application-test.properties")
 @Transactional

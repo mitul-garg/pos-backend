@@ -72,6 +72,33 @@ public class AppUserDao {
     }
 
     /**
+     * The resend-verification ownership check (C9) — confirms a
+     * {@code { tenantCode, adminEmail }} pair actually names an admin in that tenant,
+     * without ever revealing to the caller whether it did:
+     * {@code TenantRegistrationService.resendVerification} sends the identical
+     * acknowledgement either way. Case-insensitive, matching how tenant codes and
+     * usernames are already compared elsewhere in this codebase — email addresses are
+     * conventionally case-insensitive too.
+     *
+     * <p>Takes the tenant id explicitly, like every other {@code AppUserDao} lookup
+     * (C4's exception — {@code AppUser} carries no {@code @Filter}), and carries no
+     * {@link com.pos.util.PlatformOperation} marker: unlike {@code countByTenant},
+     * this reads one already-identified tenant's own users, not an aggregate across
+     * every store, so it isn't cross-tenant reach in the sense the marker exists for.
+     */
+    public AppUser findByTenantAndEmail(Long tenantId, String email) {
+        return em.createQuery(
+                        "SELECT u FROM AppUser u WHERE u.tenant.id = :tenantId "
+                                + "AND lower(u.email) = :email",
+                        AppUser.class)
+                .setParameter("tenantId", tenantId)
+                .setParameter("email", email)
+                .getResultStream()
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
      * A proxy for the caller's own user row, for stamping {@code cashier_id} on a new
      * order without a read (C6) — the same device as {@code TenantDao.reference}, and for
      * the identical reason: an {@code INSERT} only needs the parent's id, and the id here

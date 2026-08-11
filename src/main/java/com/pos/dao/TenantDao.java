@@ -70,6 +70,27 @@ public class TenantDao {
     }
 
     /**
+     * Resolves a self-registration's verification token (C9) — the lookup {@code
+     * TenantRegistrationService.verify} runs against whatever the caller pasted in
+     * from the emailed link. Returns {@code null} for an unknown token, matching
+     * {@link #findByCode}'s reasoning: at this endpoint an unrecognized token isn't
+     * an error to report distinctly, it's one of several inputs that must all fall
+     * through to the same generic "invalid or expired" response.
+     *
+     * <p>No {@code lower()} normalization, unlike {@link #findByCode} — a token is an
+     * opaque, case-sensitive random string ({@code VerificationTokens}, base64url),
+     * not a human-typed identifier with a documented case-insensitivity rule.
+     */
+    public Tenant findByVerificationToken(String token) {
+        return em.createQuery(
+                        "SELECT t FROM Tenant t WHERE t.verificationToken = :token", Tenant.class)
+                .setParameter("token", token)
+                .getResultStream()
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
      * Every tenant but the reserved platform row, newest first (C8) — the platform's own
      * list, matching the mock's {@code [...store.tenants].sort((a, b) => a.createdAt <
      * b.createdAt ? 1 : -1)}. {@code SUPER_ADMIN} is the only caller: every tenant-scoped
