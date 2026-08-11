@@ -45,6 +45,26 @@ public class AppProperties {
     @Value("${pos.seed.dev}")
     private boolean seedDev;
 
+    // --- Mail (C9) ---------------------------------------------------------------
+
+    @Value("${pos.mail.enabled}")
+    private boolean mailEnabled;
+
+    @Value("${pos.mail.host}")
+    private String mailHost;
+
+    @Value("${pos.mail.port}")
+    private int mailPort;
+
+    @Value("${pos.mail.username}")
+    private String mailUsername;
+
+    @Value("${pos.mail.appPassword}")
+    private String mailAppPassword;
+
+    @Value("${pos.mail.fromAddress}")
+    private String mailFromAddress;
+
     public String getDbUrl() {
         return dbUrl;
     }
@@ -79,5 +99,29 @@ public class AppProperties {
 
     public boolean isSeedDev() {
         return seedDev;
+    }
+
+    public boolean isMailEnabled() {
+        return mailEnabled;
+    }
+
+    public String getMailHost() {
+        return mailHost;
+    }
+
+    public int getMailPort() {
+        return mailPort;
+    }
+
+    public String getMailUsername() {
+        return mailUsername;
+    }
+
+    public String getMailAppPassword() {
+        return mailAppPassword;
+    }
+
+    public String getMailFromAddress() {
+        return mailFromAddress;
     }
 }
