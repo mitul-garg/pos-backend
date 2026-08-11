@@ -69,6 +69,23 @@ would have been answered **401 before MVC ever saw it**, and every cross-origin 
 the Vite dev server would have failed. Leaving both configured would look like belt and
 braces and actually be one dead configuration plus one live one.
 
+### CORS only stays out of the picture in production if the scheme is trusted
+
+`corsConfigurationSource()`'s allowlist only ever names the Vite dev origin — the deployed
+frontend is never on it, on purpose (`iac/requirements.md` decision #5: Nginx reverse-proxies
+`/api/*` on the same origin, so Spring's `CorsUtils.isCorsRequest` should never see a
+cross-origin request from it at all). That check compares the browser's `Origin` header
+against what **this app** thinks its own scheme/host/port are — and behind a
+TLS-terminating reverse proxy (`iac/prompts/05-https.md`), Jetty only knows what Nginx
+tells it. Nginx sets `X-Forwarded-Proto` correctly; without something on this side reading
+it, `request.getScheme()` keeps reporting `http` even when the browser is on `https://`, the
+scheme "mismatches", every deployed request looks cross-origin, and the dev-only allowlist
+rejects all of them — this is exactly what happened the day HTTPS was deployed
+(`BUGS.md` #19). `SecurityWebApplicationInitializer` registers `ForwardedHeaderFilter` ahead
+of `springSecurityFilterChain` for this reason — **don't remove it, and don't "fix" a future
+CORS 403 by widening this allowlist** without first checking whether it's the same
+scheme-trust problem instead.
+
 ### The status checks must run *after* the password check
 
 `requirements.md` §13.4 lets the 403s name what went wrong — deactivated account,
