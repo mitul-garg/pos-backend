@@ -47,6 +47,17 @@ public class AuthService {
             "This store has been suspended. Contact the platform administrator.";
 
     /**
+     * C9 — a self-registered tenant's admin, before the verification link is
+     * clicked. Verbatim from {@code authService.mock.js}. A distinct message from
+     * {@link #SUSPENDED_MESSAGE} on purpose: both are the identical shape of 403
+     * (correct credentials, tenant just isn't {@code ACTIVE}), but the fix for one
+     * is "check your email" and the other is "contact the platform" — the message
+     * has to say which.
+     */
+    static final String PENDING_VERIFICATION_MESSAGE =
+            "Verify your email before signing in — check your inbox for the link.";
+
+    /**
      * A real BCrypt hash of a value nothing can supply, used to spend the same time on an
      * unknown username that a known one costs. See {@link #login}.
      */
@@ -184,7 +195,7 @@ public class AuthService {
     }
 
     /**
-     * The two 403s. Both are specific, and both are safe only where this is called —
+     * The three 403s. All are specific, and all are safe only where this is called —
      * after the password, or behind a token that proves one was given.
      */
     private void requireUsable(AppUser user) {
@@ -192,9 +203,20 @@ public class AuthService {
             throw new ForbiddenException(DEACTIVATED_MESSAGE);
         }
         Tenant tenant = user.getTenant();
-        // The reserved platform row has no lifecycle: it cannot be suspended (C8), and
-        // asking about its status would be asking about a row that is infrastructure.
-        if (!tenant.isPlatform() && tenant.getStatus() != TenantStatus.ACTIVE) {
+        // The reserved platform row has no lifecycle: it cannot be suspended (C8) or
+        // self-registered (C9), and asking about its status would be asking about a
+        // row that is infrastructure.
+        if (tenant.isPlatform()) {
+            return;
+        }
+        // C9: a self-registered tenant's admin, pre-verification. Checked before the
+        // general not-ACTIVE branch below so it gets its own message rather than
+        // falling into "suspended" -- the fix for one is "check your email", not
+        // "contact the platform".
+        if (tenant.getStatus() == TenantStatus.PENDING_VERIFICATION) {
+            throw new ForbiddenException(PENDING_VERIFICATION_MESSAGE);
+        }
+        if (tenant.getStatus() != TenantStatus.ACTIVE) {
             throw new ForbiddenException(SUSPENDED_MESSAGE);
         }
     }

@@ -30,7 +30,7 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
  * <table>
  *   <caption>Status matrix</caption>
  *   <tr><td>Bad credentials, unknown or blank tenant code</td><td>401, one generic message</td></tr>
- *   <tr><td>Deactivated user, suspended tenant, wrong role</td><td>403</td></tr>
+ *   <tr><td>Deactivated user, suspended tenant, unverified tenant (C9), wrong role</td><td>403</td></tr>
  *   <tr><td>Missing, or belonging to another tenant</td><td>404</td></tr>
  *   <tr><td>Validation failure</td><td>400, field → message</td></tr>
  *   <tr><td>{@code RegistrationRateLimiter} refused the request (C9)</td><td>429</td></tr>
