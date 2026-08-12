@@ -56,7 +56,7 @@ public class StubServiceConfig {
 
     @Bean
     public OrderService orderService() {
-        return new OrderService(null, null, null, null, null, null);
+        return new OrderService(null, null, null, null, null, null, null);
     }
 
     @Bean

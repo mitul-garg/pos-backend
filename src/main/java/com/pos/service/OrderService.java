@@ -5,6 +5,7 @@ import java.time.Year;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.pos.config.AppProperties;
 import com.pos.dao.AppUserDao;
 import com.pos.dao.OrderDao;
 import com.pos.dao.TenantDao;
@@ -62,6 +63,12 @@ public class OrderService {
     static final String VARIANT_REQUIRED = "Variant is required";
 
     /**
+     * Peer-review Phase 0 resource-creation guardrail: a durable ceiling on cart
+     * size, not a time-windowed rate limit — see {@link #rebuildLines}.
+     */
+    static final String TOO_MANY_LINE_ITEMS = "Order has too many line items";
+
+    /**
      * <b>Not in the mock</b> — the mock's {@code create} accepts whatever {@code status}
      * string is handed to it. A real client only ever sends {@code DRAFT} (the default,
      * on payment's first save) or {@code HELD} (Checkout's "Hold" button); a request
@@ -85,17 +92,19 @@ public class OrderService {
     private final AppUserDao appUserDao;
     private final TenantSequenceDao tenantSequenceDao;
     private final AuthService authService;
+    private final AppProperties appProperties;
 
     @Autowired
     public OrderService(OrderDao orderDao, VariantDao variantDao, TenantDao tenantDao,
                         AppUserDao appUserDao, TenantSequenceDao tenantSequenceDao,
-                        AuthService authService) {
+                        AuthService authService, AppProperties appProperties) {
         this.orderDao = orderDao;
         this.variantDao = variantDao;
         this.tenantDao = tenantDao;
         this.appUserDao = appUserDao;
         this.tenantSequenceDao = tenantSequenceDao;
         this.authService = authService;
+        this.appProperties = appProperties;
     }
 
     /**
@@ -241,6 +250,10 @@ public class OrderService {
      * deletion rather than a detachment — editing a held order's cart is exactly this.
      */
     private void rebuildLines(PosOrder order, List<OrderLineForm> itemForms, BigDecimal orderDiscount) {
+        if (itemForms.size() > appProperties.getOrderMaxLineItems()) {
+            throw ValidationException.field("items", TOO_MANY_LINE_ITEMS);
+        }
+
         List<Variant> variants = new ArrayList<>(itemForms.size());
         List<Pricing.LineInput> inputs = new ArrayList<>(itemForms.size());
         for (OrderLineForm itemForm : itemForms) {

@@ -94,6 +94,15 @@ public class AppProperties {
     @Value("${pos.recaptcha.secret}")
     private String recaptchaSecret;
 
+    // --- Resource-creation guardrails (peer-review Phase 0) ------------------------
+    // Durable DB-count ceilings, not time-windowed rate limits -- see each check
+    // site for the DAO query it compares against. Landing one guardrail per commit;
+    // this is the first (order line items, the only one needing no new DAO/schema
+    // change) -- the rest join here as they land.
+
+    @Value("${pos.order.maxLineItems}")
+    private int orderMaxLineItems;
+
     public String getDbUrl() {
         return dbUrl;
     }
@@ -180,5 +189,9 @@ public class AppProperties {
 
     public String getRecaptchaSecret() {
         return recaptchaSecret;
+    }
+
+    public int getOrderMaxLineItems() {
+        return orderMaxLineItems;
     }
 }

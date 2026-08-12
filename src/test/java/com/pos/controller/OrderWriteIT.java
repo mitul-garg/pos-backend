@@ -252,6 +252,20 @@ class OrderWriteIT {
                     """.formatted(milk500))
                     .andExpect(status().isCreated());
         }
+
+        /**
+         * Peer-review Phase 0 resource-creation guardrail — {@code pos.order.maxLineItems}
+         * (100 in {@code application.properties}, not overridden for tests). The check runs
+         * before any variant lookup, so a garbage {@code variantId} repeated 101 times still
+         * trips it rather than a 404 from the first bad line.
+         */
+        @Test
+        @DisplayName("rejects an order over the line-item ceiling")
+        void rejectsAnOrderOverTheLineItemCeiling() throws Exception {
+            create(asCashier(), manyItemsBody(101))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.fields.items").value("Order has too many line items"));
+        }
     }
 
     @Nested
@@ -422,6 +436,17 @@ class OrderWriteIT {
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.message").value("Order not found"));
         }
+
+        /** Same guardrail as {@code Create}'s — {@code rebuildLines} is the shared choke point. */
+        @Test
+        @DisplayName("rejects a PATCH that pushes items over the line-item ceiling")
+        void rejectsAPatchOverTheLineItemCeiling() throws Exception {
+            String orderId = createDraftAsCashier();
+
+            patchOrder(asCashier(), orderId, manyItemsBody(101))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.fields.items").value("Order has too many line items"));
+        }
     }
 
     @Nested
@@ -485,6 +510,18 @@ class OrderWriteIT {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         return JsonPath.read(response, "$.id");
+    }
+
+    /** {@code count} lines, all the same real variant — the line-item ceiling doesn't care. */
+    private String manyItemsBody(int count) {
+        StringBuilder items = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            if (i > 0) {
+                items.append(',');
+            }
+            items.append("{\"variantId\":\"").append(milk500).append("\",\"quantity\":1}");
+        }
+        return "{\"items\":[" + items + "]}";
     }
 
     private String bearer(String token) {
