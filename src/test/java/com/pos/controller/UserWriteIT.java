@@ -240,6 +240,29 @@ class UserWriteIT {
             list(asAdmin())
                     .andExpect(jsonPath("$", hasSize(3)));
         }
+
+        /**
+         * Peer-review Phase 0 resource-creation guardrail — {@code pos.tenant.maxUsers}
+         * (20 in {@code application.properties}, not overridden for tests). {@code mgRoad}
+         * starts with 2 seeded users ({@code setUp}); 18 more by direct persistence reaches
+         * the ceiling without 18 round trips, then the 21st goes through the real endpoint.
+         */
+        @Test
+        @DisplayName("rejects a create once the tenant is at its user-count ceiling")
+        void rejectsACreateAtTheUserCeiling() throws Exception {
+            for (int i = 0; i < 18; i++) {
+                user(mgRoad, "filler" + i, CASHIER_HASH, Role.CASHIER);
+            }
+            em.flush();
+            em.clear();
+
+            create(asAdmin(), """
+                    {"username":"onemore","password":"pass123","role":"CASHIER"}
+                    """)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("This store has reached its user limit"))
+                    .andExpect(jsonPath("$.fields").doesNotExist());
+        }
     }
 
     @Nested

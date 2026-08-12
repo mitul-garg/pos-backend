@@ -71,7 +71,7 @@ public class StubServiceConfig {
 
     @Bean
     public UserService userService() {
-        return new UserService(null, null, null, null);
+        return new UserService(null, null, null, null, null);
     }
 
     @Bean

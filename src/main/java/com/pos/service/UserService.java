@@ -3,6 +3,7 @@ package com.pos.service;
 import java.util.List;
 import java.util.Locale;
 
+import com.pos.config.AppProperties;
 import com.pos.dao.AppUserDao;
 import com.pos.dao.TenantDao;
 import com.pos.exception.NotFoundException;
@@ -46,10 +47,17 @@ public class UserService {
     static final String USERNAME_TAKEN = "Username is already taken";
     static final String LAST_ADMIN = "Cannot deactivate the last active admin";
 
+    /**
+     * Peer-review Phase 0 resource-creation guardrail: a durable ceiling on how many
+     * users one tenant can hold, not a time-windowed rate limit — see {@link #create}.
+     */
+    static final String TOO_MANY_USERS = "This store has reached its user limit";
+
     private final AppUserDao appUserDao;
     private final TenantDao tenantDao;
     private final AuthService authService;
     private final PasswordEncoder passwordEncoder;
+    private final AppProperties appProperties;
 
     /**
      * Constructor injection, for the reason recorded on {@code AuthService}: a servlet-
@@ -57,11 +65,12 @@ public class UserService {
      */
     @Autowired
     public UserService(AppUserDao appUserDao, TenantDao tenantDao, AuthService authService,
-                       PasswordEncoder passwordEncoder) {
+                       PasswordEncoder passwordEncoder, AppProperties appProperties) {
         this.appUserDao = appUserDao;
         this.tenantDao = tenantDao;
         this.authService = authService;
         this.passwordEncoder = passwordEncoder;
+        this.appProperties = appProperties;
     }
 
     /**
@@ -108,6 +117,13 @@ public class UserService {
         // half, and AppUserDao.insert now flushes so a raced duplicate still lands here.
         if (appUserDao.findByTenantAndUsername(tenantId, username.toLowerCase(Locale.ROOT)) != null) {
             throw ValidationException.field("username", USERNAME_TAKEN);
+        }
+        // Peer-review Phase 0 resource-creation guardrail -- a durable ceiling on tenant
+        // size, not tied to any one submitted field (the request is otherwise perfectly
+        // valid), so this is a bare ValidationException like LAST_ADMIN below rather than
+        // a field-level one.
+        if (appUserDao.countByOwnTenant(tenantId) >= appProperties.getTenantMaxUsers()) {
+            throw new ValidationException(TOO_MANY_USERS);
         }
 
         AppUser user = new AppUser();

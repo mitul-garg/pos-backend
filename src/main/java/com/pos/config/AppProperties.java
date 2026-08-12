@@ -97,11 +97,14 @@ public class AppProperties {
     // --- Resource-creation guardrails (peer-review Phase 0) ------------------------
     // Durable DB-count ceilings, not time-windowed rate limits -- see each check
     // site for the DAO query it compares against. Landing one guardrail per commit;
-    // this is the first (order line items, the only one needing no new DAO/schema
-    // change) -- the rest join here as they land.
+    // rollout order: order line items, users/tenant, products/tenant,
+    // variants/product, tenants/email.
 
     @Value("${pos.order.maxLineItems}")
     private int orderMaxLineItems;
+
+    @Value("${pos.tenant.maxUsers}")
+    private int tenantMaxUsers;
 
     public String getDbUrl() {
         return dbUrl;
@@ -193,5 +196,9 @@ public class AppProperties {
 
     public int getOrderMaxLineItems() {
         return orderMaxLineItems;
+    }
+
+    public int getTenantMaxUsers() {
+        return tenantMaxUsers;
     }
 }

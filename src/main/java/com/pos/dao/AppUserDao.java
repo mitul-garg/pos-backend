@@ -230,4 +230,25 @@ public class AppUserDao {
                 .setParameter("tenantId", tenantId)
                 .getSingleResult();
     }
+
+    /**
+     * How many users (any role, active or not) the <b>caller's own</b> tenant has —
+     * {@code UserService.create}'s resource-creation guardrail (peer-review Phase 0),
+     * checked before {@link #insert}.
+     *
+     * <p>The identical query to {@link #countByTenant}, deliberately not reused: that
+     * method carries {@link PlatformOperation} because its only caller today is
+     * {@code TenantService} weighing a suspension across every store, genuinely
+     * cross-tenant reach. This one is called from {@code UserService.create} checking
+     * the tenant the caller is already in — reusing {@code countByTenant} here would
+     * make the marker lie for one of its two callers, and {@link PlatformOperation}'s
+     * own Javadoc is explicit that the audit only works if it stays accurate. Small
+     * deliberate duplication over a misleading marker.
+     */
+    public long countByOwnTenant(Long tenantId) {
+        return em.createQuery(
+                        "SELECT count(u) FROM AppUser u WHERE u.tenant.id = :tenantId", Long.class)
+                .setParameter("tenantId", tenantId)
+                .getSingleResult();
+    }
 }
