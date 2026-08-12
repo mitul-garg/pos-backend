@@ -13,6 +13,7 @@ import com.jayway.jsonpath.JsonPath;
 import com.pos.config.MailConfig;
 import com.pos.config.OpenApiConfig;
 import com.pos.config.PersistenceConfig;
+import com.pos.config.RecaptchaConfig;
 import com.pos.config.RootConfig;
 import com.pos.config.SecurityConfig;
 import com.pos.config.WebConfig;
@@ -77,6 +78,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 @WebAppConfiguration
 @ContextConfiguration(classes = {
         RootConfig.class, PersistenceConfig.class, SecurityConfig.class, MailConfig.class,
+        RecaptchaConfig.class,
         WebConfig.class, OpenApiConfig.class })
 @TestPropertySource("classpath:application-test.properties")
 @DisplayName("the stock decrement under concurrency")

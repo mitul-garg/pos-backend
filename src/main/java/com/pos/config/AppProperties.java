@@ -86,6 +86,14 @@ public class AppProperties {
     @Value("${pos.app.frontendBaseUrl}")
     private String frontendBaseUrl;
 
+    // --- reCAPTCHA (peer-review Phase 0) -------------------------------------------
+
+    @Value("${pos.recaptcha.enabled}")
+    private boolean recaptchaEnabled;
+
+    @Value("${pos.recaptcha.secret}")
+    private String recaptchaSecret;
+
     public String getDbUrl() {
         return dbUrl;
     }
@@ -164,5 +172,13 @@ public class AppProperties {
 
     public String getFrontendBaseUrl() {
         return frontendBaseUrl;
+    }
+
+    public boolean isRecaptchaEnabled() {
+        return recaptchaEnabled;
+    }
+
+    public String getRecaptchaSecret() {
+        return recaptchaSecret;
     }
 }

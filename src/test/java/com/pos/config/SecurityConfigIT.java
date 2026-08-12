@@ -43,7 +43,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 // on the very bug this catches.
 @WebAppConfiguration
 @ContextConfiguration(classes = {
-        RootConfig.class, PersistenceConfig.class, SecurityConfig.class, MailConfig.class })
+        RootConfig.class, PersistenceConfig.class, SecurityConfig.class, MailConfig.class,
+        RecaptchaConfig.class })
 @TestPropertySource("classpath:application-test.properties")
 @DisplayName("SecurityConfig in the root context alone, as the container builds it")
 class SecurityConfigIT {

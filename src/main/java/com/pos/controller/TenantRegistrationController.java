@@ -48,8 +48,9 @@ public class TenantRegistrationController {
                        + "atomically, and emails a verification link. 201 with "
                        + "{ tenantCode, adminEmail } -- never the token, which only "
                        + "ever travels inside the email. 400 with field -> message "
-                       + "for a blank/malformed/reserved/duplicate field. 429 if "
-                       + "this client IP has registered too many times recently.")
+                       + "for a blank/malformed/reserved/duplicate field, or a plain "
+                       + "400 if the reCAPTCHA widget wasn't solved. 429 if this "
+                       + "client IP has registered too many times recently.")
     @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
     public TenantRegistrationData register(@RequestBody TenantRegistrationForm form,
@@ -76,8 +77,10 @@ public class TenantRegistrationController {
                        + "{ tenantCode, adminEmail } pair that matches a "
                        + "PENDING_VERIFICATION tenant's admin. Answers the identical "
                        + "acknowledgement whether or not the pair matched anything "
-                       + "real -- no enumeration oracle. 429 if this client IP has "
-                       + "asked too many times recently.")
+                       + "real -- no enumeration oracle. 400 if the reCAPTCHA widget "
+                       + "wasn't solved (this alone doesn't leak whether the pair "
+                       + "matched). 429 if this client IP has asked too many times "
+                       + "recently.")
     @PostMapping("/resend-verification")
     public RegistrationAckData resendVerification(@RequestBody TenantResendVerificationForm form,
                                                    HttpServletRequest request) {

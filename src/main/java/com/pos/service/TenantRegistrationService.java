@@ -16,6 +16,7 @@ import com.pos.pojo.Tenant;
 import com.pos.pojo.TenantStatus;
 import com.pos.util.EmailSender;
 import com.pos.util.Honeypot;
+import com.pos.util.RecaptchaVerifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,18 +57,28 @@ public class TenantRegistrationService {
     /** Verbatim from the mock's {@code RESEND_ACK} — identical whether or not anything matched. */
     static final String RESEND_ACK = "If that store is awaiting verification, we've re-sent the email.";
 
+    /**
+     * The reCAPTCHA gate's rejection message (peer-review Phase 0) — unlike the
+     * honeypot, this one is meant to be seen: the widget is visible UI, so a failed
+     * solve is ordinary, actionable form feedback, not a signal worth hiding.
+     */
+    static final String RECAPTCHA_FAILED = "Please confirm you're not a robot and try again.";
+
     private final TenantRegistrationWriter writer;
     private final TenantDao tenantDao;
     private final EmailSender emailSender;
     private final AppProperties props;
+    private final RecaptchaVerifier recaptchaVerifier;
 
     @Autowired
     public TenantRegistrationService(TenantRegistrationWriter writer, TenantDao tenantDao,
-                                     EmailSender emailSender, AppProperties props) {
+                                     EmailSender emailSender, AppProperties props,
+                                     RecaptchaVerifier recaptchaVerifier) {
         this.writer = writer;
         this.tenantDao = tenantDao;
         this.emailSender = emailSender;
         this.props = props;
+        this.recaptchaVerifier = recaptchaVerifier;
     }
 
     /**
@@ -75,12 +86,16 @@ public class TenantRegistrationService {
      * success shape a real registration gets — no tenant/admin row, no email, no
      * hint that anything was detected (see {@link Honeypot}'s Javadoc) — so it never
      * even reaches {@link TenantRegistrationWriter}, and therefore touches the
-     * database not at all.
+     * database not at all. Checked <b>before</b> reCAPTCHA, deliberately: a trip
+     * means this is at best a naive scraper, and there is no reason to spend a call
+     * to Google (or make the caller wait on one) verifying a request that's about to
+     * be silently dropped either way.
      */
     public TenantRegistrationData register(TenantRegistrationForm form) {
         if (Honeypot.isTripped(form.getWebsite())) {
             return new TenantRegistrationData(normalize(form.getTenantCode()), blankToNull(form.getAdminEmail()));
         }
+        requireRecaptcha(form.getRecaptchaToken());
 
         RegisteredTenant registered = writer.register(form);
         sendVerificationEmail(registered);
@@ -120,8 +135,15 @@ public class TenantRegistrationService {
     /**
      * {@code POST /api/tenants/resend-verification}. Same non-transactional shape as
      * {@link #register} and for the identical reason — see the class Javadoc.
+     * reCAPTCHA-gated too (peer-review Phase 0): this does a real DB write and sends
+     * an email from an unauthenticated caller, same as {@link #register}. A rejected
+     * token answers its own 400 rather than {@link #RESEND_ACK} — that doesn't weaken
+     * the no-enumeration guarantee below, since "the widget wasn't solved" says
+     * nothing about whether {@code tenantCode}/{@code adminEmail} match anything real.
      */
     public RegistrationAckData resendVerification(TenantResendVerificationForm form) {
+        requireRecaptcha(form.getRecaptchaToken());
+
         RegisteredTenant registered = writer.resendVerification(form.getTenantCode(), form.getAdminEmail());
         if (registered != null) {
             sendVerificationEmail(registered);
@@ -149,6 +171,21 @@ public class TenantRegistrationService {
             emailSender.send(registered.adminEmail(), subject, body);
         } catch (RuntimeException ex) {
             log.error("Failed to send verification email for tenant {}", registered.tenantCode(), ex);
+        }
+    }
+
+    /**
+     * Throws a plain {@link ValidationException} (400, no field key — this is a
+     * widget, not a text input to highlight) unless {@code token} verifies. Runs as
+     * its own early gate, outside {@link TenantRegistrationWriter}'s combined
+     * field-validation pass, the same way the honeypot check and
+     * {@code RegistrationRateLimiter} already sit outside it — none of these three
+     * are "is this field well-formed," they're "should this request be looked at at
+     * all."
+     */
+    private void requireRecaptcha(String token) {
+        if (!recaptchaVerifier.verify(token)) {
+            throw new ValidationException(RECAPTCHA_FAILED);
         }
     }
 

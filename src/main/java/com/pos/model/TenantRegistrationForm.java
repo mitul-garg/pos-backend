@@ -16,6 +16,10 @@ package com.pos.model;
  * real browser never populates. No bean-validation annotations, matching every other
  * write form here: {@code TenantRegistrationWriter.register} reports every broken
  * field in one 400 rather than the first.
+ *
+ * <p>{@code recaptchaToken} (peer-review Phase 0) is the frontend's v2 checkbox
+ * widget response, checked by {@code RecaptchaVerifier} — a real, loud gate, unlike
+ * the honeypot's silent one. See {@code TenantRegistrationService.register}.
  */
 public class TenantRegistrationForm {
 
@@ -26,6 +30,7 @@ public class TenantRegistrationForm {
     private String adminEmail;
     private String adminPassword;
     private String website;
+    private String recaptchaToken;
 
     public String getStoreName() {
         return storeName;
@@ -82,5 +87,14 @@ public class TenantRegistrationForm {
 
     public void setWebsite(String website) {
         this.website = website;
+    }
+
+    /** The v2 checkbox widget's response token — see {@code RecaptchaVerifier}. */
+    public String getRecaptchaToken() {
+        return recaptchaToken;
+    }
+
+    public void setRecaptchaToken(String recaptchaToken) {
+        this.recaptchaToken = recaptchaToken;
     }
 }

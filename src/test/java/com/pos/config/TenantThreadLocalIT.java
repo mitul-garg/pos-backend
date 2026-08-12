@@ -79,6 +79,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebAppConfiguration
 @ContextConfiguration(classes = {
         RootConfig.class, PersistenceConfig.class, SecurityConfig.class, MailConfig.class,
+        RecaptchaConfig.class,
         WebConfig.class, OpenApiConfig.class })
 @TestPropertySource("classpath:application-test.properties")
 @DisplayName("TenantContext under a reused thread pool")
