@@ -14,6 +14,7 @@ import com.pos.pojo.AppUser;
 import com.pos.pojo.Role;
 import com.pos.pojo.Tenant;
 import com.pos.pojo.TenantStatus;
+import com.pos.util.TestIps;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.AfterEach;
@@ -69,6 +70,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <p>Fixtures mirror the frontend's seed data, deliberate collisions included: both
  * stores have an {@code admin} and a {@code cashier} with the same passwords. That
  * collision is the entire reason login takes a tenant code.
+ *
+ * <p><b>Every {@code login} call carries its own fake source IP</b> ({@link #login}, via
+ * {@code TestIps.fresh()}), shared plumbing with every other IT that needs the same
+ * device — see {@code TestIps}'s Javadoc for why: {@code LoginRateLimiter}'s
+ * 20-per-15-minutes budget is shared by every call that resolves to the same address,
+ * and all real MockMvc calls resolve to the same loopback address otherwise. Without a
+ * fresh IP per call, the rate-limiting tests below would exhaust the budget for every
+ * other test in this class — and, if this class shares a Spring context with another IT,
+ * for every other IT's login calls too.
  */
 @ExtendWith(SpringExtension.class)
 @WebAppConfiguration
@@ -453,14 +463,67 @@ class AuthControllerIT {
         }
     }
 
+    @Nested
+    @DisplayName("LoginRateLimiter")
+    class LoginRateLimiting {
+
+        /** {@code LoginRateLimiter.MAX_REQUESTS} — package-private to {@code com.pos.util},
+         *  so mirrored here as a literal the same way {@code TenantRegistrationIT} mirrors
+         *  {@code RegistrationRateLimiter.MAX_REQUESTS}. */
+        private static final int MAX_REQUESTS = 20;
+
+        @Test
+        @DisplayName("trips 429 on the 21st call from the same IP within the window")
+        void tripsAfterTwentyFromTheSameIp() throws Exception {
+            String ip = "203.0.113.7";
+            for (int i = 0; i < MAX_REQUESTS; i++) {
+                login("mg-road", "admin", "wrong", ip).andExpect(status().isUnauthorized());
+            }
+            login("mg-road", "admin", "wrong", ip)
+                    .andExpect(status().is(429))
+                    .andExpect(jsonPath("$.message").value("Too many requests. Try again later."));
+        }
+
+        @Test
+        @DisplayName("a successful login still counts against the IP budget")
+        void successCountsToo() throws Exception {
+            String ip = "203.0.113.8";
+            login("mg-road", "admin", "admin123", ip).andExpect(status().isOk());
+            for (int i = 0; i < MAX_REQUESTS - 1; i++) {
+                login("mg-road", "admin", "wrong", ip).andExpect(status().isUnauthorized());
+            }
+            login("mg-road", "admin", "wrong", ip).andExpect(status().is(429));
+        }
+
+        @Test
+        @DisplayName("a different IP has its own budget, even once the first is exhausted")
+        void independentIps() throws Exception {
+            String exhaustedIp = "203.0.113.9";
+            for (int i = 0; i < MAX_REQUESTS; i++) {
+                login("mg-road", "admin", "wrong", exhaustedIp).andExpect(status().isUnauthorized());
+            }
+            login("mg-road", "admin", "wrong", exhaustedIp).andExpect(status().is(429));
+
+            login("mg-road", "admin", "admin123", TestIps.fresh()).andExpect(status().isOk());
+        }
+    }
+
     // --- helpers -----------------------------------------------------------------
 
     private ResultActions login(String tenantCode, String username, String password)
             throws Exception {
+        return login(tenantCode, username, password, TestIps.fresh());
+    }
+
+    private ResultActions login(String tenantCode, String username, String password, String ip)
+            throws Exception {
         String body = """
                 {"tenantCode":"%s","username":"%s","password":"%s"}
                 """.formatted(tenantCode, username, password);
-        return mvc.perform(post("/api/auth/login").contentType(APPLICATION_JSON).content(body));
+        return mvc.perform(post("/api/auth/login")
+                .with(TestIps.remoteAddr(ip))
+                .contentType(APPLICATION_JSON)
+                .content(body));
     }
 
     private String tokenFor(String tenantCode, String username, String password) throws Exception {

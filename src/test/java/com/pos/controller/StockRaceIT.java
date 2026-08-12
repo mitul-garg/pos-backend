@@ -24,6 +24,7 @@ import com.pos.pojo.TenantStatus;
 import com.pos.pojo.UnitOfMeasure;
 import com.pos.pojo.Variant;
 import com.pos.util.TenantContext;
+import com.pos.util.TestIps;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.AfterEach;
@@ -251,7 +252,7 @@ class StockRaceIT {
         String body = """
                 {"tenantCode":"%s","username":"%s","password":"%s"}
                 """.formatted(tenantCode, username, password);
-        String response = mvc.perform(post("/api/auth/login").contentType(APPLICATION_JSON).content(body))
+        String response = mvc.perform(post("/api/auth/login").with(TestIps.remoteAddr(TestIps.fresh())).contentType(APPLICATION_JSON).content(body))
                 .andReturn().getResponse().getContentAsString();
         SecurityContextHolder.clearContext();
         TenantContext.clear();

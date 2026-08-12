@@ -16,6 +16,7 @@ import com.pos.pojo.Role;
 import com.pos.pojo.Tenant;
 import com.pos.pojo.TenantStatus;
 import com.pos.util.TenantContext;
+import com.pos.util.TestIps;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.AfterEach;
@@ -210,7 +211,7 @@ class TenantAdminIT {
                     .andExpect(jsonPath("$.productCount").value(0))
                     .andExpect(jsonPath("$.orderCount").value(0));
 
-            String response = mvc.perform(post("/api/auth/login")
+            String response = mvc.perform(post("/api/auth/login").with(TestIps.remoteAddr(TestIps.fresh()))
                             .contentType(APPLICATION_JSON)
                             .content("""
                                     {"tenantCode":"harbour","username":"admin","password":"harbour123"}
@@ -309,13 +310,13 @@ class TenantAdminIT {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.status").value("SUSPENDED"));
 
-            mvc.perform(post("/api/auth/login").contentType(APPLICATION_JSON).content("""
+            mvc.perform(post("/api/auth/login").with(TestIps.remoteAddr(TestIps.fresh())).contentType(APPLICATION_JSON).content("""
                             {"tenantCode":"airport","username":"admin","password":"admin123"}
                             """))
                     .andExpect(status().isForbidden());
 
             // mg-road is untouched.
-            mvc.perform(post("/api/auth/login").contentType(APPLICATION_JSON).content("""
+            mvc.perform(post("/api/auth/login").with(TestIps.remoteAddr(TestIps.fresh())).contentType(APPLICATION_JSON).content("""
                             {"tenantCode":"mg-road","username":"admin","password":"admin123"}
                             """))
                     .andExpect(status().isOk());
@@ -324,7 +325,7 @@ class TenantAdminIT {
                     {"status":"ACTIVE"}
                     """).andExpect(status().isOk());
 
-            mvc.perform(post("/api/auth/login").contentType(APPLICATION_JSON).content("""
+            mvc.perform(post("/api/auth/login").with(TestIps.remoteAddr(TestIps.fresh())).contentType(APPLICATION_JSON).content("""
                             {"tenantCode":"airport","username":"admin","password":"admin123"}
                             """))
                     .andExpect(status().isOk());
@@ -370,7 +371,7 @@ class TenantAdminIT {
                     """).andExpect(status().isNotFound());
 
             // And the platform login still works -- nothing was silently applied.
-            mvc.perform(post("/api/auth/login").contentType(APPLICATION_JSON).content("""
+            mvc.perform(post("/api/auth/login").with(TestIps.remoteAddr(TestIps.fresh())).contentType(APPLICATION_JSON).content("""
                             {"tenantCode":"platform","username":"superadmin","password":"super123"}
                             """))
                     .andExpect(status().isOk());
@@ -427,7 +428,7 @@ class TenantAdminIT {
         String body = """
                 {"tenantCode":"%s","username":"%s","password":"%s"}
                 """.formatted(tenantCode, username, password);
-        String response = mvc.perform(post("/api/auth/login").contentType(APPLICATION_JSON).content(body))
+        String response = mvc.perform(post("/api/auth/login").with(TestIps.remoteAddr(TestIps.fresh())).contentType(APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 

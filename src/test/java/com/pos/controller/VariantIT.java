@@ -16,6 +16,7 @@ import com.pos.pojo.Role;
 import com.pos.pojo.Tenant;
 import com.pos.pojo.TenantStatus;
 import com.pos.util.TenantContext;
+import com.pos.util.TestIps;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.AfterEach;
@@ -599,7 +600,7 @@ class VariantIT {
         String body = """
                 {"tenantCode":"mg-road","username":"%s","password":"%s"}
                 """.formatted(username, password);
-        String response = mvc.perform(post("/api/auth/login").contentType(APPLICATION_JSON).content(body))
+        String response = mvc.perform(post("/api/auth/login").with(TestIps.remoteAddr(TestIps.fresh())).contentType(APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 

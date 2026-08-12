@@ -10,6 +10,7 @@ import com.pos.service.TenantRegistrationWriter;
 import com.pos.service.TenantService;
 import com.pos.service.UserService;
 import com.pos.service.VariantService;
+import com.pos.util.LoginRateLimiter;
 import com.pos.util.RegistrationRateLimiter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -93,5 +94,11 @@ public class StubServiceConfig {
     @Bean
     public RegistrationRateLimiter registrationRateLimiter() {
         return new RegistrationRateLimiter();
+    }
+
+    /** Same reasoning as {@link #registrationRateLimiter()} — no collaborator to null out. */
+    @Bean
+    public LoginRateLimiter loginRateLimiter() {
+        return new LoginRateLimiter();
     }
 }

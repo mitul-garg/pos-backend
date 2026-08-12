@@ -3,7 +3,6 @@ package com.pos.controller;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -17,6 +16,7 @@ import com.pos.pojo.Tenant;
 import com.pos.pojo.TenantStatus;
 import com.pos.util.EmailSender;
 import com.pos.util.TenantContext;
+import com.pos.util.TestIps;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.AfterEach;
@@ -35,7 +35,6 @@ import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.test.context.web.WebAppConfiguration;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
-import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.WebApplicationContext;
@@ -68,12 +67,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * {@code EmailSender} bean type, satisfying {@code TenantRegistrationService}'s
  * dependency exactly like {@code MailConfig} would, just observable.
  *
- * <p><b>Every {@code register}/{@code resend-verification} call carries its own fake
- * source IP</b> ({@link #freshIp()}), unless a test is deliberately exercising
- * {@code RegistrationRateLimiter}. Without that, the 5-per-hour budget shared by every
- * call in this class (all real MockMvc calls resolve to the same loopback address
+ * <p><b>Every {@code register}/{@code resend-verification}/{@code login} call carries
+ * its own fake source IP</b> ({@code TestIps.fresh()}), unless a test is deliberately
+ * exercising {@code RegistrationRateLimiter}. Without that, the per-IP budget shared by
+ * every call in this class (all real MockMvc calls resolve to the same loopback address
  * otherwise) would make unrelated tests fail from cross-contamination, not from
- * anything they're actually testing.
+ * anything they're actually testing. {@code TestIps} is shared with every other IT that
+ * needs the same device — see its Javadoc.
  */
 @ExtendWith(SpringExtension.class)
 @WebAppConfiguration
@@ -98,14 +98,6 @@ class TenantRegistrationIT {
 
     @PersistenceContext
     private EntityManager em;
-
-    /**
-     * {@code static} on purpose — JUnit5 creates a fresh {@code TenantRegistrationIT}
-     * instance per test method, so an instance field would reset to the same starting
-     * IP for every test and reintroduce the exact cross-test rate-limit collision
-     * {@link #freshIp()} exists to avoid.
-     */
-    private static final AtomicInteger ipSeq = new AtomicInteger(0);
 
     private MockMvc mvc;
 
@@ -482,12 +474,12 @@ class TenantRegistrationIT {
     }
 
     private ResultActions register(String body) throws Exception {
-        return register(body, freshIp());
+        return register(body, TestIps.fresh());
     }
 
     private ResultActions register(String body, String ip) throws Exception {
         return mvc.perform(post("/api/tenants/register")
-                .with(remoteAddr(ip))
+                .with(TestIps.remoteAddr(ip))
                 .contentType(APPLICATION_JSON)
                 .content(body));
     }
@@ -501,35 +493,32 @@ class TenantRegistrationIT {
     }
 
     private ResultActions resendVerification(String body) throws Exception {
-        return resendVerification(body, freshIp());
+        return resendVerification(body, TestIps.fresh());
     }
 
     private ResultActions resendVerification(String body, String ip) throws Exception {
         return mvc.perform(post("/api/tenants/resend-verification")
-                .with(remoteAddr(ip))
+                .with(TestIps.remoteAddr(ip))
                 .contentType(APPLICATION_JSON)
                 .content(body));
     }
 
+    /**
+     * Carries its own fresh IP (peer-review Phase 0's {@code LoginRateLimiter}), the
+     * same reason {@code register}/{@code resendVerification} above do for {@code
+     * RegistrationRateLimiter} — this method's callers exercise C9 login behaviour,
+     * not login rate limiting, and shouldn't spend or share a budget with either.
+     */
     private ResultActions login(String tenantCode, String username, String password) throws Exception {
-        ResultActions result = mvc.perform(post("/api/auth/login").contentType(APPLICATION_JSON).content("""
+        ResultActions result = mvc.perform(post("/api/auth/login")
+                .with(TestIps.remoteAddr(TestIps.fresh()))
+                .contentType(APPLICATION_JSON)
+                .content("""
                 {"tenantCode":"%s","username":"%s","password":"%s"}
                 """.formatted(tenantCode, username, password)));
         SecurityContextHolder.clearContext();
         TenantContext.clear();
         return result;
-    }
-
-    /** A fresh, never-before-used source IP, so this call can never share a rate-limit budget. */
-    private String freshIp() {
-        return "10.0.0." + (ipSeq.incrementAndGet() % 250 + 1);
-    }
-
-    private static RequestPostProcessor remoteAddr(String ip) {
-        return request -> {
-            request.setRemoteAddr(ip);
-            return request;
-        };
     }
 
     private String extractToken(String emailBody) {

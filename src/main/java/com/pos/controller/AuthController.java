@@ -36,19 +36,30 @@ public class AuthController {
     @Autowired
     private AuthService authService;
 
+    @Autowired
+    private LoginRateLimiter loginRateLimiter;
+
     /**
      * No {@code @Valid}, deliberately — see {@link LoginForm}. A blank tenant code has to
      * fail as a login (401, generic), not as a malformed request (400, field-level),
      * because the difference between the two is exactly what the uniform 401 hides.
+     *
+     * <p>Peer-review Phase 0: enforces a per-IP request budget ({@link LoginRateLimiter})
+     * before doing any work at all — the same shape {@code TenantRegistrationController}
+     * uses for {@code register}/{@code resend-verification}.
      */
     @Operation(summary = "Log in",
                description = "Resolves (tenantCode, username) to a user and returns a bearer "
                        + "token. The reserved code `platform` selects the SUPER_ADMIN "
                        + "namespace. Unknown tenant, unknown username and wrong password are "
                        + "one indistinguishable 401; a deactivated user or a suspended tenant "
-                       + "is a 403, reachable only once the password is correct.")
+                       + "is a 403, reachable only once the password is correct. 429 if this "
+                       + "client IP has attempted too many logins recently.")
     @PostMapping("/login")
-    public LoginData login(@RequestBody LoginForm form) {
+    public LoginData login(@RequestBody LoginForm form, HttpServletRequest request) {
+        if (!loginRateLimiter.allow(request.getRemoteAddr())) {
+            throw new TooManyRequestsException();
+        }
         return authService.login(form);
     }
 
