@@ -109,6 +109,9 @@ public class AppProperties {
     @Value("${pos.tenant.maxProducts}")
     private int tenantMaxProducts;
 
+    @Value("${pos.product.maxVariants}")
+    private int productMaxVariants;
+
     public String getDbUrl() {
         return dbUrl;
     }
@@ -207,5 +210,9 @@ public class AppProperties {
 
     public int getTenantMaxProducts() {
         return tenantMaxProducts;
+    }
+
+    public int getProductMaxVariants() {
+        return productMaxVariants;
     }
 }

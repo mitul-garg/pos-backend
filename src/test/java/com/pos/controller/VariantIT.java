@@ -16,6 +16,8 @@ import com.pos.pojo.Product;
 import com.pos.pojo.Role;
 import com.pos.pojo.Tenant;
 import com.pos.pojo.TenantStatus;
+import com.pos.pojo.UnitOfMeasure;
+import com.pos.pojo.Variant;
 import com.pos.util.TenantContext;
 import com.pos.util.TestIps;
 import jakarta.persistence.EntityManager;
@@ -243,6 +245,27 @@ class VariantIT {
             create(asAdmin(), UNISSUED_ID, MILK_500)
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.message").value("Product not found"));
+        }
+
+        /**
+         * Peer-review Phase 0 resource-creation guardrail — {@code pos.product.maxVariants}
+         * (50 in {@code application.properties}, not overridden for tests). Seeded by
+         * direct persistence rather than 50 round trips; the real endpoint proves the
+         * ceiling itself.
+         */
+        @Test
+        @DisplayName("rejects a create once the product is at its variant-count ceiling")
+        void rejectsACreateAtTheVariantCeiling() throws Exception {
+            for (int i = 0; i < 50; i++) {
+                variant(mgRoad, milk, "FILLER-" + i);
+            }
+            em.flush();
+            em.clear();
+
+            create(asAdmin(), milk, MILK_500)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("This product has reached its variant limit"))
+                    .andExpect(jsonPath("$.fields").doesNotExist());
         }
     }
 
@@ -642,5 +665,21 @@ class VariantIT {
         product.setActive(active);
         em.persist(product);
         return product.getId();
+    }
+
+    /** Fast-path fixture for the variant-ceiling test — 50 of these beats 50 round trips. */
+    private void variant(Tenant tenant, Long productId, String sku) {
+        Variant variant = new Variant();
+        variant.setTenant(tenant);
+        variant.setProduct(em.getReference(Product.class, productId));
+        variant.setVariantLabel(sku);
+        variant.setSku(sku);
+        variant.setQrCode("QR-" + sku);
+        variant.setMrp(new BigDecimal("10.00"));
+        variant.setSellingPrice(new BigDecimal("9.00"));
+        variant.setStockQuantity(0);
+        variant.setUnitOfMeasure(UnitOfMeasure.EACH);
+        variant.setActive(true);
+        em.persist(variant);
     }
 }

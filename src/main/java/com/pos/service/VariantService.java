@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import com.pos.config.AppProperties;
 import com.pos.dao.ProductDao;
 import com.pos.dao.TenantSequenceDao;
 import com.pos.dao.VariantDao;
@@ -69,16 +70,24 @@ public class VariantService {
      */
     static final String STOCK_NEGATIVE = "Stock quantity cannot be negative";
 
+    /**
+     * Peer-review Phase 0 resource-creation guardrail: a durable ceiling on how many
+     * variants one product can hold, not a time-windowed rate limit — see {@link #create}.
+     */
+    static final String TOO_MANY_VARIANTS = "This product has reached its variant limit";
+
     private final VariantDao variantDao;
     private final ProductDao productDao;
     private final TenantSequenceDao tenantSequenceDao;
+    private final AppProperties appProperties;
 
     @Autowired
     public VariantService(VariantDao variantDao, ProductDao productDao,
-                          TenantSequenceDao tenantSequenceDao) {
+                          TenantSequenceDao tenantSequenceDao, AppProperties appProperties) {
         this.variantDao = variantDao;
         this.productDao = productDao;
         this.tenantSequenceDao = tenantSequenceDao;
+        this.appProperties = appProperties;
     }
 
     /**
@@ -193,6 +202,14 @@ public class VariantService {
                 ? UnitOfMeasure.EACH
                 : form.getUnitOfMeasure());
         variant.setActive(true);
+
+        // Peer-review Phase 0 resource-creation guardrail -- a durable ceiling on how many
+        // variants one product can hold, not tied to any one submitted field, so this is a
+        // bare ValidationException like ProductService's/UserService's guardrails rather
+        // than a field-level one.
+        if (variantDao.countByProduct(productId) >= appProperties.getProductMaxVariants()) {
+            throw new ValidationException(TOO_MANY_VARIANTS);
+        }
 
         variantDao.insert(variant);
         return toData(variant);

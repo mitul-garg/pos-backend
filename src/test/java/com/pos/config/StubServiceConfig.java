@@ -51,7 +51,7 @@ public class StubServiceConfig {
 
     @Bean
     public VariantService variantService() {
-        return new VariantService(null, null, null);
+        return new VariantService(null, null, null, null);
     }
 
     @Bean

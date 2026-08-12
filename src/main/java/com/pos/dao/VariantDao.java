@@ -72,6 +72,23 @@ public class VariantDao {
     }
 
     /**
+     * How many variants (active or not) one product has — {@code VariantService.create}'s
+     * resource-creation guardrail (peer-review Phase 0), checked before {@link #insert}.
+     *
+     * <p>A count, not {@link #findByProduct}: that method fetches full rows with their
+     * product joined, wasteful for a number this method exists specifically to avoid
+     * pulling the rows at all. Still scoped by the tenant filter on {@code Variant} like
+     * every other query here, though a product id already resolved through
+     * {@code ProductDao.find} can only ever belong to the caller's own tenant anyway.
+     */
+    public long countByProduct(Long productId) {
+        return em.createQuery(
+                        "SELECT count(v) FROM Variant v WHERE v.product.id = :productId", Long.class)
+                .setParameter("productId", productId)
+                .getSingleResult();
+    }
+
+    /**
      * <b>The POS hot path.</b> Resolves a scanned payload to exactly one variant, or to
      * nothing.
      *
