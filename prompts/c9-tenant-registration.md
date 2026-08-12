@@ -12,6 +12,16 @@ record) and to `requirements.md` §5.11, §9, §12.
 > Manually verified against a real `mvn jetty:run` + MySQL at every step (b)–(f), which is
 > how `BUGS.md` #18 was found — `tenant.status` didn't fit `PENDING_VERIFICATION` until
 > it did.
+>
+> **Peer-review Phase 0 addition: reCAPTCHA v2 on `register`/`resend-verification`.**
+> `mvn test`: **404 total**, up from 392 — `RecaptchaConfigTest`,
+> `NoopRecaptchaVerifierTest`, `GoogleRecaptchaVerifierTest`, and a `RecaptchaGate`
+> nested class inside `TenantRegistrationIT`. Manually verified twice: against
+> `mvn jetty:run` with the real site registration and secret key (missing/fake
+> token → 400, honeypot trip → unaffected, login → unaffected), and end-to-end
+> through the real frontend widget in a browser (a genuinely solved token → 201,
+> independently confirmed via `GET /api/tenants` as `SUPER_ADMIN`). See "reCAPTCHA
+> v2" below.
 
 ## Key classes
 
@@ -43,6 +53,12 @@ record) and to `requirements.md` §5.11, §9, §12.
 - `com.pos.util.Honeypot` — the `website`-field check. A trip is handled entirely
   inside `TenantRegistrationService.register`, before `TenantRegistrationWriter` is
   ever reached — the database is untouched.
+- `com.pos.util.RecaptchaVerifier` / `GoogleRecaptchaVerifier` / `NoopRecaptchaVerifier`
+  (peer-review Phase 0) — the reCAPTCHA v2 checkbox gate, checked in
+  `TenantRegistrationService.register`/`resendVerification` right after the
+  honeypot. Selected by `com.pos.config.RecaptchaConfig` on
+  `pos.recaptcha.enabled`, same shape as `MailConfig`/`EmailSender` one line up.
+  See "reCAPTCHA v2" below.
 - `com.pos.util.VerificationTokens` / `EmailFormat` — small, named, unit-tested
   pieces pulled out of the writer rather than left as inline regexes/`SecureRandom`
   calls: 256-bit tokens (base64url), and the frontend's own permissive email pattern
@@ -164,6 +180,82 @@ itself a distinguishing signal a sufficiently observant bot could correlate with
 prevent. Neither shape leaks the field's *purpose* to a naive scraper (the premise
 the honeypot actually defends against), but matching the response shape byte-for-byte
 costs nothing and closes the sharper-bot case too.
+
+### reCAPTCHA v2 (peer-review Phase 0) — the backstop for a targeted attacker
+
+The honeypot's own Javadoc names its limit: "a bot written specifically against
+this app... sails past it." `RecaptchaVerifier` is that backstop, added to
+`register` and `resend-verification` only (not `verify` — single-use, self-expiring
+token; not `login` — already has `LoginRateLimiter`/`LoginAttemptGuard` from
+earlier this phase, and CAPTCHA friction there would hit every cashier's
+shift-start login for little benefit). v2 checkbox, not v3 invisible/score-based —
+matches this project's existing taste for explainable mechanisms (the honeypot,
+fixed-window rate limiting) over a black-box score needing a threshold judgment
+call.
+
+**Checked after the honeypot, deliberately.** A honeypot trip returns before
+`requireRecaptcha` is ever called — no reason to spend a call to Google (or make
+the caller wait on one) verifying a request that's about to be silently dropped
+either way. `TenantRegistrationIT$RecaptchaGate.honeypotTripNeverCallsRecaptcha`
+proves this with a call-counting fake, not just a status-code inference.
+
+**Same `EmailSender`-selection shape as `MailConfig`**, one level up: an
+interface (`RecaptchaVerifier`) with two implementations (`GoogleRecaptchaVerifier`,
+a `java.net.http.HttpClient` POST to Google's `siteverify` endpoint — no new
+dependency, Jackson already parses the reply; `NoopRecaptchaVerifier`, always
+passes), selected by `RecaptchaConfig` on `pos.recaptcha.enabled`. Defaults off,
+so `mvn test` and an out-of-the-box `mvn jetty:run` never need a real site
+registration. `GoogleRecaptchaVerifier` fails **closed** (a blank token, a
+rejected token, or simply failing to reach Google all answer `false`) — the
+opposite of `EmailSender`'s log-and-continue, because a CAPTCHA's whole job is
+to be the gate; an outage here should reject a submission, not silently wave
+every submission through.
+
+**A rejection is a plain `ValidationException`, not folded into
+`TenantRegistrationWriter`'s multi-field pass.** "Was the widget solved" isn't a
+form-field question the way `storeName`/`adminEmail` are — it's an early gate,
+the same category as the honeypot check and `RegistrationRateLimiter`, both of
+which already sit outside that pass. On `resendVerification`, a rejected token
+answers its own 400 rather than the uniform `RESEND_ACK` — this doesn't weaken
+the no-enumeration guarantee, since "the widget wasn't solved" says nothing
+about whether `tenantCode`/`adminEmail` match anything real.
+
+**A developer's `pos.recaptcha.enabled=true` override in `application-local.properties`
+leaked into `mvn test`, found the hard way.** `pos.mail.enabled` never had this
+problem in practice only because no developer's local override happens to set it
+true; the moment this feature's own manual testing needed a real local override
+(the same file already carries `pos.jwt.secret`), the whole suite started
+failing every registration fixture, since none of them carry a real solved
+token. Fixed with an explicit `pos.recaptcha.enabled=false` in
+`application-test.properties`, the same device `pos.login.lockout.maxFailures`/
+`pos.api.rateLimit.maxRequests` already use for the identical shared-fixture
+reason — worth remembering before adding another `pos.*.enabled` flag with a
+real local override.
+
+**A standalone second IT file for the gate's automated coverage was written,
+then abandoned, for a real Spring TestContext bug — not a style preference.**
+See `TenantRegistrationIT`'s own class Javadoc (the "Not `RecaptchaConfig`
+either" paragraph) for the full account: two IT files with distinct but
+structurally similar `@ContextConfiguration` class arrays (seven classes each,
+differing in two positions) caused Spring's context cache to hand this file's
+`TenantRegistrationService` the *other* file's fake `RecaptchaVerifier`,
+reproducible running either file alone. The tests now live inside
+`TenantRegistrationIT` itself as a `RecaptchaGate` nested class with its own
+`FakeRecaptchaVerifier`/`TestRecaptchaConfig`, the same device `TestMailConfig`
+already uses one field over — one owning context per file. Don't reach for a
+second near-twin `@ContextConfiguration` array to control a second dependency
+independently; extend the existing file's `Test*Config` pattern instead.
+
+**Frontend**: `frontend/src/components/Recaptcha.jsx` wraps Google's
+`recaptcha/api.js` with explicit rendering (React owns the DOM node; Google's
+own automatic `<div class="g-recaptcha">` scanner would fight it) and a `reset()`
+imperative handle for after a failed submit — a solved token is single-use.
+Three widget instances across two pages: the register form itself, the
+post-registration "Resend the email" button (`Register.jsx`), and `Verify.jsx`'s
+own resend form. The site key is public and committed directly in
+`frontend/.env`/`.env.production` (`VITE_RECAPTCHA_SITE_KEY`) — one Google site
+registration covers both `localhost` and the deployed `sslip.io` domain, so
+there's no per-environment secret to manage on that side.
 
 ## Tenant scoping
 
