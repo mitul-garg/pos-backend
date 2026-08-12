@@ -6,6 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 
+import com.pos.config.AppProperties;
 import com.pos.dao.AppUserDao;
 import com.pos.dao.TenantDao;
 import com.pos.exception.ValidationException;
@@ -64,17 +65,30 @@ public class TenantRegistrationWriter {
     static final String ADMIN_EMAIL_FORMAT = "Enter a valid email address";
     static final String ADMIN_PASSWORD_REQUIRED = "The admin's password is required";
 
+    /**
+     * Peer-review Phase 0 resource-creation guardrail: a durable lifetime cap on tenants
+     * per admin email, not a time-windowed rate limit — see {@link #register}. Merges the
+     * original review's "tenants a user can own" and "pending/unverified registrations
+     * per email" concerns into one check: counting every status, not just pending, is
+     * simpler than a separate racy concurrent-pending check and catches the same abuse.
+     */
+    static final String TOO_MANY_TENANTS_FOR_EMAIL =
+            "This email address has reached its store registration limit";
+
     private static final long TOKEN_TTL_HOURS = 24;
 
     private final TenantDao tenantDao;
     private final AppUserDao appUserDao;
     private final PasswordEncoder passwordEncoder;
+    private final AppProperties appProperties;
 
     @Autowired
-    public TenantRegistrationWriter(TenantDao tenantDao, AppUserDao appUserDao, PasswordEncoder passwordEncoder) {
+    public TenantRegistrationWriter(TenantDao tenantDao, AppUserDao appUserDao,
+                                    PasswordEncoder passwordEncoder, AppProperties appProperties) {
         this.tenantDao = tenantDao;
         this.appUserDao = appUserDao;
         this.passwordEncoder = passwordEncoder;
+        this.appProperties = appProperties;
     }
 
     /**
@@ -117,6 +131,14 @@ public class TenantRegistrationWriter {
         }
         if (!errors.isEmpty()) {
             throw new ValidationException(errors.values().iterator().next(), errors);
+        }
+        // Peer-review Phase 0 resource-creation guardrail -- unlike the bare
+        // ValidationExceptions in UserService/ProductService/VariantService, this one DOES
+        // trace to a single submitted field, so it's field-level like the checks above it
+        // rather than bare.
+        if (appUserDao.countByEmail(adminEmail.toLowerCase(Locale.ROOT))
+                >= appProperties.getTenantMaxPerEmail()) {
+            throw ValidationException.field("adminEmail", TOO_MANY_TENANTS_FOR_EMAIL);
         }
 
         String adminDisplayName = trimToNull(form.getAdminDisplayName());

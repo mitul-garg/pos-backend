@@ -45,7 +45,10 @@ import org.hibernate.type.SqlTypes;
                 name = "uk_user_tenant_username",
                 columnNames = { "tenant_id", "username" }
         ),
-        indexes = @Index(name = "idx_user_tenant", columnList = "tenant_id")
+        indexes = {
+                @Index(name = "idx_user_tenant", columnList = "tenant_id"),
+                @Index(name = "idx_user_email", columnList = "email")
+        }
 )
 public class AppUser {
 
@@ -88,8 +91,15 @@ public class AppUser {
      * `tenant-registration-plan.md` §3). Nullable: every existing seeded/platform-created
      * user has none, and it's required going forward only for a self-registered tenant's
      * first admin, as the address {@code TenantRegistrationService} sends the
-     * verification/resend email to. Not unique — nothing looks a user up by it, globally
-     * or per tenant.
+     * verification/resend email to. Not unique — a global unique constraint here would
+     * be the same mistake as a global one on {@code username}, and per-tenant uniqueness
+     * would not stop the abuse the guardrail below exists for.
+     *
+     * <p><b>Indexed, and looked up by it, as of peer-review Phase 0's resource-creation
+     * guardrail</b> — {@code AppUserDao.countByEmail}, a lifetime cap on how many tenants
+     * one admin email can register (see its Javadoc). Before that guardrail, this field
+     * really was never looked up by, globally or per tenant, which is why the index did
+     * not exist until now.
      */
     @Column(name = "email", length = 254)
     private String email;

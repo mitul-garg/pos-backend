@@ -59,7 +59,7 @@ tenant could register `platform` and shadow the platform login.
 | `username` | `VARCHAR(64)` | no | Unique **per tenant** — two stores can both have `admin` |
 | `password_hash` | `VARCHAR(100)` | no | BCrypt (60 chars; headroom for cost/algorithm changes) |
 | `display_name` | `VARCHAR(120)` | no | |
-| `email` | `VARCHAR(254)` | yes | C9. **Never used for login** — purely the address a self-registered tenant's verification/resend email goes to. `NULL` for every pre-C9 seeded/platform-created user. Not unique — nothing looks a user up by it |
+| `email` | `VARCHAR(254)` | yes | C9. **Never used for login** — purely the address a self-registered tenant's verification/resend email goes to. `NULL` for every pre-C9 seeded/platform-created user. Not unique, but **indexed** (`idx_user_email`, peer-review Phase 0) and looked up by `AppUserDao.countByEmail` — the tenants-per-email resource-creation guardrail |
 | `role` | `VARCHAR(16)` | no | `SUPER_ADMIN` \| `ADMIN` \| `CASHIER` |
 | `is_active` | `BOOLEAN` | no | Default `TRUE`. Soft delete — deactivation, never row removal |
 | `created_at` | `DATETIME(6)` | no | |

@@ -132,6 +132,9 @@
     create index idx_user_tenant 
        on app_user (tenant_id);
 
+    create index idx_user_email 
+       on app_user (email);
+
     alter table app_user 
        add constraint uk_user_tenant_username unique (tenant_id, username);
 

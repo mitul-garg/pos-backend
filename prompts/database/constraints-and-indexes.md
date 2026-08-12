@@ -54,10 +54,14 @@ composite key work. See [README.md](./README.md).
 Every `tenant_id` is indexed, because **every query the application makes is
 filtered on it** — the Hibernate `tenantFilter` appends `tenant_id = :tenantId` to
 literally everything. An unindexed discriminator would mean a full scan per request.
+`idx_user_email` below is the one exception: `AppUser` is already the one entity C4
+never filters (see its class Javadoc), and the query it serves runs at
+self-registration, before any tenant exists to filter by.
 
 | Name | Table | Columns | Serves |
 |---|---|---|---|
 | `idx_user_tenant` | `app_user` | `tenant_id` | User list |
+| `idx_user_email` | `app_user` | `email` | Peer-review Phase 0's tenants-per-email resource-creation guardrail — `AppUserDao.countByEmail`, on the public self-registration path, so unlike every other index above it serves a query with **no** `tenant_id` predicate at all |
 | `idx_product_tenant` | `product` | `tenant_id` | Every catalogue read |
 | `idx_product_tenant_category` | `product` | `tenant_id, category` | Category filter + the `DISTINCT` categories dropdown |
 | `idx_variant_tenant` | `variant` | `tenant_id` | Every variant read |

@@ -251,4 +251,25 @@ public class AppUserDao {
                 .setParameter("tenantId", tenantId)
                 .getSingleResult();
     }
+
+    /**
+     * How many tenants (any status, ever) this email address has registered as an admin
+     * for — {@code TenantRegistrationWriter.register}'s resource-creation guardrail
+     * (peer-review Phase 0), checked before that method's inserts. <b>Cross-tenant by
+     * nature</b> — there is no caller tenant at self-registration, and the whole point is
+     * to count across every store this address has ever touched — so this carries
+     * {@link PlatformOperation} like {@link #countByTenant}, for the same reason: it
+     * reaches {@link AppUser} rows outside any one tenant's own.
+     *
+     * <p>Case-insensitive, matching {@link #findByTenantAndEmail}: email addresses are
+     * conventionally compared that way, and the caller passes an already-lowercased value
+     * for the identical reason that method's Javadoc gives.
+     */
+    @PlatformOperation
+    public long countByEmail(String email) {
+        return em.createQuery(
+                        "SELECT count(u) FROM AppUser u WHERE lower(u.email) = :email", Long.class)
+                .setParameter("email", email)
+                .getSingleResult();
+    }
 }

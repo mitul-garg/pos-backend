@@ -82,7 +82,7 @@ public class StubServiceConfig {
     @Bean
     public TenantRegistrationService tenantRegistrationService() {
         return new TenantRegistrationService(
-                new TenantRegistrationWriter(null, null, null), null, null, null, null);
+                new TenantRegistrationWriter(null, null, null, null), null, null, null, null);
     }
 
     /**

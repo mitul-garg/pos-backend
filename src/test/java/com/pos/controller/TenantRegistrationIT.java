@@ -218,6 +218,28 @@ class TenantRegistrationIT {
                     .andExpect(jsonPath("$.fields.tenantCode").value("That tenant code is already taken"));
         }
 
+        /**
+         * Peer-review Phase 0 resource-creation guardrail — {@code pos.tenant.maxPerEmail}
+         * (5 in {@code application.properties}, not overridden for tests). Real HTTP round
+         * trips rather than direct persistence, unlike the other guardrails' IT cases:
+         * {@code register} already runs under {@code TestIps.fresh()} per call, so five of
+         * these cost nothing extra in rate-limiter bookkeeping.
+         */
+        @Test
+        @DisplayName("rejects a 6th registration under the same admin email, regardless of tenant code")
+        void rejectsTheSixthRegistrationForTheSameEmail() throws Exception {
+            String email = "serial-owner@example.com";
+            for (int i = 0; i < 5; i++) {
+                register(registrationBody("Store " + i, "cap-email-" + i, "admin", email, "secret123", ""))
+                        .andExpect(status().isCreated());
+            }
+
+            register(registrationBody("Store 6", "cap-email-6", "admin", email, "secret123", ""))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.fields.adminEmail")
+                            .value("This email address has reached its store registration limit"));
+        }
+
         @Test
         @DisplayName("refuses a blank admin username")
         void refusesBlankAdminUsername() throws Exception {
