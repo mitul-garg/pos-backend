@@ -45,6 +45,14 @@ public class AppProperties {
     @Value("${pos.seed.dev}")
     private boolean seedDev;
 
+    // --- Login lockout (peer-review Phase 0) --------------------------------------
+
+    @Value("${pos.login.lockout.maxFailures}")
+    private int loginLockoutMaxFailures;
+
+    @Value("${pos.login.lockout.minutes}")
+    private int loginLockoutMinutes;
+
     // --- Mail (C9) ---------------------------------------------------------------
 
     @Value("${pos.mail.enabled}")
@@ -104,6 +112,14 @@ public class AppProperties {
 
     public boolean isSeedDev() {
         return seedDev;
+    }
+
+    public int getLoginLockoutMaxFailures() {
+        return loginLockoutMaxFailures;
+    }
+
+    public int getLoginLockoutMinutes() {
+        return loginLockoutMinutes;
     }
 
     public boolean isMailEnabled() {

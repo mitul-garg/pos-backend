@@ -204,7 +204,7 @@ class JwtAuthenticationFilterTest {
         private final RuntimeException failure;
 
         private StubAuthService(SessionUserData session, RuntimeException failure) {
-            super(null, null, null, null);
+            super(null, null, null, null, null);
             this.session = session;
             this.failure = failure;
         }

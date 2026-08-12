@@ -7,6 +7,7 @@ import com.pos.dao.AppUserDao;
 import com.pos.dao.TenantDao;
 import com.pos.exception.ForbiddenException;
 import com.pos.exception.InvalidCredentialsException;
+import com.pos.exception.TooManyRequestsException;
 import com.pos.model.LoginData;
 import com.pos.model.LoginForm;
 import com.pos.model.SessionUserData;
@@ -15,6 +16,7 @@ import com.pos.pojo.Tenant;
 import com.pos.pojo.TenantStatus;
 import com.pos.util.JwtPrincipal;
 import com.pos.util.JwtTokenService;
+import com.pos.util.LoginAttemptGuard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -68,6 +70,7 @@ public class AuthService {
     private final AppUserDao appUserDao;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenService jwtTokenService;
+    private final LoginAttemptGuard loginAttemptGuard;
 
     /**
      * Constructor injection rather than {@code @Autowired} fields, which is what the rest
@@ -84,11 +87,13 @@ public class AuthService {
      */
     @Autowired
     public AuthService(TenantDao tenantDao, AppUserDao appUserDao,
-                       PasswordEncoder passwordEncoder, JwtTokenService jwtTokenService) {
+                       PasswordEncoder passwordEncoder, JwtTokenService jwtTokenService,
+                       LoginAttemptGuard loginAttemptGuard) {
         this.tenantDao = tenantDao;
         this.appUserDao = appUserDao;
         this.passwordEncoder = passwordEncoder;
         this.jwtTokenService = jwtTokenService;
+        this.loginAttemptGuard = loginAttemptGuard;
     }
 
     /**
@@ -96,14 +101,28 @@ public class AuthService {
      * {@code (tenantId, username)} — never by username alone, which is what lets two
      * stores each have an {@code admin}.
      *
-     * <p>{@code readOnly}: logging in writes nothing. There is no session row to insert,
-     * because the token is the session.
+     * <p>{@code readOnly}: logging in writes nothing but the in-memory {@link
+     * LoginAttemptGuard} state, which isn't a database row.
+     *
+     * <p><b>Peer-review Phase 0:</b> checks {@link LoginAttemptGuard#isLocked} before
+     * touching the database at all, keyed on the normalized {@code (tenantCode,
+     * username)} pair regardless of whether it resolves to a real user — see that
+     * class's Javadoc for why the symmetry matters. A wrong password records a failure
+     * against the same key; a correct one clears it, right after the password check and
+     * before {@link #requireUsable}, since proving the password is what this guard
+     * cares about, not the account's status.
      */
     @Transactional(readOnly = true)
     public LoginData login(LoginForm form) {
         String code = normalize(form.getTenantCode());
         String username = normalize(form.getUsername());
         String password = form.getPassword() == null ? "" : form.getPassword();
+        String accountKey = code + ":" + username;
+
+        if (loginAttemptGuard.isLocked(accountKey)) {
+            log.debug("Login blocked: '{}' is locked out after repeated failures", accountKey);
+            throw new TooManyRequestsException();
+        }
 
         // A suspended tenant still RESOLVES here. We are not allowed to admit it exists
         // until the password is proved, so its status is checked further down, not now.
@@ -123,13 +142,16 @@ public class AuthService {
             // the uniform 401 leaks through response time what it refuses to say in its
             // message. The comparison is against a fixed hash and can never succeed.
             passwordEncoder.matches(password, ABSENT_USER_HASH);
+            loginAttemptGuard.recordFailure(accountKey);
             log.debug("Login failed: no user for tenant code '{}'", code);
             throw new InvalidCredentialsException();
         }
         if (!passwordEncoder.matches(password, user.getPasswordHash())) {
+            loginAttemptGuard.recordFailure(accountKey);
             log.debug("Login failed: wrong password for user {}", user.getId());
             throw new InvalidCredentialsException();
         }
+        loginAttemptGuard.recordSuccess(accountKey);
 
         // --- past this line the caller has proved the password, so 403s may be specific
         requireUsable(user);

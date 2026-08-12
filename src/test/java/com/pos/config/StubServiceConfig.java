@@ -41,7 +41,7 @@ public class StubServiceConfig {
 
     @Bean
     public AuthService authService() {
-        return new AuthService(null, null, null, null);
+        return new AuthService(null, null, null, null, null);
     }
 
     @Bean
