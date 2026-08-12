@@ -6,6 +6,7 @@ import java.util.List;
 import com.pos.exception.InvalidCredentialsException;
 import com.pos.pojo.Role;
 import com.pos.service.AuthService;
+import com.pos.util.ApiRateLimiter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -97,8 +98,9 @@ public class SecurityConfig {
 
     @Bean
     public JwtAuthenticationFilter jwtAuthenticationFilter(AuthService authService,
-                                                           ApiErrorResponder responder) {
-        return new JwtAuthenticationFilter(authService, responder, publicPathMatcher());
+                                                           ApiErrorResponder responder,
+                                                           ApiRateLimiter apiRateLimiter) {
+        return new JwtAuthenticationFilter(authService, responder, apiRateLimiter, publicPathMatcher());
     }
 
     @Bean

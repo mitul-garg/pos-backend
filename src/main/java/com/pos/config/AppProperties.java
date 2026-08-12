@@ -53,6 +53,14 @@ public class AppProperties {
     @Value("${pos.login.lockout.minutes}")
     private int loginLockoutMinutes;
 
+    // --- General API rate limiting (peer-review Phase 0) --------------------------
+
+    @Value("${pos.api.rateLimit.maxRequests}")
+    private int apiRateLimitMaxRequests;
+
+    @Value("${pos.api.rateLimit.windowSeconds}")
+    private int apiRateLimitWindowSeconds;
+
     // --- Mail (C9) ---------------------------------------------------------------
 
     @Value("${pos.mail.enabled}")
@@ -120,6 +128,14 @@ public class AppProperties {
 
     public int getLoginLockoutMinutes() {
         return loginLockoutMinutes;
+    }
+
+    public int getApiRateLimitMaxRequests() {
+        return apiRateLimitMaxRequests;
+    }
+
+    public int getApiRateLimitWindowSeconds() {
+        return apiRateLimitWindowSeconds;
     }
 
     public boolean isMailEnabled() {

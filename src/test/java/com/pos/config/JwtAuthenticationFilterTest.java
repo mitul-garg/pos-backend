@@ -1,10 +1,14 @@
 package com.pos.config;
 
+import java.time.Clock;
+import java.time.Duration;
+
 import com.pos.exception.ForbiddenException;
 import com.pos.exception.InvalidCredentialsException;
 import com.pos.model.SessionUserData;
 import com.pos.pojo.Role;
 import com.pos.service.AuthService;
+import com.pos.util.ApiRateLimiter;
 import com.pos.util.TenantContext;
 import jakarta.servlet.ServletException;
 import org.junit.jupiter.api.AfterEach;
@@ -163,12 +167,33 @@ class JwtAuthenticationFilterTest {
         // the filter never asks it to.
         JwtAuthenticationFilter filter = new JwtAuthenticationFilter(
                 new StubAuthService(null, new InvalidCredentialsException()),
-                new ApiErrorResponder(), req -> true);
+                new ApiErrorResponder(), permissiveRateLimiter(), req -> true);
 
         filter.doFilter(request, response, (req, res) -> chainRan[0] = true);
 
         assertTrue(chainRan[0], "a public path must reach the handler regardless of the token");
         assertEquals(200, response.getStatus(), "nothing here should have written a rejection");
+        assertFalse(TenantContext.isPresent());
+    }
+
+    @Test
+    @DisplayName("leaves nothing behind when the per-user API budget is exhausted")
+    void clearsOnRateLimited() throws Exception {
+        request.addHeader(HttpHeaders.AUTHORIZATION, TOKEN);
+        boolean[] chainRan = { false };
+
+        // Exhausted before the request under test even runs, so the ONLY way this
+        // passes is if the filter actually checks the limiter.
+        ApiRateLimiter exhausted = new ApiRateLimiter(1, Duration.ofMinutes(1), Clock.systemUTC());
+        exhausted.allow("user:1");
+        JwtAuthenticationFilter filter = new JwtAuthenticationFilter(
+                new StubAuthService(session(TENANT_ID), null),
+                new ApiErrorResponder(), exhausted, NO_PUBLIC_PATHS);
+
+        filter.doFilter(request, response, (req, res) -> chainRan[0] = true);
+
+        assertEquals(429, response.getStatus());
+        assertFalse(chainRan[0], "a rate-limited request must not reach the handler");
         assertFalse(TenantContext.isPresent());
     }
 
@@ -179,12 +204,17 @@ class JwtAuthenticationFilterTest {
 
     private JwtAuthenticationFilter filterFor(SessionUserData session) {
         return new JwtAuthenticationFilter(new StubAuthService(session, null),
-                new ApiErrorResponder(), NO_PUBLIC_PATHS);
+                new ApiErrorResponder(), permissiveRateLimiter(), NO_PUBLIC_PATHS);
     }
 
     private JwtAuthenticationFilter filterRejectingWith(RuntimeException failure) {
         return new JwtAuthenticationFilter(new StubAuthService(null, failure),
-                new ApiErrorResponder(), NO_PUBLIC_PATHS);
+                new ApiErrorResponder(), permissiveRateLimiter(), NO_PUBLIC_PATHS);
+    }
+
+    /** Wide open, for every test above that isn't about rate limiting itself. */
+    private static ApiRateLimiter permissiveRateLimiter() {
+        return new ApiRateLimiter(Integer.MAX_VALUE, Duration.ofMinutes(1), Clock.systemUTC());
     }
 
     private SessionUserData session(Long tenantId) {

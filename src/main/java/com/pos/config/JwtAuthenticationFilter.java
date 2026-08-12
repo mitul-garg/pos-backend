@@ -5,8 +5,10 @@ import java.util.List;
 
 import com.pos.exception.ForbiddenException;
 import com.pos.exception.InvalidCredentialsException;
+import com.pos.exception.TooManyRequestsException;
 import com.pos.model.SessionUserData;
 import com.pos.service.AuthService;
+import com.pos.util.ApiRateLimiter;
 import com.pos.util.TenantContext;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -52,6 +54,12 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * {@code SecurityContextHolder}, is cleared for us by Spring Security's own
  * {@code SecurityContextHolderFilter}; this one is not, so the {@code finally} below is
  * load-bearing rather than tidy.
+ *
+ * <p><b>And where the general per-user API budget is enforced (peer-review Phase 0)</b>
+ * — {@link com.pos.util.ApiRateLimiter}, checked right after the session resolves,
+ * distinct from {@code AuthService}'s login-specific guards. Every authenticated
+ * request passes through here exactly once, which is what makes it the one place a
+ * runaway or compromised token can be stopped before it reaches a DAO.
  */
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
@@ -59,14 +67,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final AuthService authService;
     private final ApiErrorResponder responder;
+    private final ApiRateLimiter apiRateLimiter;
 
     /** {@code SecurityConfig}'s own public-path list, wrapped for a single {@code matches()}. */
     private final RequestMatcher publicPathMatcher;
 
     public JwtAuthenticationFilter(AuthService authService, ApiErrorResponder responder,
-                                   RequestMatcher publicPathMatcher) {
+                                   ApiRateLimiter apiRateLimiter, RequestMatcher publicPathMatcher) {
         this.authService = authService;
         this.responder = responder;
+        this.apiRateLimiter = apiRateLimiter;
         this.publicPathMatcher = publicPathMatcher;
     }
 
@@ -88,8 +98,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
 
+        SessionUserData session;
         try {
-            SessionUserData session = authService.resolveSession(token);
+            session = authService.resolveSession(token);
             SecurityContextHolder.getContext().setAuthentication(authenticationFor(session));
             // Null for a platform SUPER_ADMIN, which is correct: it has no tenant
             // context, so every filtered query it could reach resolves to NO_TENANT and
@@ -104,6 +115,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             // at login. Specific for the same reason it is specific at login: reaching
             // here required a signed token, so the password was already proved.
             reject(response, HttpStatus.FORBIDDEN, ex.getMessage());
+            return;
+        }
+
+        // Peer-review Phase 0: the general per-user API budget, distinct from
+        // AuthService's login-specific guards. Checked here rather than in a
+        // controller/service because this is the one place every authenticated
+        // request already passes through, and it's cheap: no database, an
+        // already-resolved user id. Deliberately AFTER the tenant/session is set
+        // (so the key is the real user id) and BEFORE the chain runs (so a
+        // rejected request never reaches a DAO).
+        if (!apiRateLimiter.allow("user:" + session.getId())) {
+            reject(response, HttpStatus.TOO_MANY_REQUESTS, TooManyRequestsException.MESSAGE);
             return;
         }
 
