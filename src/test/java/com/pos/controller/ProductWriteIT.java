@@ -1,5 +1,7 @@
 package com.pos.controller;
 
+import java.math.BigDecimal;
+
 import com.jayway.jsonpath.JsonPath;
 import com.pos.config.MailConfig;
 import com.pos.config.OpenApiConfig;
@@ -9,6 +11,7 @@ import com.pos.config.RootConfig;
 import com.pos.config.SecurityConfig;
 import com.pos.config.WebConfig;
 import com.pos.pojo.AppUser;
+import com.pos.pojo.Product;
 import com.pos.pojo.Role;
 import com.pos.pojo.Tenant;
 import com.pos.pojo.TenantStatus;
@@ -238,6 +241,29 @@ class ProductWriteIT {
                     .andExpect(jsonPath("$.items[0].name").value("Everest Chai Masala"));
             mvc.perform(get("/api/products/categories").header(AUTH, bearer(asAdmin())))
                     .andExpect(jsonPath("$", hasItem("Staples")));
+        }
+
+        /**
+         * Peer-review Phase 0 resource-creation guardrail — {@code pos.tenant.maxProducts}
+         * (2000 in {@code application.properties}, not overridden for tests). Seeded by
+         * direct persistence rather than 2000 round trips; the real endpoint proves the
+         * ceiling itself.
+         */
+        @Test
+        @DisplayName("rejects a create once the tenant is at its product-count ceiling")
+        void rejectsACreateAtTheProductCeiling() throws Exception {
+            for (int i = 0; i < 2000; i++) {
+                product(mgRoad, "Filler " + i);
+            }
+            em.flush();
+            em.clear();
+
+            create(asAdmin(), """
+                    {"name":"One More","taxRatePercent":5}
+                    """)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("This store has reached its product limit"))
+                    .andExpect(jsonPath("$.fields").doesNotExist());
         }
     }
 
@@ -511,5 +537,15 @@ class ProductWriteIT {
         user.setRole(role);
         user.setActive(true);
         em.persist(user);
+    }
+
+    /** Fast-path fixture for the product-ceiling test — 2000 of these beats 2000 round trips. */
+    private void product(Tenant tenant, String name) {
+        Product product = new Product();
+        product.setTenant(tenant);
+        product.setName(name);
+        product.setTaxRatePercent(BigDecimal.ZERO);
+        product.setActive(true);
+        em.persist(product);
     }
 }

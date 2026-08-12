@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import com.pos.config.AppProperties;
 import com.pos.dao.ProductDao;
 import com.pos.dao.TenantDao;
 import com.pos.exception.NotFoundException;
@@ -64,9 +65,16 @@ public class ProductService {
 
     static final String TAX_RATE_INVALID = "Tax rate must be one of 0, 5, 12, 18, 28%";
 
+    /**
+     * Peer-review Phase 0 resource-creation guardrail: a durable ceiling on catalogue
+     * size, not a time-windowed rate limit — see {@link #create}.
+     */
+    static final String TOO_MANY_PRODUCTS = "This store has reached its product limit";
+
     private final ProductDao productDao;
     private final TenantDao tenantDao;
     private final AuthService authService;
+    private final AppProperties appProperties;
 
     /**
      * Constructor injection, for the reason recorded on {@code AuthService}: a servlet-
@@ -74,10 +82,12 @@ public class ProductService {
      * field injection is applied even to a hand-built {@code @Bean}.
      */
     @Autowired
-    public ProductService(ProductDao productDao, TenantDao tenantDao, AuthService authService) {
+    public ProductService(ProductDao productDao, TenantDao tenantDao, AuthService authService,
+                          AppProperties appProperties) {
         this.productDao = productDao;
         this.tenantDao = tenantDao;
         this.authService = authService;
+        this.appProperties = appProperties;
     }
 
     @Transactional(readOnly = true)
@@ -152,6 +162,15 @@ public class ProductService {
         // Never from the form: a product is created active, and a caller asking for
         // isActive:false would be creating a row that no screen can reach.
         product.setActive(true);
+
+        // Peer-review Phase 0 resource-creation guardrail -- a durable ceiling on tenant
+        // catalogue size, not tied to any one submitted field, so this is a bare
+        // ValidationException like UserService.LAST_ADMIN rather than a field-level one.
+        // includeInactive=true, matching the guardrail's intent: soft-deleting a product
+        // must not reopen headroom for the same tenant.
+        if (productDao.count(null, null, true) >= appProperties.getTenantMaxProducts()) {
+            throw new ValidationException(TOO_MANY_PRODUCTS);
+        }
 
         productDao.insert(product);
         return toData(product);
