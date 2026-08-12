@@ -3,19 +3,20 @@ package com.pos.controller;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.jayway.jsonpath.JsonPath;
 import com.pos.config.OpenApiConfig;
 import com.pos.config.PersistenceConfig;
-import com.pos.config.RecaptchaConfig;
 import com.pos.config.RootConfig;
 import com.pos.config.SecurityConfig;
 import com.pos.config.WebConfig;
 import com.pos.pojo.Tenant;
 import com.pos.pojo.TenantStatus;
 import com.pos.util.EmailSender;
+import com.pos.util.RecaptchaVerifier;
 import com.pos.util.TenantContext;
 import com.pos.util.TestIps;
 import jakarta.persistence.EntityManager;
@@ -68,6 +69,24 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * {@code EmailSender} bean type, satisfying {@code TenantRegistrationService}'s
  * dependency exactly like {@code MailConfig} would, just observable.
  *
+ * <p><b>Not {@code RecaptchaConfig} either, for a related but different reason.</b>
+ * {@code RecaptchaConfig} would resolve to {@code NoopRecaptchaVerifier} under
+ * {@code application-test.properties}' {@code pos.recaptcha.enabled=false} — fine
+ * for the 20-odd tests below that never set {@code recaptchaToken}, but no good for
+ * the dedicated {@link RecaptchaGate} cases, which need to prove both the accept
+ * and the reject path. {@link TestRecaptchaConfig} supplies a controllable fake
+ * instead, the same device as {@link TestMailConfig} one field over. <b>A second,
+ * separate {@code @ContextConfiguration} class combination for the identical
+ * scenario was tried first (a standalone {@code TenantRegistrationRecaptchaIT})
+ * and abandoned</b>: Spring's test context cache handed that suite's fake verifier
+ * to <i>this</i> class's context instead of the real one, corrupting 23 unrelated
+ * assertions, reproducible even running this class alone. Root cause not fully
+ * chased down (a {@code MergedContextConfiguration} cache collision between two
+ * near-identical seven-class arrays differing in only two positions was the
+ * leading theory), but the fix that actually holds is not creating a second
+ * near-twin configuration in the first place — one owning context per file,
+ * exactly like every other IT here.
+ *
  * <p><b>Every {@code register}/{@code resend-verification}/{@code login} call carries
  * its own fake source IP</b> ({@code TestIps.fresh()}), unless a test is deliberately
  * exercising {@code RegistrationRateLimiter}. Without that, the per-IP budget shared by
@@ -79,8 +98,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ExtendWith(SpringExtension.class)
 @WebAppConfiguration
 @ContextConfiguration(classes = {
-        RootConfig.class, PersistenceConfig.class, SecurityConfig.class, RecaptchaConfig.class,
-        TenantRegistrationIT.TestMailConfig.class, WebConfig.class, OpenApiConfig.class })
+        RootConfig.class, PersistenceConfig.class, SecurityConfig.class,
+        TenantRegistrationIT.TestMailConfig.class, TenantRegistrationIT.TestRecaptchaConfig.class,
+        WebConfig.class, OpenApiConfig.class })
 @TestPropertySource("classpath:application-test.properties")
 @Transactional
 @DisplayName("POST /api/tenants/register|verify|resend-verification")
@@ -90,12 +110,16 @@ class TenantRegistrationIT {
     private static final String RESEND_ACK = "If that store is awaiting verification, we've re-sent the email.";
     private static final String PENDING_LOGIN_MESSAGE =
             "Verify your email before signing in — check your inbox for the link.";
+    private static final String RECAPTCHA_FAILED = "Please confirm you're not a robot and try again.";
 
     @Autowired
     private WebApplicationContext context;
 
     @Autowired
     private CapturingEmailSender emailSender;
+
+    @Autowired
+    private FakeRecaptchaVerifier recaptchaVerifier;
 
     @PersistenceContext
     private EntityManager em;
@@ -432,6 +456,85 @@ class TenantRegistrationIT {
         }
     }
 
+    /**
+     * {@code TenantRegistrationService.requireRecaptcha} (peer-review Phase 0) — see
+     * the class Javadoc for why this lives here rather than in its own IT file.
+     * {@link FakeRecaptchaVerifier} passes everything except {@code REJECT_TOKEN},
+     * so every test above this one (none of which set {@code recaptchaToken} at
+     * all) is unaffected.
+     */
+    @Nested
+    @DisplayName("reCAPTCHA gate")
+    class RecaptchaGate {
+
+        @Test
+        @DisplayName("register: an accepted token succeeds")
+        void registerAcceptedTokenSucceeds() throws Exception {
+            register(registrationBodyWithToken("recap-accept", "any-real-looking-token"))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.tenantCode").value("recap-accept"));
+        }
+
+        @Test
+        @DisplayName("register: a rejected token answers 400, not the field-validation path")
+        void registerRejectedTokenFails() throws Exception {
+            register(registrationBodyWithToken("recap-reject", FakeRecaptchaVerifier.REJECT_TOKEN))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value(RECAPTCHA_FAILED));
+        }
+
+        @Test
+        @DisplayName("register: a honeypot trip never calls the verifier at all")
+        void honeypotTripNeverCallsRecaptcha() throws Exception {
+            int before = recaptchaVerifier.callCount();
+            String body = """
+                    {"storeName":"Bot Store","tenantCode":"recap-honeypot","adminUsername":"bot",\
+                    "adminEmail":"bot@example.com","adminPassword":"secret123","website":"http://spam.example",\
+                    "recaptchaToken":"%s"}
+                    """.formatted(FakeRecaptchaVerifier.REJECT_TOKEN);
+
+            // A token the verifier would reject is used deliberately -- if the
+            // honeypot didn't run first, this would 400 instead of resolving as a
+            // fake success.
+            register(body)
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.tenantCode").value("recap-honeypot"));
+            assertEquals(before, recaptchaVerifier.callCount(),
+                    "honeypot trip must not call the recaptcha verifier at all");
+        }
+
+        @Test
+        @DisplayName("resend-verification: an accepted token gets the generic ack")
+        void resendAcceptedTokenSucceeds() throws Exception {
+            resendVerification(resendBodyWithToken("no-such-store", "nobody@example.com", "any-real-looking-token"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.message").value(RESEND_ACK));
+        }
+
+        @Test
+        @DisplayName("resend-verification: a rejected token answers its own 400, not the generic ack")
+        void resendRejectedTokenFails() throws Exception {
+            resendVerification(
+                    resendBodyWithToken("no-such-store", "nobody@example.com", FakeRecaptchaVerifier.REJECT_TOKEN))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value(RECAPTCHA_FAILED));
+        }
+
+        private String registrationBodyWithToken(String code, String recaptchaToken) {
+            return """
+                    {"storeName":"%s Store","tenantCode":"%s","adminUsername":"admin",\
+                    "adminEmail":"admin@%s.example.com","adminPassword":"secret123","website":"",\
+                    "recaptchaToken":"%s"}
+                    """.formatted(code, code, code, recaptchaToken);
+        }
+
+        private String resendBodyWithToken(String code, String email, String recaptchaToken) {
+            return """
+                    {"tenantCode":"%s","adminEmail":"%s","recaptchaToken":"%s"}
+                    """.formatted(code, email, recaptchaToken);
+        }
+    }
+
     @Test
     @DisplayName("once verified, a self-registered tenant is an ordinary tenant -- nothing about "
             + "registration special-cases isolation")
@@ -582,6 +685,47 @@ class TenantRegistrationIT {
         @Bean
         public CapturingEmailSender emailSender() {
             return new CapturingEmailSender();
+        }
+    }
+
+    /**
+     * Supplies a controllable {@link FakeRecaptchaVerifier} in place of {@code
+     * RecaptchaConfig} — see the class Javadoc for why a real, second config class
+     * isn't used instead. Registered under the concrete type for the same reason
+     * {@link TestMailConfig} is, so {@link RecaptchaGate} can {@code @Autowired
+     * FakeRecaptchaVerifier} directly to reset it between tests.
+     */
+    @Configuration
+    static class TestRecaptchaConfig {
+
+        @Bean
+        public FakeRecaptchaVerifier recaptchaVerifier() {
+            return new FakeRecaptchaVerifier();
+        }
+    }
+
+    /**
+     * Passes everything except {@link #REJECT_TOKEN} — matching {@code
+     * NoopRecaptchaVerifier}'s always-pass behaviour for every one of the ~20 tests
+     * above that never set {@code recaptchaToken} at all, while still letting {@link
+     * RecaptchaGate} exercise a real rejection with an explicit sentinel value.
+     * Counts calls so {@code honeypotTripNeverCallsRecaptcha} can assert the gate
+     * was never reached at all, not merely that it happened to pass.
+     */
+    static class FakeRecaptchaVerifier implements RecaptchaVerifier {
+
+        static final String REJECT_TOKEN = "reject-me";
+
+        private final AtomicInteger callCount = new AtomicInteger();
+
+        @Override
+        public boolean verify(String token) {
+            callCount.incrementAndGet();
+            return !REJECT_TOKEN.equals(token);
+        }
+
+        int callCount() {
+            return callCount.get();
         }
     }
 }
