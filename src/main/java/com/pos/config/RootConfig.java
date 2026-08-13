@@ -14,8 +14,12 @@ import org.springframework.context.annotation.Configuration;
  * beside it in {@code WebAppInitializer}, not imported here, so each root concern is
  * listed in one place); C3 adds {@code SecurityConfig}. The packages below stay mostly
  * empty until then.
+ *
+ * <p>{@code com.pos.job} joined the scan in peer-review Phase 1 — a scheduled job's
+ * trigger class is thin, like a controller, but calls into the service layer directly
+ * rather than through the servlet, so it belongs here rather than in {@code WebConfig}.
  */
 @Configuration
-@ComponentScan(basePackages = { "com.pos.service", "com.pos.dao", "com.pos.util" })
+@ComponentScan(basePackages = { "com.pos.service", "com.pos.dao", "com.pos.util", "com.pos.job" })
 public class RootConfig {
 }

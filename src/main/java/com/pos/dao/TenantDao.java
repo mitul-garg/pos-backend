@@ -1,12 +1,15 @@
 package com.pos.dao;
 
+import java.time.Instant;
 import java.util.List;
 
 import com.pos.pojo.Product;
 import com.pos.pojo.Tenant;
+import com.pos.pojo.TenantStatus;
 import com.pos.util.PlatformOperation;
 import com.pos.util.TenantContext;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import jakarta.persistence.PersistenceContext;
 import org.hibernate.Session;
 import org.springframework.stereotype.Repository;
@@ -183,5 +186,53 @@ public class TenantDao {
     public void insert(Tenant tenant) {
         em.persist(tenant);
         em.flush();
+    }
+
+    /**
+     * Every tenant still {@code PENDING_VERIFICATION} whose token has already expired
+     * as of {@code cutoff} — the candidate set {@code AbandonedTenantCleanupService}
+     * deletes (peer-review Phase 1, net-new). Cross-tenant by nature, like {@link
+     * #productCount}/{@link #orderCount}: the caller is a background job with no
+     * tenant of its own, so this carries {@link PlatformOperation} for the same
+     * reason {@code AppUserDao.countByEmail} does — see that method's Javadoc.
+     *
+     * <p><b>{@code FOR UPDATE}, not a plain read.</b> Locking each candidate row here,
+     * before anything else in the same transaction touches it, is what closes the one
+     * real race: a resend or a successful verify landing between this read and the
+     * delete could otherwise resurrect a row this method already decided to remove.
+     * A concurrent resend/verify's own write blocks on this lock until the cleanup
+     * transaction commits or rolls back; if the delete commits first, that request
+     * simply finds no such tenant afterward — the same generic "invalid or expired"
+     * outcome it would already give a token that expired moments earlier.
+     */
+    @PlatformOperation
+    public List<Tenant> findAbandonedPendingVerification(Instant cutoff) {
+        return em.createQuery(
+                        "SELECT t FROM Tenant t WHERE t.status = :status"
+                                + " AND t.verificationExpiresAt < :cutoff",
+                        Tenant.class)
+                .setParameter("status", TenantStatus.PENDING_VERIFICATION)
+                .setParameter("cutoff", cutoff)
+                .setLockMode(LockModeType.PESSIMISTIC_WRITE)
+                .getResultList();
+    }
+
+    /**
+     * Removes a tenant row outright — <b>the only hard delete anywhere in this
+     * codebase.</b> Contrast {@code prompts/database/constraints-and-indexes.md}'s
+     * "Deleting a product/variant referenced by order or return history": that path
+     * is permanently blocked, on purpose, because those rows carry real transaction
+     * history. A {@code PENDING_VERIFICATION} tenant carries none — login is refused
+     * before verification (`requirements.md` §9), so nothing can exist under it but
+     * its own admin row — which is what makes this safe to have at all.
+     *
+     * <p>{@link com.pos.service.AbandonedTenantCleanupService} is this method's only
+     * caller, and it must delete that admin row first via {@code
+     * AppUserDao.deleteByTenant} — {@code fk_app_user_tenant} carries no {@code
+     * ON DELETE CASCADE}, so this fails on the foreign key otherwise.
+     */
+    @PlatformOperation
+    public void delete(Tenant tenant) {
+        em.remove(tenant);
     }
 }

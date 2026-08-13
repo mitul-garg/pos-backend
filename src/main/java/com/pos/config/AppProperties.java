@@ -115,6 +115,14 @@ public class AppProperties {
     @Value("${pos.tenant.maxPerEmail}")
     private int tenantMaxPerEmail;
 
+    // --- Abandoned self-registration cleanup (peer-review Phase 1) ----------------
+
+    @Value("${pos.job.abandonedTenant.enabled}")
+    private boolean abandonedTenantCleanupEnabled;
+
+    @Value("${pos.job.abandonedTenant.intervalMinutes}")
+    private long abandonedTenantCleanupIntervalMinutes;
+
     public String getDbUrl() {
         return dbUrl;
     }
@@ -221,5 +229,13 @@ public class AppProperties {
 
     public int getTenantMaxPerEmail() {
         return tenantMaxPerEmail;
+    }
+
+    public boolean isAbandonedTenantCleanupEnabled() {
+        return abandonedTenantCleanupEnabled;
+    }
+
+    public long getAbandonedTenantCleanupIntervalMinutes() {
+        return abandonedTenantCleanupIntervalMinutes;
     }
 }

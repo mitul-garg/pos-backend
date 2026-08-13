@@ -272,4 +272,25 @@ public class AppUserDao {
                 .setParameter("email", email)
                 .getSingleResult();
     }
+
+    /**
+     * Removes every {@code app_user} row for one tenant — {@code
+     * AbandonedTenantCleanupService}'s one caller (peer-review Phase 1, net-new),
+     * always run before {@code TenantDao.delete} on the same tenant, since {@code
+     * fk_app_user_tenant} carries no cascade. A bulk statement rather than {@link
+     * #findByTenant} plus a loop of individual removes — there is normally exactly
+     * one row (the admin minted at registration), but nothing here assumes that.
+     *
+     * <p>Needs no filter dance for the reason {@link #countByTenant} already gives —
+     * {@link AppUser} was never filtered in the first place — but carries {@link
+     * PlatformOperation} for the same reason that method does: the caller is a
+     * background job with no tenant of its own, reaching every tenant's users, which
+     * is exactly the cross-tenant reach the marker exists to flag.
+     */
+    @PlatformOperation
+    public void deleteByTenant(Long tenantId) {
+        em.createQuery("DELETE FROM AppUser u WHERE u.tenant.id = :tenantId")
+                .setParameter("tenantId", tenantId)
+                .executeUpdate();
+    }
 }
