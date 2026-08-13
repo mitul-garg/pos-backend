@@ -1,12 +1,9 @@
 package com.pos.pojo;
 
-import java.math.BigDecimal;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-
-import jakarta.persistence.CascadeType;
+import com.pos.pojo.enums.OrderStatus;
+import com.pos.pojo.enums.PaymentMethod;
 import com.pos.util.TenantContext;
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -22,6 +19,10 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.Filter;
@@ -53,7 +54,7 @@ import org.hibernate.type.SqlTypes;
                 @Index(name = "idx_order_tenant_created", columnList = "tenant_id, created_at")
         }
 )
-public class PosOrder {
+public class PosOrderPojo {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -66,13 +67,13 @@ public class PosOrder {
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_pos_order_tenant")
     )
-    private Tenant tenant;
+    private TenantPojo tenant;
 
     /**
      * {@code ORD-YYYY-NNNN}, unique per tenant — both seeded stores have an
      * {@code ORD-2026-0001}.
      *
-     * <p>Minted from {@link TenantSequence} under {@code SELECT ... FOR UPDATE} in the
+     * <p>Minted from {@link TenantSequencePojo} under {@code SELECT ... FOR UPDATE} in the
      * same transaction as this insert (C6). {@code MAX(number)+1} races, and going
      * per-tenant is what cost us {@code AUTO_INCREMENT} here in the first place.
      */
@@ -144,7 +145,7 @@ public class PosOrder {
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_pos_order_cashier")
     )
-    private AppUser cashier;
+    private AppUserPojo cashier;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -156,10 +157,10 @@ public class PosOrder {
      * deletes the row, which is what editing a held order's cart does.
      */
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<OrderLine> lines = new ArrayList<>();
+    private List<OrderLinePojo> lines = new ArrayList<>();
 
     /** Keeps both sides of the association consistent, which cascading relies on. */
-    public void addLine(OrderLine line) {
+    public void addLine(OrderLinePojo line) {
         lines.add(line);
         line.setOrder(this);
     }
@@ -172,11 +173,11 @@ public class PosOrder {
         this.id = id;
     }
 
-    public Tenant getTenant() {
+    public TenantPojo getTenant() {
         return tenant;
     }
 
-    public void setTenant(Tenant tenant) {
+    public void setTenant(TenantPojo tenant) {
         this.tenant = tenant;
     }
 
@@ -276,11 +277,11 @@ public class PosOrder {
         this.paymentReference = paymentReference;
     }
 
-    public AppUser getCashier() {
+    public AppUserPojo getCashier() {
         return cashier;
     }
 
-    public void setCashier(AppUser cashier) {
+    public void setCashier(AppUserPojo cashier) {
         this.cashier = cashier;
     }
 
@@ -292,11 +293,11 @@ public class PosOrder {
         this.createdAt = createdAt;
     }
 
-    public List<OrderLine> getLines() {
+    public List<OrderLinePojo> getLines() {
         return lines;
     }
 
-    public void setLines(List<OrderLine> lines) {
+    public void setLines(List<OrderLinePojo> lines) {
         this.lines = lines;
     }
 }

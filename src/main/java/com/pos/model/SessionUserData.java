@@ -1,7 +1,7 @@
 package com.pos.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.pos.pojo.Role;
+import com.pos.pojo.enums.Role;
 
 /**
  * Who the caller is, as the database currently says. Returned by
@@ -14,7 +14,7 @@ import com.pos.pojo.Role;
  * alone does not tell an operator whose till they are on.
  *
  * <p><b>There is no password field and there must never be one.</b> That is the whole
- * reason CONVENTIONS.md forbids returning entities: {@code AppUser} carries
+ * reason CONVENTIONS.md forbids returning entities: {@code AppUserPojo} carries
  * {@code passwordHash}, and every "we accidentally returned the password hash" incident
  * starts with serializing one. {@code AuthControllerIT} asserts no response body ever
  * contains a BCrypt prefix.
@@ -23,7 +23,7 @@ import com.pos.pojo.Role;
  * though its row points at the reserved {@code platform} tenant. That row is a storage
  * detail — it exists because MySQL treats NULLs as distinct in a unique index, so a
  * nullable {@code tenant_id} would leave platform usernames unconstrained (see
- * {@code Tenant#isPlatform()}). The wire contract in requirements.md section 3 says
+ * {@code TenantPojo#isPlatform()}). The wire contract in requirements.md section 3 says
  * {@code tenantId: null}, and the frontend branches on it.
  */
 public class SessionUserData {

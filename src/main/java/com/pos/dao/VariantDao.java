@@ -2,7 +2,7 @@ package com.pos.dao;
 
 import java.util.List;
 
-import com.pos.pojo.Variant;
+import com.pos.pojo.VariantPojo;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.springframework.stereotype.Repository;
@@ -11,7 +11,7 @@ import org.springframework.stereotype.Repository;
  * Persistence for {@code variant} (C5).
  *
  * <p><b>No method here takes a tenant, and no query below mentions {@code tenant_id}</b> —
- * the {@code tenantFilter} on {@link Variant} appends it to every statement, exactly as it
+ * the {@code tenantFilter} on {@link VariantPojo} appends it to every statement, exactly as it
  * does for {@code ProductDao}. That is what makes {@link #findByQrCode} safe: a label
  * printed in another store cannot resolve here, so it is indistinguishable from a code
  * that was never issued.
@@ -33,7 +33,7 @@ public class VariantDao {
      * two {@code tenant_id} foreign keys make structural.
      */
     private static final String SELECT_WITH_PRODUCT =
-            "SELECT v FROM Variant v JOIN FETCH v.product p";
+            "SELECT v FROM VariantPojo v JOIN FETCH v.product p";
 
     @PersistenceContext
     private EntityManager em;
@@ -44,8 +44,8 @@ public class VariantDao {
      * do not rewrite it as JPQL to "fix" anything: the JPQL form would keep passing if
      * that flag were removed, hiding the regression from the test that catches it.
      */
-    public Variant find(Long id) {
-        return em.find(Variant.class, id);
+    public VariantPojo find(Long id) {
+        return em.find(VariantPojo.class, id);
     }
 
     /**
@@ -55,8 +55,8 @@ public class VariantDao {
      * snapshot from the product's name and GST slab. Ordinary-query scoping is exactly
      * what is wanted here, since this method has no by-id regression to hide.
      */
-    public Variant findWithProduct(Long id) {
-        return em.createQuery(SELECT_WITH_PRODUCT + " WHERE v.id = :id", Variant.class)
+    public VariantPojo findWithProduct(Long id) {
+        return em.createQuery(SELECT_WITH_PRODUCT + " WHERE v.id = :id", VariantPojo.class)
                 .setParameter("id", id)
                 .getResultStream()
                 .findFirst()
@@ -64,9 +64,9 @@ public class VariantDao {
     }
 
     /** The variants of one product, oldest first, inactive ones included. */
-    public List<Variant> findByProduct(Long productId) {
+    public List<VariantPojo> findByProduct(Long productId) {
         return em.createQuery(SELECT_WITH_PRODUCT + " WHERE p.id = :productId ORDER BY v.id",
-                        Variant.class)
+                        VariantPojo.class)
                 .setParameter("productId", productId)
                 .getResultList();
     }
@@ -80,13 +80,13 @@ public class VariantDao {
      *
      * <p>A count, not {@link #findByProduct}: that method fetches full rows with their
      * product joined, wasteful for a number this method exists specifically to avoid
-     * pulling the rows at all. Still scoped by the tenant filter on {@code Variant} like
+     * pulling the rows at all. Still scoped by the tenant filter on {@code VariantPojo} like
      * every other query here, though a product id already resolved through
      * {@code ProductDao.find} can only ever belong to the caller's own tenant anyway.
      */
     public long countByProduct(Long productId) {
         return em.createQuery(
-                        "SELECT count(v) FROM Variant v WHERE v.product.id = :productId", Long.class)
+                        "SELECT count(v) FROM VariantPojo v WHERE v.product.id = :productId", Long.class)
                 .setParameter("productId", productId)
                 .getSingleResult();
     }
@@ -100,7 +100,7 @@ public class VariantDao {
      */
     public long countActiveByProduct(Long productId) {
         return em.createQuery(
-                        "SELECT count(v) FROM Variant v WHERE v.product.id = :productId"
+                        "SELECT count(v) FROM VariantPojo v WHERE v.product.id = :productId"
                                 + " AND v.active = true",
                         Long.class)
                 .setParameter("productId", productId)
@@ -120,8 +120,8 @@ public class VariantDao {
      * "not sellable" rather than "unknown code", which is a different conversation with
      * the customer.
      */
-    public Variant findByQrCode(String qrCode) {
-        return em.createQuery(SELECT_WITH_PRODUCT + " WHERE v.qrCode = :qrCode", Variant.class)
+    public VariantPojo findByQrCode(String qrCode) {
+        return em.createQuery(SELECT_WITH_PRODUCT + " WHERE v.qrCode = :qrCode", VariantPojo.class)
                 .setParameter("qrCode", qrCode)
                 .getResultStream()
                 .findFirst()
@@ -140,7 +140,7 @@ public class VariantDao {
      * Is this SKU already taken <b>in this tenant</b>? {@code excludeId} is the row being
      * edited, so a variant does not collide with itself.
      *
-     * <p><b>Tenant-WIDE, not per product</b>, which is the mock's rule too after B4:
+     * <p><b>TenantPojo-WIDE, not per product</b>, which is the mock's rule too after B4:
      * uniqueness is {@code (tenant_id, sku)}, so two different products in one store must
      * not share a SKU. Checking only the parent's siblings — the obvious reading of "is
      * this SKU free for this product?" — is too narrow and lets a duplicate through to the
@@ -157,8 +157,8 @@ public class VariantDao {
      * (C6) reference variants by the same stable SKU literals the variant fixtures use,
      * rather than by an id that only exists after that variant has been inserted.
      */
-    public Variant findBySku(String sku) {
-        return em.createQuery(SELECT_WITH_PRODUCT + " WHERE v.sku = :sku", Variant.class)
+    public VariantPojo findBySku(String sku) {
+        return em.createQuery(SELECT_WITH_PRODUCT + " WHERE v.sku = :sku", VariantPojo.class)
                 .setParameter("sku", sku)
                 .getResultStream()
                 .findFirst()
@@ -167,7 +167,7 @@ public class VariantDao {
 
     public boolean skuExists(String sku, Long excludeId) {
         return em.createQuery(
-                        "SELECT count(v) FROM Variant v WHERE v.sku = :sku"
+                        "SELECT count(v) FROM VariantPojo v WHERE v.sku = :sku"
                                 + " AND (:excludeId IS NULL OR v.id <> :excludeId)",
                         Long.class)
                 .setParameter("sku", sku)
@@ -184,12 +184,12 @@ public class VariantDao {
      * here keeps the failure inside the call that caused it, where the exception still
      * names the constraint that rejected it and can become a field-level 400.
      *
-     * <p>Nothing here sets {@code tenant_id}: it comes from the {@link Variant} handed in,
+     * <p>Nothing here sets {@code tenant_id}: it comes from the {@link VariantPojo} handed in,
      * which the service stamped from the parent product. The filter appends to
      * {@code WHERE} clauses and an {@code INSERT} has none, so a write is scoped by
      * whoever builds the entity.
      */
-    public void insert(Variant variant) {
+    public void insert(VariantPojo variant) {
         em.persist(variant);
         em.flush();
     }
@@ -209,7 +209,7 @@ public class VariantDao {
      * this with an id already resolved through a filtered read ({@link #find} or
      * {@link #findWithProduct}) earlier in the same transaction — the id in hand is
      * already proven to belong to the caller's tenant, the same reasoning
-     * {@code TenantSequenceDao.next} relies on for the {@code Tenant} it locks. This
+     * {@code TenantSequenceDao.next} relies on for the {@code TenantPojo} it locks. This
      * method must never be called with an id taken from anywhere else.
      *
      * @return {@code true} if a row was decremented, {@code false} if stock was
@@ -217,7 +217,7 @@ public class VariantDao {
      */
     public boolean decrementStock(Long variantId, int quantity) {
         int updated = em.createQuery(
-                        "UPDATE Variant v SET v.stockQuantity = v.stockQuantity - :quantity"
+                        "UPDATE VariantPojo v SET v.stockQuantity = v.stockQuantity - :quantity"
                                 + " WHERE v.id = :id AND v.stockQuantity >= :quantity")
                 .setParameter("quantity", quantity)
                 .setParameter("id", variantId)
@@ -239,20 +239,20 @@ public class VariantDao {
      * case.
      */
     public void restoreStock(Long variantId, int quantity) {
-        em.createQuery("UPDATE Variant v SET v.stockQuantity = v.stockQuantity + :quantity"
+        em.createQuery("UPDATE VariantPojo v SET v.stockQuantity = v.stockQuantity + :quantity"
                         + " WHERE v.id = :id")
                 .setParameter("quantity", quantity)
                 .setParameter("id", variantId)
                 .executeUpdate();
     }
 
-    public List<Variant> search(String term, int limit) {
+    public List<VariantPojo> search(String term, int limit) {
         return em.createQuery(SELECT_WITH_PRODUCT
                                 + " WHERE v.active = true AND p.active = true"
                                 + " AND (lower(p.name) LIKE :term OR lower(p.brand) LIKE :term"
                                 + " OR lower(v.sku) LIKE :term OR lower(v.variantLabel) LIKE :term)"
                                 + " ORDER BY p.name, v.variantLabel, v.id",
-                        Variant.class)
+                        VariantPojo.class)
                 .setParameter("term", "%" + term + "%")
                 .setMaxResults(limit)
                 .getResultList();

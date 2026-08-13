@@ -1,4 +1,4 @@
-package com.pos.pojo;
+package com.pos.pojo.enums;
 
 /**
  * How a variant is sold. {@code EACH} is the only one exercised in v1; weight-based

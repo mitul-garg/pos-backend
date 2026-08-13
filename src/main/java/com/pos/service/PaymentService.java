@@ -8,10 +8,10 @@ import com.pos.exception.NotFoundException;
 import com.pos.exception.ValidationException;
 import com.pos.model.OrderData;
 import com.pos.model.PaymentForm;
-import com.pos.pojo.OrderLine;
-import com.pos.pojo.OrderStatus;
-import com.pos.pojo.PaymentMethod;
-import com.pos.pojo.PosOrder;
+import com.pos.pojo.OrderLinePojo;
+import com.pos.pojo.enums.OrderStatus;
+import com.pos.pojo.enums.PaymentMethod;
+import com.pos.pojo.PosOrderPojo;
 import com.pos.util.MaxLength;
 import com.pos.util.Pricing;
 import com.pos.util.TenantContext;
@@ -61,7 +61,7 @@ public class PaymentService {
     public OrderData pay(Long orderId, PaymentForm form) {
         TenantContext.requireTenant();
 
-        PosOrder order = orderDao.find(orderId);
+        PosOrderPojo order = orderDao.find(orderId);
         if (order == null) {
             throw new NotFoundException(NOT_FOUND);
         }
@@ -110,8 +110,8 @@ public class PaymentService {
      * {@link #pay}'s transaction, so an exception here rolls back every decrement already
      * applied in this call, not just the one that failed.
      */
-    private void decrementStock(PosOrder order) {
-        for (OrderLine line : order.getLines()) {
+    private void decrementStock(PosOrderPojo order) {
+        for (OrderLinePojo line : order.getLines()) {
             boolean ok = variantDao.decrementStock(line.getVariant().getId(), line.getQuantity());
             if (!ok) {
                 throw ValidationException.field("items",
@@ -125,7 +125,7 @@ public class PaymentService {
      * transaction id when the caller supplies none — {@code MOCK-<METHOD>-<orderNumber>},
      * verbatim from the mock, since neither is wired to a real payment gateway.
      */
-    private String referenceFor(PaymentForm form, PosOrder order, boolean isCash) {
+    private String referenceFor(PaymentForm form, PosOrderPojo order, boolean isCash) {
         if (form.getReference() != null && !form.getReference().isBlank()) {
             return form.getReference();
         }

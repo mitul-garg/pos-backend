@@ -5,9 +5,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import com.pos.pojo.Product;
-import com.pos.pojo.Tenant;
-import com.pos.pojo.TenantStatus;
+import com.pos.pojo.ProductPojo;
+import com.pos.pojo.TenantPojo;
+import com.pos.pojo.enums.TenantStatus;
 import com.pos.util.PlatformOperation;
 import com.pos.util.TenantContext;
 import jakarta.persistence.EntityManager;
@@ -26,7 +26,7 @@ import org.springframework.stereotype.Repository;
  * <i>contents</i> is, and that is what the filter prevents everywhere else.
  *
  * <p><b>{@link #productCount} and {@link #orderCount} are the one place that changes</b>
- * (C8): they read {@code Product}/{@code PosOrder}, both {@code @Filter}ed, on behalf of
+ * (C8): they read {@code ProductPojo}/{@code PosOrderPojo}, both {@code @Filter}ed, on behalf of
  * a {@code SUPER_ADMIN} who has no tenant of their own — so the filter is disabled for
  * those two queries alone, behind {@link PlatformOperation}. Everything else here is
  * exactly what it was in C3.
@@ -46,9 +46,9 @@ public class TenantDao {
      * error condition to be reported, it is one of several inputs that must all produce
      * the same generic 401 (see {@code AuthService}).
      */
-    public Tenant findByCode(String code) {
+    public TenantPojo findByCode(String code) {
         return em.createQuery(
-                        "SELECT t FROM Tenant t WHERE lower(t.code) = :code", Tenant.class)
+                        "SELECT t FROM TenantPojo t WHERE lower(t.code) = :code", TenantPojo.class)
                 .setParameter("code", code)
                 .getResultStream()
                 .findFirst()
@@ -62,16 +62,16 @@ public class TenantDao {
      * so the platform namespace is identified by what it is, not by a string a future
      * tenant might claim.
      */
-    public Tenant findPlatform() {
+    public TenantPojo findPlatform() {
         return em.createQuery(
-                        "SELECT t FROM Tenant t WHERE t.platform = true", Tenant.class)
+                        "SELECT t FROM TenantPojo t WHERE t.platform = true", TenantPojo.class)
                 .getResultStream()
                 .findFirst()
                 .orElse(null);
     }
 
-    public Tenant find(Long id) {
-        return em.find(Tenant.class, id);
+    public TenantPojo find(Long id) {
+        return em.find(TenantPojo.class, id);
     }
 
     /**
@@ -86,9 +86,9 @@ public class TenantDao {
      * opaque, case-sensitive random string ({@code VerificationTokens}, base64url),
      * not a human-typed identifier with a documented case-insensitivity rule.
      */
-    public Tenant findByVerificationToken(String token) {
+    public TenantPojo findByVerificationToken(String token) {
         return em.createQuery(
-                        "SELECT t FROM Tenant t WHERE t.verificationToken = :token", Tenant.class)
+                        "SELECT t FROM TenantPojo t WHERE t.verificationToken = :token", TenantPojo.class)
                 .setParameter("token", token)
                 .getResultStream()
                 .findFirst()
@@ -101,10 +101,10 @@ public class TenantDao {
      * b.createdAt ? 1 : -1)}. {@code SUPER_ADMIN} is the only caller: every tenant-scoped
      * role has exactly one tenant and reaches it through the session, never this method.
      */
-    public List<Tenant> list() {
+    public List<TenantPojo> list() {
         return em.createQuery(
-                        "SELECT t FROM Tenant t WHERE t.platform = false ORDER BY t.createdAt DESC",
-                        Tenant.class)
+                        "SELECT t FROM TenantPojo t WHERE t.platform = false ORDER BY t.createdAt DESC",
+                        TenantPojo.class)
                 .getResultList();
     }
 
@@ -113,7 +113,7 @@ public class TenantDao {
      * counts {@code GET /api/tenants} shows so a suspension is an informed decision
      * rather than a guess (mirrors the frontend's {@code withCounts}).
      *
-     * <p><b>The filter has to come off for this one.</b> {@link Product} carries
+     * <p><b>The filter has to come off for this one.</b> {@link ProductPojo} carries
      * {@code @Filter}, and the caller is a {@code SUPER_ADMIN} with no tenant on the
      * thread — {@code TenantContext}'s resolver would supply {@link TenantContext#NO_TENANT}
      * and this would answer zero for every store, every time. Disabling it is exactly
@@ -132,7 +132,7 @@ public class TenantDao {
         session.disableFilter(TenantContext.FILTER_NAME);
         try {
             return em.createQuery(
-                            "SELECT count(p) FROM Product p WHERE p.tenant.id = :tenantId",
+                            "SELECT count(p) FROM ProductPojo p WHERE p.tenant.id = :tenantId",
                             Long.class)
                     .setParameter("tenantId", tenantId)
                     .getSingleResult();
@@ -149,7 +149,7 @@ public class TenantDao {
         session.disableFilter(TenantContext.FILTER_NAME);
         try {
             return em.createQuery(
-                            "SELECT count(o) FROM PosOrder o WHERE o.tenant.id = :tenantId",
+                            "SELECT count(o) FROM PosOrderPojo o WHERE o.tenant.id = :tenantId",
                             Long.class)
                     .setParameter("tenantId", tenantId)
                     .getSingleResult();
@@ -164,7 +164,7 @@ public class TenantDao {
      * tenant list — the fix for {@code TenantService.list}'s {@code 3N+1} (peer-review
      * Phase 1): one query for every tenant on the page instead of one call per tenant.
      * Still needs the identical disable/re-enable dance {@link #productCount} does —
-     * this reads {@link Product} on behalf of a {@code SUPER_ADMIN} with no tenant of
+     * this reads {@link ProductPojo} on behalf of a {@code SUPER_ADMIN} with no tenant of
      * its own, whether it's counting one tenant or every tenant on the page.
      *
      * <p>A tenant with zero products is simply absent from the result — {@code GROUP BY}
@@ -180,7 +180,7 @@ public class TenantDao {
         session.disableFilter(TenantContext.FILTER_NAME);
         try {
             List<Object[]> rows = em.createQuery(
-                            "SELECT p.tenant.id, count(p) FROM Product p"
+                            "SELECT p.tenant.id, count(p) FROM ProductPojo p"
                                     + " WHERE p.tenant.id IN :tenantIds GROUP BY p.tenant.id",
                             Object[].class)
                     .setParameter("tenantIds", tenantIds)
@@ -202,7 +202,7 @@ public class TenantDao {
         session.disableFilter(TenantContext.FILTER_NAME);
         try {
             List<Object[]> rows = em.createQuery(
-                            "SELECT o.tenant.id, count(o) FROM PosOrder o"
+                            "SELECT o.tenant.id, count(o) FROM PosOrderPojo o"
                                     + " WHERE o.tenant.id IN :tenantIds GROUP BY o.tenant.id",
                             Object[].class)
                     .setParameter("tenantIds", tenantIds)
@@ -233,14 +233,14 @@ public class TenantDao {
      * {@code AuthService.currentSession()}, i.e. from the token. A tenant id that arrived
      * in a request body must never reach this method.
      */
-    public Tenant reference(Long id) {
-        return em.getReference(Tenant.class, id);
+    public TenantPojo reference(Long id) {
+        return em.getReference(TenantPojo.class, id);
     }
 
     /**
      * <b>Flushes on purpose</b> (C8), matching the fix C5 applied to
      * {@code VariantDao.insert} once uniqueness became something a request could race.
-     * {@code TenantService.create} inserts this and an {@link com.pos.pojo.AppUser} in
+     * {@code TenantService.create} inserts this and an {@link com.pos.pojo.AppUserPojo} in
      * the same transaction; without the flush, a duplicate {@code code} raised at commit
      * arrives wrapped in a {@code TransactionSystemException} the
      * {@code ApiExceptionHandler} never sees. Flushing here keeps the failure inside the
@@ -248,7 +248,7 @@ public class TenantDao {
      * field-level 400. Harmless before C8: nothing called this on a path a caller could
      * race until tenant creation existed.
      */
-    public void insert(Tenant tenant) {
+    public void insert(TenantPojo tenant) {
         em.persist(tenant);
         em.flush();
     }
@@ -271,11 +271,11 @@ public class TenantDao {
      * outcome it would already give a token that expired moments earlier.
      */
     @PlatformOperation
-    public List<Tenant> findAbandonedPendingVerification(Instant cutoff) {
+    public List<TenantPojo> findAbandonedPendingVerification(Instant cutoff) {
         return em.createQuery(
-                        "SELECT t FROM Tenant t WHERE t.status = :status"
+                        "SELECT t FROM TenantPojo t WHERE t.status = :status"
                                 + " AND t.verificationExpiresAt < :cutoff",
-                        Tenant.class)
+                        TenantPojo.class)
                 .setParameter("status", TenantStatus.PENDING_VERIFICATION)
                 .setParameter("cutoff", cutoff)
                 .setLockMode(LockModeType.PESSIMISTIC_WRITE)
@@ -297,7 +297,7 @@ public class TenantDao {
      * ON DELETE CASCADE}, so this fails on the foreign key otherwise.
      */
     @PlatformOperation
-    public void delete(Tenant tenant) {
+    public void delete(TenantPojo tenant) {
         em.remove(tenant);
     }
 }

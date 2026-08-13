@@ -23,14 +23,14 @@ import com.pos.model.ReturnForm;
 import com.pos.model.ReturnLineData;
 import com.pos.model.ReturnLineForm;
 import com.pos.model.SessionUserData;
-import com.pos.pojo.OrderLine;
-import com.pos.pojo.OrderStatus;
-import com.pos.pojo.PosOrder;
-import com.pos.pojo.ReturnLine;
-import com.pos.pojo.Role;
-import com.pos.pojo.SalesReturn;
-import com.pos.pojo.SequenceKind;
-import com.pos.pojo.Tenant;
+import com.pos.pojo.OrderLinePojo;
+import com.pos.pojo.enums.OrderStatus;
+import com.pos.pojo.PosOrderPojo;
+import com.pos.pojo.ReturnLinePojo;
+import com.pos.pojo.enums.Role;
+import com.pos.pojo.SalesReturnPojo;
+import com.pos.pojo.enums.SequenceKind;
+import com.pos.pojo.TenantPojo;
 import com.pos.util.MaxLength;
 import com.pos.util.Pricing;
 import com.pos.util.TenantContext;
@@ -106,7 +106,7 @@ public class ReturnService {
     public OrderLookupData lookupOrder(String orderNumber) {
         TenantContext.requireTenant();
         String trimmed = orderNumber == null ? "" : orderNumber.trim();
-        PosOrder order = trimmed.isEmpty() ? null : orderDao.findByOrderNumber(trimmed);
+        PosOrderPojo order = trimmed.isEmpty() ? null : orderDao.findByOrderNumber(trimmed);
         if (order == null) {
             throw new NotFoundException(ORDER_NOT_FOUND);
         }
@@ -122,7 +122,7 @@ public class ReturnService {
     @Transactional(readOnly = true)
     public ReturnData get(Long id) {
         TenantContext.requireTenant();
-        SalesReturn salesReturn = returnDao.find(id);
+        SalesReturnPojo salesReturn = returnDao.find(id);
         if (salesReturn == null) {
             throw new NotFoundException(NOT_FOUND);
         }
@@ -149,12 +149,12 @@ public class ReturnService {
         int safePageSize = Math.min(Math.max(pageSize, 1), 200);
 
         long total = returnDao.count(effectiveProcessedBy);
-        List<SalesReturn> returns =
+        List<SalesReturnPojo> returns =
                 returnDao.list(effectiveProcessedBy, (safePage - 1) * safePageSize, safePageSize);
         // Peer-review Phase 1: one batched query for the whole page's lines, instead of
         // each row's lazy `lines` firing its own SELECT (see ReturnDao.findLinesByReturnIds).
-        Map<Long, List<ReturnLine>> linesByReturn = returnDao.findLinesByReturnIds(
-                returns.stream().map(SalesReturn::getId).toList());
+        Map<Long, List<ReturnLinePojo>> linesByReturn = returnDao.findLinesByReturnIds(
+                returns.stream().map(SalesReturnPojo::getId).toList());
         List<ReturnData> items = returns.stream()
                 .map(r -> toData(r, linesByReturn.getOrDefault(r.getId(), List.of())))
                 .toList();
@@ -187,7 +187,7 @@ public class ReturnService {
         // schema to bound it against.
         MaxLength.require("reason", "Reason", form.getReason(), 500);
 
-        PosOrder order = orderDao.findForUpdate(form.getOriginalOrderId());
+        PosOrderPojo order = orderDao.findForUpdate(form.getOriginalOrderId());
         if (order == null) {
             throw new NotFoundException(ORDER_NOT_FOUND);
         }
@@ -209,13 +209,13 @@ public class ReturnService {
         // each against the identical baseline and let both through.
         Map<Long, Integer> consumedThisRequest = new HashMap<>();
 
-        List<OrderLine> matchedLines = new ArrayList<>(selected.size());
+        List<OrderLinePojo> matchedLines = new ArrayList<>(selected.size());
         List<Pricing.LineInput> inputs = new ArrayList<>(selected.size());
         for (ReturnLineForm itemForm : selected) {
             if (itemForm.getVariantId() == null) {
                 throw ValidationException.field("variantId", VARIANT_REQUIRED);
             }
-            OrderLine line = order.getLines().stream()
+            OrderLinePojo line = order.getLines().stream()
                     .filter(l -> l.getVariant().getId().equals(itemForm.getVariantId()))
                     .findFirst()
                     .orElseThrow(() -> ValidationException.field("items", ITEM_NOT_ON_ORDER));
@@ -238,7 +238,7 @@ public class ReturnService {
 
         Pricing.OrderTotals totals = Pricing.computeOrderTotals(inputs, BigDecimal.ZERO);
 
-        SalesReturn salesReturn = new SalesReturn();
+        SalesReturnPojo salesReturn = new SalesReturnPojo();
         salesReturn.setTenant(order.getTenant());
         salesReturn.setReturnNumber(nextReturnNumber(order.getTenant()));
         salesReturn.setOriginalOrder(order);
@@ -254,9 +254,9 @@ public class ReturnService {
 
         for (int i = 0; i < totals.lines.size(); i++) {
             Pricing.LineTotals computed = totals.lines.get(i);
-            OrderLine sourceLine = matchedLines.get(i);
+            OrderLinePojo sourceLine = matchedLines.get(i);
 
-            ReturnLine returnLine = new ReturnLine();
+            ReturnLinePojo returnLine = new ReturnLinePojo();
             returnLine.setTenant(order.getTenant());
             returnLine.setVariant(sourceLine.getVariant());
             returnLine.setName(computed.input.name);
@@ -277,12 +277,12 @@ public class ReturnService {
     }
 
     /** This store's next return number, identical shape to {@code OrderService}'s. */
-    private String nextReturnNumber(Tenant tenant) {
+    private String nextReturnNumber(TenantPojo tenant) {
         long sequence = tenantSequenceDao.next(SequenceKind.RETURN, tenant);
         return String.format("RET-%d-%04d", Year.now().getValue(), sequence);
     }
 
-    private OrderLookupData toLookupData(PosOrder order) {
+    private OrderLookupData toLookupData(PosOrderPojo order) {
         Map<Long, Integer> returned = returnDao.returnedQuantitiesByVariant(order.getId());
         List<OrderLookupLineData> items = order.getLines().stream()
                 .map(line -> toLookupLine(line, returned.getOrDefault(line.getVariant().getId(), 0)))
@@ -308,7 +308,7 @@ public class ReturnService {
                 order.getCreatedAt());
     }
 
-    private OrderLookupLineData toLookupLine(OrderLine line, int returnedQuantity) {
+    private OrderLookupLineData toLookupLine(OrderLinePojo line, int returnedQuantity) {
         int returnable = Math.max(0, line.getQuantity() - returnedQuantity);
         return new OrderLookupLineData(
                 line.getVariant().getId(),
@@ -328,7 +328,7 @@ public class ReturnService {
      * Used by {@link #get} and {@link #create}, where reading the lazy collection directly
      * is one extra query for one return, not a per-row problem.
      */
-    private ReturnData toData(SalesReturn salesReturn) {
+    private ReturnData toData(SalesReturnPojo salesReturn) {
         return toData(salesReturn, salesReturn.getLines());
     }
 
@@ -339,7 +339,7 @@ public class ReturnService {
      * peer-review Phase 1) rather than letting each row's lazy association fire its own
      * {@code SELECT}, and passes the already-loaded lines in here instead.
      */
-    private ReturnData toData(SalesReturn salesReturn, List<ReturnLine> lines) {
+    private ReturnData toData(SalesReturnPojo salesReturn, List<ReturnLinePojo> lines) {
         List<ReturnLineData> items = lines.stream()
                 .map(l -> new ReturnLineData(l.getVariant().getId(), l.getName(), l.getQuantity(),
                         l.getUnitPrice(), l.getTaxRatePercent(), l.getLineRefund()))

@@ -10,13 +10,13 @@ import com.pos.config.RecaptchaConfig;
 import com.pos.config.RootConfig;
 import com.pos.config.SecurityConfig;
 import com.pos.config.WebConfig;
-import com.pos.pojo.AppUser;
-import com.pos.pojo.Product;
-import com.pos.pojo.Role;
-import com.pos.pojo.Tenant;
-import com.pos.pojo.TenantStatus;
-import com.pos.pojo.UnitOfMeasure;
-import com.pos.pojo.Variant;
+import com.pos.pojo.AppUserPojo;
+import com.pos.pojo.ProductPojo;
+import com.pos.pojo.enums.Role;
+import com.pos.pojo.TenantPojo;
+import com.pos.pojo.enums.TenantStatus;
+import com.pos.pojo.enums.UnitOfMeasure;
+import com.pos.pojo.VariantPojo;
 import com.pos.util.TenantContext;
 import com.pos.util.TestIps;
 import jakarta.persistence.EntityManager;
@@ -90,8 +90,8 @@ class ReturnWriteIT {
     void setUp() {
         mvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
 
-        Tenant platform = tenant("Platform", Tenant.PLATFORM_CODE, true);
-        Tenant mgRoad = tenant("MG Road Store", "mg-road", false);
+        TenantPojo platform = tenant("Platform", TenantPojo.PLATFORM_CODE, true);
+        TenantPojo mgRoad = tenant("MG Road Store", "mg-road", false);
 
         user(platform, "superadmin", SUPER_HASH, Role.SUPER_ADMIN);
         user(mgRoad, "admin", ADMIN_HASH, Role.ADMIN);
@@ -534,7 +534,7 @@ class ReturnWriteIT {
      * trip {@code ck_variant_price_within_mrp}.
      */
     private void reprice(Long variantId, String newMrp, String newSellingPrice) {
-        Variant variant = em.find(Variant.class, variantId);
+        VariantPojo variant = em.find(VariantPojo.class, variantId);
         variant.setMrp(new BigDecimal(newMrp));
         variant.setSellingPrice(new BigDecimal(newSellingPrice));
         em.flush();
@@ -568,7 +568,7 @@ class ReturnWriteIT {
     }
 
     private String asPlatformAdmin() throws Exception {
-        return tokenFor(Tenant.PLATFORM_CODE, "superadmin", "super123");
+        return tokenFor(TenantPojo.PLATFORM_CODE, "superadmin", "super123");
     }
 
     private String tokenFor(String tenantCode, String username, String password) throws Exception {
@@ -584,8 +584,8 @@ class ReturnWriteIT {
         return JsonPath.read(response, "$.token");
     }
 
-    private Tenant tenant(String name, String code, boolean platform) {
-        Tenant tenant = new Tenant();
+    private TenantPojo tenant(String name, String code, boolean platform) {
+        TenantPojo tenant = new TenantPojo();
         tenant.setName(name);
         tenant.setCode(code);
         tenant.setStatus(TenantStatus.ACTIVE);
@@ -594,8 +594,8 @@ class ReturnWriteIT {
         return tenant;
     }
 
-    private void user(Tenant tenant, String username, String passwordHash, Role role) {
-        AppUser user = new AppUser();
+    private void user(TenantPojo tenant, String username, String passwordHash, Role role) {
+        AppUserPojo user = new AppUserPojo();
         user.setTenant(tenant);
         user.setUsername(username);
         user.setPasswordHash(passwordHash);
@@ -605,8 +605,8 @@ class ReturnWriteIT {
         em.persist(user);
     }
 
-    private Long product(Tenant tenant, String name, String taxRatePercent) {
-        Product product = new Product();
+    private Long product(TenantPojo tenant, String name, String taxRatePercent) {
+        ProductPojo product = new ProductPojo();
         product.setTenant(tenant);
         product.setName(name);
         product.setBrand("Test");
@@ -617,11 +617,11 @@ class ReturnWriteIT {
         return product.getId();
     }
 
-    private Long variant(Tenant tenant, Long productId, String label, String sku,
+    private Long variant(TenantPojo tenant, Long productId, String label, String sku,
                          String mrp, String sellingPrice, int stock) {
-        Variant variant = new Variant();
+        VariantPojo variant = new VariantPojo();
         variant.setTenant(tenant);
-        variant.setProduct(em.getReference(Product.class, productId));
+        variant.setProduct(em.getReference(ProductPojo.class, productId));
         variant.setVariantLabel(label);
         variant.setSku(sku);
         variant.setQrCode("POS-QR-" + tenant.getId() + "-" + sku);

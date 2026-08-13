@@ -13,8 +13,8 @@ import com.pos.config.PersistenceConfig;
 import com.pos.config.RootConfig;
 import com.pos.config.SecurityConfig;
 import com.pos.config.WebConfig;
-import com.pos.pojo.Tenant;
-import com.pos.pojo.TenantStatus;
+import com.pos.pojo.TenantPojo;
+import com.pos.pojo.enums.TenantStatus;
 import com.pos.util.EmailSender;
 import com.pos.util.RecaptchaVerifier;
 import com.pos.util.TenantContext;
@@ -367,7 +367,7 @@ class TenantRegistrationIT {
             register(validRegistration(code)).andExpect(status().isCreated());
             String token = extractToken(emailSender.last().body());
 
-            Tenant tenant = findByCode(code);
+            TenantPojo tenant = findByCode(code);
             tenant.setVerificationExpiresAt(Instant.now().minusSeconds(1));
             em.flush();
             em.clear();
@@ -405,7 +405,7 @@ class TenantRegistrationIT {
             register(validRegistration(code)).andExpect(status().isCreated());
             String token = extractToken(emailSender.last().body());
 
-            Tenant tenant = findByCode(code);
+            TenantPojo tenant = findByCode(code);
             tenant.setStatus(TenantStatus.SUSPENDED);
             em.flush();
             em.clear();
@@ -689,11 +689,11 @@ class TenantRegistrationIT {
     }
 
     /**
-     * {@code Tenant} carries no {@code @Filter} — it's the discriminator, not a
+     * {@code TenantPojo} carries no {@code @Filter} — it's the discriminator, not a
      * tenant-owned row (C4) — so this plain JPQL lookup needs no {@link TenantContext}.
      */
-    private Tenant findByCode(String code) {
-        return em.createQuery("SELECT t FROM Tenant t WHERE t.code = :code", Tenant.class)
+    private TenantPojo findByCode(String code) {
+        return em.createQuery("SELECT t FROM TenantPojo t WHERE t.code = :code", TenantPojo.class)
                 .setParameter("code", code)
                 .getSingleResult();
     }

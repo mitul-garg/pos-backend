@@ -1,12 +1,8 @@
 package com.pos.pojo;
 
-import java.math.BigDecimal;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-
-import jakarta.persistence.CascadeType;
+import com.pos.pojo.enums.PaymentMethod;
 import com.pos.util.TenantContext;
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -22,6 +18,10 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.Filter;
 import org.hibernate.annotations.JdbcTypeCode;
@@ -51,13 +51,13 @@ import org.hibernate.type.SqlTypes;
                 @Index(name = "idx_return_order", columnList = "original_order_id"),
                 // Peer-review Phase 1: ReturnDao.list() sorts ORDER BY created_at DESC for
                 // every GET /api/returns call, the identical query shape idx_order_tenant_created
-                // exists on PosOrder for. idx_return_tenant_processor's leftmost prefix covers a
+                // exists on PosOrderPojo for. idx_return_tenant_processor's leftmost prefix covers a
                 // processedBy-scoped read but not the ADMIN "all returns" case, which fell back to
                 // a filesort on created_at.
                 @Index(name = "idx_return_tenant_created", columnList = "tenant_id, created_at")
         }
 )
-public class SalesReturn {
+public class SalesReturnPojo {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -71,9 +71,9 @@ public class SalesReturn {
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_sales_return_tenant")
     )
-    private Tenant tenant;
+    private TenantPojo tenant;
 
-    /** {@code RET-YYYY-NNNN}, unique per tenant, minted from {@link TenantSequence}. */
+    /** {@code RET-YYYY-NNNN}, unique per tenant, minted from {@link TenantSequencePojo}. */
     @Column(name = "return_number", nullable = false, length = 32)
     private String returnNumber;
 
@@ -83,7 +83,7 @@ public class SalesReturn {
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_sales_return_pos_order")
     )
-    private PosOrder originalOrder;
+    private PosOrderPojo originalOrder;
 
     /** <b>Snapshot</b>, so a credit note prints standalone without loading the order. */
     @Column(name = "original_order_number", nullable = false, length = 32)
@@ -120,17 +120,17 @@ public class SalesReturn {
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_sales_return_processed_by")
     )
-    private AppUser processedBy;
+    private AppUserPojo processedBy;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
     @OneToMany(mappedBy = "salesReturn", cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<ReturnLine> lines = new ArrayList<>();
+    private List<ReturnLinePojo> lines = new ArrayList<>();
 
     /** Keeps both sides of the association consistent, which cascading relies on. */
-    public void addLine(ReturnLine line) {
+    public void addLine(ReturnLinePojo line) {
         lines.add(line);
         line.setSalesReturn(this);
     }
@@ -143,11 +143,11 @@ public class SalesReturn {
         this.id = id;
     }
 
-    public Tenant getTenant() {
+    public TenantPojo getTenant() {
         return tenant;
     }
 
-    public void setTenant(Tenant tenant) {
+    public void setTenant(TenantPojo tenant) {
         this.tenant = tenant;
     }
 
@@ -159,11 +159,11 @@ public class SalesReturn {
         this.returnNumber = returnNumber;
     }
 
-    public PosOrder getOriginalOrder() {
+    public PosOrderPojo getOriginalOrder() {
         return originalOrder;
     }
 
-    public void setOriginalOrder(PosOrder originalOrder) {
+    public void setOriginalOrder(PosOrderPojo originalOrder) {
         this.originalOrder = originalOrder;
     }
 
@@ -223,11 +223,11 @@ public class SalesReturn {
         this.reason = reason;
     }
 
-    public AppUser getProcessedBy() {
+    public AppUserPojo getProcessedBy() {
         return processedBy;
     }
 
-    public void setProcessedBy(AppUser processedBy) {
+    public void setProcessedBy(AppUserPojo processedBy) {
         this.processedBy = processedBy;
     }
 
@@ -239,11 +239,11 @@ public class SalesReturn {
         this.createdAt = createdAt;
     }
 
-    public List<ReturnLine> getLines() {
+    public List<ReturnLinePojo> getLines() {
         return lines;
     }
 
-    public void setLines(List<ReturnLine> lines) {
+    public void setLines(List<ReturnLinePojo> lines) {
         this.lines = lines;
     }
 }

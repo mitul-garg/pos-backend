@@ -10,8 +10,8 @@ import com.pos.exception.NotFoundException;
 import com.pos.exception.ValidationException;
 import com.pos.model.UserData;
 import com.pos.model.UserForm;
-import com.pos.pojo.AppUser;
-import com.pos.pojo.Role;
+import com.pos.pojo.AppUserPojo;
+import com.pos.pojo.enums.Role;
 import com.pos.util.MaxLength;
 import com.pos.util.TenantContext;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,11 +28,11 @@ import org.springframework.transaction.annotation.Transactional;
  * <p><b>The one service that has to scope itself by hand.</b> Every other tenant-scoped
  * service (see {@code ProductService}) does nothing but call
  * {@link TenantContext#requireTenant()} as a guard and let the Hibernate filter do the
- * rest. {@link AppUser} carries no {@code @Filter} — authentication has to read it
+ * rest. {@link AppUserPojo} carries no {@code @Filter} — authentication has to read it
  * before there is a tenant to scope by — so this class both guards <i>and</i> filters,
  * passing {@code authService.currentSession().getTenantId()} into every
  * {@code AppUserDao} call the way a pre-C4 service would have had to. See
- * {@code prompts/c4-tenancy.md}'s note on {@code AppUser} for why the exception exists
+ * {@code prompts/c4-tenancy.md}'s note on {@code AppUserPojo} for why the exception exists
  * and why it is not a precedent for anything else.
  */
 @Service
@@ -143,7 +143,7 @@ public class UserService {
             throw new ValidationException(TOO_MANY_USERS);
         }
 
-        AppUser user = new AppUser();
+        AppUserPojo user = new AppUserPojo();
         user.setTenant(tenantDao.reference(tenantId));
         user.setUsername(username);
         user.setPasswordHash(passwordEncoder.encode(form.getPassword()));
@@ -169,7 +169,7 @@ public class UserService {
         TenantContext.requireTenant();
         Long tenantId = authService.currentSession().getTenantId();
 
-        AppUser user = appUserDao.findInTenant(id, tenantId);
+        AppUserPojo user = appUserDao.findInTenant(id, tenantId);
         if (user == null) {
             throw new NotFoundException(NOT_FOUND);
         }
@@ -237,7 +237,7 @@ public class UserService {
         Long tenantId = authService.currentSession().getTenantId();
 
         appUserDao.lockTenant(tenantId);
-        AppUser user = appUserDao.findInTenant(id, tenantId);
+        AppUserPojo user = appUserDao.findInTenant(id, tenantId);
         if (user == null) {
             throw new NotFoundException(NOT_FOUND);
         }
@@ -253,7 +253,7 @@ public class UserService {
      * being {@code LAZY} — only the id is read, which Hibernate answers from the proxy
      * without a second statement.
      */
-    private UserData toData(AppUser user) {
+    private UserData toData(AppUserPojo user) {
         return new UserData(
                 user.getId(),
                 user.getTenant().getId(),

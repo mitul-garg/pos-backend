@@ -11,13 +11,13 @@ import com.pos.config.RecaptchaConfig;
 import com.pos.config.RootConfig;
 import com.pos.config.SecurityConfig;
 import com.pos.config.WebConfig;
-import com.pos.pojo.AppUser;
-import com.pos.pojo.Product;
-import com.pos.pojo.Role;
-import com.pos.pojo.Tenant;
-import com.pos.pojo.TenantStatus;
-import com.pos.pojo.UnitOfMeasure;
-import com.pos.pojo.Variant;
+import com.pos.pojo.AppUserPojo;
+import com.pos.pojo.ProductPojo;
+import com.pos.pojo.enums.Role;
+import com.pos.pojo.TenantPojo;
+import com.pos.pojo.enums.TenantStatus;
+import com.pos.pojo.enums.UnitOfMeasure;
+import com.pos.pojo.VariantPojo;
 import com.pos.util.TenantContext;
 import com.pos.util.TestIps;
 import jakarta.persistence.EntityManager;
@@ -97,7 +97,7 @@ class VariantIT {
 
     private MockMvc mvc;
 
-    private Tenant mgRoad;
+    private TenantPojo mgRoad;
     private Long milk;
     private Long retiredProduct;
 
@@ -673,7 +673,7 @@ class VariantIT {
         return "Bearer " + token;
     }
 
-    private String id(Tenant tenant) {
+    private String id(TenantPojo tenant) {
         return String.valueOf(tenant.getId());
     }
 
@@ -698,8 +698,8 @@ class VariantIT {
         return JsonPath.read(response, "$.token");
     }
 
-    private Tenant tenant(String name, String code) {
-        Tenant tenant = new Tenant();
+    private TenantPojo tenant(String name, String code) {
+        TenantPojo tenant = new TenantPojo();
         tenant.setName(name);
         tenant.setCode(code);
         tenant.setStatus(TenantStatus.ACTIVE);
@@ -708,8 +708,8 @@ class VariantIT {
         return tenant;
     }
 
-    private void user(Tenant tenant, String username, String passwordHash, Role role) {
-        AppUser user = new AppUser();
+    private void user(TenantPojo tenant, String username, String passwordHash, Role role) {
+        AppUserPojo user = new AppUserPojo();
         user.setTenant(tenant);
         user.setUsername(username);
         user.setPasswordHash(passwordHash);
@@ -719,8 +719,8 @@ class VariantIT {
         em.persist(user);
     }
 
-    private Long product(Tenant tenant, String name, String brand, String taxRate, boolean active) {
-        Product product = new Product();
+    private Long product(TenantPojo tenant, String name, String brand, String taxRate, boolean active) {
+        ProductPojo product = new ProductPojo();
         product.setTenant(tenant);
         product.setName(name);
         product.setBrand(brand);
@@ -732,7 +732,7 @@ class VariantIT {
     }
 
     /** Fast-path fixture for the variant-ceiling test — 50 of these beats 50 round trips. */
-    private void variant(Tenant tenant, Long productId, String sku) {
+    private void variant(TenantPojo tenant, Long productId, String sku) {
         variant(tenant, productId, sku, true);
     }
 
@@ -742,10 +742,10 @@ class VariantIT {
      * ceiling without counting toward the active one, and a specific id to deactivate
      * through the real endpoint afterward.
      */
-    private Long variant(Tenant tenant, Long productId, String sku, boolean active) {
-        Variant variant = new Variant();
+    private Long variant(TenantPojo tenant, Long productId, String sku, boolean active) {
+        VariantPojo variant = new VariantPojo();
         variant.setTenant(tenant);
-        variant.setProduct(em.getReference(Product.class, productId));
+        variant.setProduct(em.getReference(ProductPojo.class, productId));
         variant.setVariantLabel(sku);
         variant.setSku(sku);
         variant.setQrCode("QR-" + sku);

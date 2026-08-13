@@ -5,7 +5,7 @@ import com.pos.model.OrderForm;
 import com.pos.model.OrderLookupData;
 import com.pos.model.PageData;
 import com.pos.model.PaymentForm;
-import com.pos.pojo.OrderStatus;
+import com.pos.pojo.enums.OrderStatus;
 import com.pos.service.OrderService;
 import com.pos.service.PaymentService;
 import com.pos.service.ReturnService;

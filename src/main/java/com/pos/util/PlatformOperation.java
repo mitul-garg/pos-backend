@@ -14,16 +14,16 @@ import java.lang.annotation.Target;
  * <p>Two distinct reasons a method carries this:
  *
  * <ol>
- *   <li><b>It disables the Hibernate filter.</b> A {@code @Filter}ed entity (Product,
- *   PosOrder, ...) scopes to {@link TenantContext#NO_TENANT} for a caller with no
+ *   <li><b>It disables the Hibernate filter.</b> A {@code @Filter}ed entity (ProductPojo,
+ *   PosOrderPojo, ...) scopes to {@link TenantContext#NO_TENANT} for a caller with no
  *   tenant on the thread, which is every {@code SUPER_ADMIN} request — so reading
  *   another store's rows at all requires {@code session.disableFilter(FILTER_NAME)}
  *   first. {@code TenantDao.productCount}/{@code orderCount} are the only two call
  *   sites, and they exist to answer the row counts a suspension decision is made
  *   from.</li>
- *   <li><b>It reads or writes {@code Tenant}/{@code AppUser} rows outside the caller's
+ *   <li><b>It reads or writes {@code TenantPojo}/{@code AppUserPojo} rows outside the caller's
  *   own tenant.</b> Neither entity carries {@code @Filter} to disable in the first
- *   place — {@code Tenant} because it <i>is</i> the discriminator, {@code AppUser}
+ *   place — {@code TenantPojo} because it <i>is</i> the discriminator, {@code AppUserPojo}
  *   because authentication has to read it before there is a tenant to scope by (see
  *   their own class Javadoc) — but the reach is exactly as cross-tenant in effect:
  *   {@code TenantService.list}/{@code get}/{@code create}/{@code updateStatus}, and

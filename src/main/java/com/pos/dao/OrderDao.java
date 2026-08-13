@@ -5,9 +5,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import com.pos.pojo.OrderLine;
-import com.pos.pojo.OrderStatus;
-import com.pos.pojo.PosOrder;
+import com.pos.pojo.OrderLinePojo;
+import com.pos.pojo.enums.OrderStatus;
+import com.pos.pojo.PosOrderPojo;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import jakarta.persistence.PersistenceContext;
@@ -22,7 +22,7 @@ import org.springframework.stereotype.Repository;
  * place a query does name an id explicitly is {@link #find}, and that is a primary key —
  * safe only because the {@code @FilterDef} sets {@code applyToLoadByKey}.
  *
- * <p>{@code lines} is left {@code LAZY} on {@link PosOrder} and not {@code JOIN FETCH}ed
+ * <p>{@code lines} is left {@code LAZY} on {@link PosOrderPojo} and not {@code JOIN FETCH}ed
  * here, unlike {@code VariantDao}'s join onto its parent product. A to-many collection
  * cannot be fetch-joined under {@code setFirstResult}/{@code setMaxResults} without
  * Hibernate silently paginating in memory — the classic JPA trap — so {@link #list}
@@ -43,8 +43,8 @@ public class OrderDao {
      * {@code applyToLoadByKey} removed, hiding the regression from the test that exists
      * to catch it.
      */
-    public PosOrder find(Long id) {
-        return em.find(PosOrder.class, id);
+    public PosOrderPojo find(Long id) {
+        return em.find(PosOrderPojo.class, id);
     }
 
     /**
@@ -61,8 +61,8 @@ public class OrderDao {
      * rewriting it as JPQL to "add" scoping would hide a regression there instead of
      * catching one.
      */
-    public PosOrder findForUpdate(Long id) {
-        return em.find(PosOrder.class, id, LockModeType.PESSIMISTIC_WRITE);
+    public PosOrderPojo findForUpdate(Long id) {
+        return em.find(PosOrderPojo.class, id, LockModeType.PESSIMISTIC_WRITE);
     }
 
     /**
@@ -72,9 +72,9 @@ public class OrderDao {
      * whichever tenant happens to have inserted it first. {@code ReturnService.lookupOrder}
      * is the one caller.
      */
-    public PosOrder findByOrderNumber(String orderNumber) {
-        return em.createQuery("SELECT o FROM PosOrder o WHERE o.orderNumber = :orderNumber",
-                        PosOrder.class)
+    public PosOrderPojo findByOrderNumber(String orderNumber) {
+        return em.createQuery("SELECT o FROM PosOrderPojo o WHERE o.orderNumber = :orderNumber",
+                        PosOrderPojo.class)
                 .setParameter("orderNumber", orderNumber)
                 .getResultStream()
                 .findFirst()
@@ -82,11 +82,11 @@ public class OrderDao {
     }
 
     /** One page, newest first — matching {@code orderService.list}'s sort. */
-    public List<PosOrder> list(OrderStatus status, Long cashierId, int offset, int limit) {
-        TypedQuery<PosOrder> query = em.createQuery(
-                "SELECT o FROM PosOrder o" + where(status, cashierId)
+    public List<PosOrderPojo> list(OrderStatus status, Long cashierId, int offset, int limit) {
+        TypedQuery<PosOrderPojo> query = em.createQuery(
+                "SELECT o FROM PosOrderPojo o" + where(status, cashierId)
                         + " ORDER BY o.createdAt DESC, o.id DESC",
-                PosOrder.class);
+                PosOrderPojo.class);
         bind(query, status, cashierId);
         return query.setFirstResult(offset).setMaxResults(limit).getResultList();
     }
@@ -94,7 +94,7 @@ public class OrderDao {
     /** How many rows {@link #list} would return unpaged — the envelope's {@code total}. */
     public long count(OrderStatus status, Long cashierId) {
         TypedQuery<Long> query = em.createQuery(
-                "SELECT count(o) FROM PosOrder o" + where(status, cashierId), Long.class);
+                "SELECT count(o) FROM PosOrderPojo o" + where(status, cashierId), Long.class);
         bind(query, status, cashierId);
         return query.getSingleResult();
     }
@@ -106,7 +106,7 @@ public class OrderDao {
      * caused it, wrapped in a {@code TransactionSystemException} that has lost the
      * field it should be blamed on.
      */
-    public void insert(PosOrder order) {
+    public void insert(PosOrderPojo order) {
         em.persist(order);
         em.flush();
     }
@@ -115,7 +115,7 @@ public class OrderDao {
      * Every line for a whole page of orders, batched into one query and grouped by
      * order id — the fix for {@code OrderService.list}'s N+1 (peer-review Phase 1):
      * one extra {@code SELECT} for the whole page instead of one per row.
-     * {@code OrderLine} carries its own {@code tenant_id} column (denormalised for
+     * {@code OrderLinePojo} carries its own {@code tenant_id} column (denormalised for
      * exactly this reason, per its own Javadoc), so this query is scoped on its own
      * terms rather than through a joined parent.
      *
@@ -124,19 +124,19 @@ public class OrderDao {
      * {@code @OrderBy}, so that order is insertion order, which is also primary-key
      * order.
      */
-    public Map<Long, List<OrderLine>> findLinesByOrderIds(List<Long> orderIds) {
+    public Map<Long, List<OrderLinePojo>> findLinesByOrderIds(List<Long> orderIds) {
         if (orderIds.isEmpty()) {
             return Map.of();
         }
-        List<OrderLine> lines = em.createQuery(
-                        "SELECT l FROM OrderLine l WHERE l.order.id IN :orderIds"
+        List<OrderLinePojo> lines = em.createQuery(
+                        "SELECT l FROM OrderLinePojo l WHERE l.order.id IN :orderIds"
                                 + " ORDER BY l.order.id, l.id",
-                        OrderLine.class)
+                        OrderLinePojo.class)
                 .setParameter("orderIds", orderIds)
                 .getResultList();
 
-        Map<Long, List<OrderLine>> byOrder = new LinkedHashMap<>();
-        for (OrderLine line : lines) {
+        Map<Long, List<OrderLinePojo>> byOrder = new LinkedHashMap<>();
+        for (OrderLinePojo line : lines) {
             byOrder.computeIfAbsent(line.getOrder().getId(), k -> new ArrayList<>()).add(line);
         }
         return byOrder;

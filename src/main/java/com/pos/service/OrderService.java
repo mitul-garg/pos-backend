@@ -21,14 +21,14 @@ import com.pos.model.OrderLineForm;
 import com.pos.model.PageData;
 import com.pos.model.PaymentData;
 import com.pos.model.SessionUserData;
-import com.pos.pojo.OrderLine;
-import com.pos.pojo.OrderStatus;
-import com.pos.pojo.PosOrder;
-import com.pos.pojo.Product;
-import com.pos.pojo.Role;
-import com.pos.pojo.SequenceKind;
-import com.pos.pojo.Tenant;
-import com.pos.pojo.Variant;
+import com.pos.pojo.OrderLinePojo;
+import com.pos.pojo.enums.OrderStatus;
+import com.pos.pojo.PosOrderPojo;
+import com.pos.pojo.ProductPojo;
+import com.pos.pojo.enums.Role;
+import com.pos.pojo.enums.SequenceKind;
+import com.pos.pojo.TenantPojo;
+import com.pos.pojo.VariantPojo;
 import com.pos.util.Pricing;
 import com.pos.util.TenantContext;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -131,12 +131,12 @@ public class OrderService {
         int safePageSize = Math.min(Math.max(pageSize, 1), 200);
 
         long total = orderDao.count(status, effectiveCashierId);
-        List<PosOrder> orders = orderDao.list(
+        List<PosOrderPojo> orders = orderDao.list(
                 status, effectiveCashierId, (safePage - 1) * safePageSize, safePageSize);
         // Peer-review Phase 1: one batched query for the whole page's lines, instead of
         // each row's lazy `lines` firing its own SELECT (see OrderDao.findLinesByOrderIds).
-        Map<Long, List<OrderLine>> linesByOrder =
-                orderDao.findLinesByOrderIds(orders.stream().map(PosOrder::getId).toList());
+        Map<Long, List<OrderLinePojo>> linesByOrder =
+                orderDao.findLinesByOrderIds(orders.stream().map(PosOrderPojo::getId).toList());
         List<OrderData> items = orders.stream()
                 .map(o -> toData(o, linesByOrder.getOrDefault(o.getId(), List.of())))
                 .toList();
@@ -152,7 +152,7 @@ public class OrderService {
     @Transactional(readOnly = true)
     public OrderData get(Long id) {
         TenantContext.requireTenant();
-        PosOrder order = orderDao.find(id);
+        PosOrderPojo order = orderDao.find(id);
         if (order == null) {
             throw new NotFoundException(NOT_FOUND);
         }
@@ -178,9 +178,9 @@ public class OrderService {
             throw ValidationException.field("status", CREATE_STATUS_INVALID);
         }
 
-        Tenant tenant = tenantDao.reference(session.getTenantId());
+        TenantPojo tenant = tenantDao.reference(session.getTenantId());
 
-        PosOrder order = new PosOrder();
+        PosOrderPojo order = new PosOrderPojo();
         order.setTenant(tenant);
         order.setCashier(appUserDao.reference(session.getId()));
         order.setStatus(status);
@@ -210,7 +210,7 @@ public class OrderService {
     public OrderData update(Long id, OrderForm form) {
         TenantContext.requireTenant();
 
-        PosOrder order = orderDao.find(id);
+        PosOrderPojo order = orderDao.find(id);
         if (order == null) {
             throw new NotFoundException(NOT_FOUND);
         }
@@ -243,7 +243,7 @@ public class OrderService {
      * the identical transaction shape (it does not — returns take {@code SequenceKind.RETURN}
      * from the same {@code TenantSequenceDao}, in C7).
      */
-    private String nextOrderNumber(Tenant tenant) {
+    private String nextOrderNumber(TenantPojo tenant) {
         long sequence = tenantSequenceDao.next(SequenceKind.ORDER, tenant);
         return String.format("ORD-%d-%04d", Year.now().getValue(), sequence);
     }
@@ -251,18 +251,18 @@ public class OrderService {
     /**
      * Resolves every requested line against the <i>current</i> variant row, prices the
      * whole set with {@link Pricing}, and replaces {@code order}'s line collection.
-     * {@code orphanRemoval} on {@code PosOrder.lines} is what makes {@code clear()} a
+     * {@code orphanRemoval} on {@code PosOrderPojo.lines} is what makes {@code clear()} a
      * deletion rather than a detachment — editing a held order's cart is exactly this.
      */
-    private void rebuildLines(PosOrder order, List<OrderLineForm> itemForms, BigDecimal orderDiscount) {
+    private void rebuildLines(PosOrderPojo order, List<OrderLineForm> itemForms, BigDecimal orderDiscount) {
         if (itemForms.size() > appProperties.getOrderMaxLineItems()) {
             throw ValidationException.field("items", TOO_MANY_LINE_ITEMS);
         }
 
-        List<Variant> variants = new ArrayList<>(itemForms.size());
+        List<VariantPojo> variants = new ArrayList<>(itemForms.size());
         List<Pricing.LineInput> inputs = new ArrayList<>(itemForms.size());
         for (OrderLineForm itemForm : itemForms) {
-            Variant variant = resolveVariant(itemForm);
+            VariantPojo variant = resolveVariant(itemForm);
             variants.add(variant);
             inputs.add(lineInputOf(variant, itemForm));
         }
@@ -272,7 +272,7 @@ public class OrderService {
         order.getLines().clear();
         for (int i = 0; i < totals.lines.size(); i++) {
             Pricing.LineTotals computed = totals.lines.get(i);
-            OrderLine line = new OrderLine();
+            OrderLinePojo line = new OrderLinePojo();
             line.setTenant(order.getTenant());
             line.setVariant(variants.get(i));
             line.setName(computed.input.name);
@@ -291,14 +291,14 @@ public class OrderService {
      * Re-totals against the order's own already-snapshotted lines — no variant lookup,
      * because an order-level discount does not reprice a line.
      */
-    private void retotal(PosOrder order, BigDecimal orderDiscount) {
+    private void retotal(PosOrderPojo order, BigDecimal orderDiscount) {
         List<Pricing.LineInput> inputs = order.getLines().stream()
                 .map(this::lineInputOfExisting)
                 .toList();
         applyTotals(order, Pricing.computeOrderTotals(inputs, orderDiscount));
     }
 
-    private void applyTotals(PosOrder order, Pricing.OrderTotals totals) {
+    private void applyTotals(PosOrderPojo order, Pricing.OrderTotals totals) {
         order.setSubtotal(totals.subtotal);
         order.setTotalTax(totals.totalTax);
         order.setOrderDiscount(totals.orderDiscount);
@@ -311,22 +311,22 @@ public class OrderService {
      * fails exactly like a missing one, the same fail-closed answer
      * {@code VariantService.create} gives a foreign {@code productId}.
      */
-    private Variant resolveVariant(OrderLineForm form) {
+    private VariantPojo resolveVariant(OrderLineForm form) {
         if (form.getVariantId() == null) {
             throw ValidationException.field("variantId", VARIANT_REQUIRED);
         }
         if (form.getQuantity() == null || form.getQuantity() <= 0) {
             throw ValidationException.field("quantity", QUANTITY_INVALID);
         }
-        Variant variant = variantDao.findWithProduct(form.getVariantId());
+        VariantPojo variant = variantDao.findWithProduct(form.getVariantId());
         if (variant == null) {
             throw new NotFoundException(VariantService.NOT_FOUND);
         }
         return variant;
     }
 
-    private Pricing.LineInput lineInputOf(Variant variant, OrderLineForm form) {
-        Product product = variant.getProduct();
+    private Pricing.LineInput lineInputOf(VariantPojo variant, OrderLineForm form) {
+        ProductPojo product = variant.getProduct();
         String name = product.getName() + " — " + variant.getVariantLabel();
         BigDecimal lineDiscount = form.getLineDiscount() == null ? BigDecimal.ZERO : form.getLineDiscount();
         return new Pricing.LineInput(variant.getId(), name, variant.getQrCode(),
@@ -335,7 +335,7 @@ public class OrderService {
     }
 
     /** Rebuilds a {@link Pricing.LineInput} from an already-persisted, snapshotted line. */
-    private Pricing.LineInput lineInputOfExisting(OrderLine line) {
+    private Pricing.LineInput lineInputOfExisting(OrderLinePojo line) {
         return new Pricing.LineInput(line.getVariant().getId(), line.getName(), line.getQrCode(),
                 line.getQuantity(), line.getUnitPrice(), line.getTaxRatePercent(),
                 line.getLineDiscount());
@@ -347,7 +347,7 @@ public class OrderService {
      * {@link #get} and {@code PaymentService}, where reading the lazy collection directly
      * is one extra query for one order, not a per-row problem.
      */
-    OrderData toData(PosOrder order) {
+    OrderData toData(PosOrderPojo order) {
         return toData(order, order.getLines());
     }
 
@@ -358,7 +358,7 @@ public class OrderService {
      * Phase 1) rather than letting each row's lazy association fire its own
      * {@code SELECT}, and passes the already-loaded lines in here instead.
      */
-    private OrderData toData(PosOrder order, List<OrderLine> lines) {
+    private OrderData toData(PosOrderPojo order, List<OrderLinePojo> lines) {
         List<OrderLineData> items = lines.stream()
                 .map(l -> new OrderLineData(l.getVariant().getId(), l.getName(), l.getQrCode(),
                         l.getQuantity(), l.getUnitPrice(), l.getTaxRatePercent(),

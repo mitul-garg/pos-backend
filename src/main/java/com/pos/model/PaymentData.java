@@ -2,7 +2,7 @@ package com.pos.model;
 
 import java.math.BigDecimal;
 
-import com.pos.pojo.PaymentMethod;
+import com.pos.pojo.enums.PaymentMethod;
 
 /**
  * The {@code payment} object nested in {@link OrderData} — {@code null} until the order is
@@ -10,7 +10,7 @@ import com.pos.pojo.PaymentMethod;
  *
  * <p>{@code amount} always equals the order's own {@code grandTotal}: v1 is a single
  * payment covering the full amount, no split tender (requirements.md section 3), which is
- * also why this is embedded rather than a child table — see {@code PosOrder}'s Javadoc.
+ * also why this is embedded rather than a child table — see {@code PosOrderPojo}'s Javadoc.
  */
 public class PaymentData {
 

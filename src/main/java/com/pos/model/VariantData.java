@@ -4,7 +4,7 @@ import java.math.BigDecimal;
 import java.util.Map;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.pos.pojo.UnitOfMeasure;
+import com.pos.pojo.enums.UnitOfMeasure;
 
 /**
  * A variant on the wire (C5) — requirements.md section 3, plus the four <b>enriched</b>
@@ -23,7 +23,7 @@ import com.pos.pojo.UnitOfMeasure;
  *
  * <p>{@code taxRatePercent} and {@code hsnCode} are the parent's values copied onto the
  * variant, which is not denormalisation to tidy up later — <b>tax lives on the product
- * because every variant of it shares a slab</b> (see {@code Product}), and the client
+ * because every variant of it shares a slab</b> (see {@code ProductPojo}), and the client
  * needs it per line.
  */
 public class VariantData {

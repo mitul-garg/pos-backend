@@ -2,7 +2,7 @@ package com.pos.model;
 
 import java.time.Instant;
 
-import com.pos.pojo.TenantStatus;
+import com.pos.pojo.enums.TenantStatus;
 
 /**
  * A tenant on the wire, the row counts included (C8) — mirrors the frontend's
@@ -19,7 +19,7 @@ import com.pos.pojo.TenantStatus;
  * {@code GET /api/tenants/{id}} return, not what {@link TenantForm} sent in. The
  * platform's reserved row is never represented by this class at all: it is excluded
  * from every list and a direct {@code GET}/{@code PATCH} by its id answers 404, exactly
- * as {@code Tenant.isPlatform()}'s Javadoc says it must.
+ * as {@code TenantPojo.isPlatform()}'s Javadoc says it must.
  */
 public class TenantData {
 

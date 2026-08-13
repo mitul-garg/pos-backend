@@ -1,6 +1,6 @@
 package com.pos.util;
 
-import com.pos.pojo.Role;
+import com.pos.pojo.enums.Role;
 
 /**
  * What a verified token claims. Note the word <i>claims</i>: this is the caller's

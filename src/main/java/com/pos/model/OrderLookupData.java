@@ -4,7 +4,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
-import com.pos.pojo.OrderStatus;
+import com.pos.pojo.enums.OrderStatus;
 
 /**
  * {@code GET /api/orders/lookup?orderNumber=}'s response (C7) — the order shape with

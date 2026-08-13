@@ -16,10 +16,10 @@ import com.pos.config.RecaptchaConfig;
 import com.pos.config.RootConfig;
 import com.pos.config.SecurityConfig;
 import com.pos.config.WebConfig;
-import com.pos.pojo.AppUser;
-import com.pos.pojo.Role;
-import com.pos.pojo.Tenant;
-import com.pos.pojo.TenantStatus;
+import com.pos.pojo.AppUserPojo;
+import com.pos.pojo.enums.Role;
+import com.pos.pojo.TenantPojo;
+import com.pos.pojo.enums.TenantStatus;
 import com.pos.util.TenantContext;
 import com.pos.util.TestIps;
 import jakarta.persistence.EntityManager;
@@ -142,7 +142,7 @@ class LastAdminRaceIT {
             String code = "race-" + round;
 
             Long[] ids = transactions.execute(status -> {
-                Tenant tenant = tenant("Race Store " + roundNumber, code);
+                TenantPojo tenant = tenant("Race Store " + roundNumber, code);
                 return new Long[] {
                         user(tenant, "admin-a", "pass123", Role.ADMIN),
                         user(tenant, "admin-b", "pass123", Role.ADMIN)
@@ -216,7 +216,7 @@ class LastAdminRaceIT {
      * Native SQL rather than a filtered read -- same reason as {@code StockRaceIT.assertStock}:
      * {@code JwtAuthenticationFilter} clears {@link TenantContext} once each request
      * returns, so a filtered read here would resolve against {@code NO_TENANT}, and
-     * {@code AppUser} carries no filter to begin with.
+     * {@code AppUserPojo} carries no filter to begin with.
      */
     private void assertActiveAdminCount(String tenantCode, int expected) {
         Number count = (Number) em.createNativeQuery(
@@ -238,8 +238,8 @@ class LastAdminRaceIT {
         return JsonPath.read(response, "$.token");
     }
 
-    private Tenant tenant(String name, String code) {
-        Tenant tenant = new Tenant();
+    private TenantPojo tenant(String name, String code) {
+        TenantPojo tenant = new TenantPojo();
         tenant.setName(name);
         tenant.setCode(code);
         tenant.setStatus(TenantStatus.ACTIVE);
@@ -248,8 +248,8 @@ class LastAdminRaceIT {
         return tenant;
     }
 
-    private Long user(Tenant tenant, String username, String password, Role role) {
-        AppUser user = new AppUser();
+    private Long user(TenantPojo tenant, String username, String password, Role role) {
+        AppUserPojo user = new AppUserPojo();
         user.setTenant(tenant);
         user.setUsername(username);
         user.setPasswordHash(HASHER.encode(password));

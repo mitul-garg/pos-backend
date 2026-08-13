@@ -8,7 +8,7 @@ import java.util.Date;
 import javax.crypto.SecretKey;
 
 import com.pos.exception.InvalidCredentialsException;
-import com.pos.pojo.Role;
+import com.pos.pojo.enums.Role;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.DisplayName;

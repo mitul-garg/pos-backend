@@ -4,9 +4,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import com.pos.pojo.AppUser;
-import com.pos.pojo.Role;
-import com.pos.pojo.Tenant;
+import com.pos.pojo.AppUserPojo;
+import com.pos.pojo.enums.Role;
+import com.pos.pojo.TenantPojo;
 import com.pos.util.PlatformOperation;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
@@ -22,7 +22,7 @@ import org.springframework.stereotype.Repository;
  * onwards it is the only DAO with that property — everywhere else the filter supplies
  * the tenant and no method signature mentions it (CONVENTIONS.md).
  *
- * <p><b>C8's user management pays the same price on purpose.</b> {@link AppUser} carries
+ * <p><b>C8's user management pays the same price on purpose.</b> {@link AppUserPojo} carries
  * no {@code @Filter} (see its class Javadoc), so {@code UserService} cannot lean on the
  * mechanism the way every other tenant-scoped service does — {@link #findByTenant} and
  * {@link #findInTenant} take the tenant explicitly and re-establish by hand exactly what
@@ -41,11 +41,11 @@ public class AppUserDao {
      *
      * <p>Returns {@code null} for an unknown username — a failed login, not an error.
      */
-    public AppUser findByTenantAndUsername(Long tenantId, String username) {
+    public AppUserPojo findByTenantAndUsername(Long tenantId, String username) {
         return em.createQuery(
-                        "SELECT u FROM AppUser u JOIN FETCH u.tenant "
+                        "SELECT u FROM AppUserPojo u JOIN FETCH u.tenant "
                                 + "WHERE u.tenant.id = :tenantId AND lower(u.username) = :username",
-                        AppUser.class)
+                        AppUserPojo.class)
                 .setParameter("tenantId", tenantId)
                 .setParameter("username", username)
                 .getResultStream()
@@ -60,13 +60,13 @@ public class AppUserDao {
      * request</b>, because the session's status is re-checked per request rather than
      * only at login (backend-plan.md section 1, deferred obligation 5). The
      * {@code JOIN FETCH} is what keeps that one round trip instead of two —
-     * {@code AppUser.tenant} is {@code LAZY}, and the caller always reads the tenant's
+     * {@code AppUserPojo.tenant} is {@code LAZY}, and the caller always reads the tenant's
      * status.
      */
-    public AppUser findWithTenant(Long id) {
+    public AppUserPojo findWithTenant(Long id) {
         return em.createQuery(
-                        "SELECT u FROM AppUser u JOIN FETCH u.tenant WHERE u.id = :id",
-                        AppUser.class)
+                        "SELECT u FROM AppUserPojo u JOIN FETCH u.tenant WHERE u.id = :id",
+                        AppUserPojo.class)
                 .setParameter("id", id)
                 .getResultStream()
                 .findFirst()
@@ -83,16 +83,16 @@ public class AppUserDao {
      * conventionally case-insensitive too.
      *
      * <p>Takes the tenant id explicitly, like every other {@code AppUserDao} lookup
-     * (C4's exception — {@code AppUser} carries no {@code @Filter}), and carries no
+     * (C4's exception — {@code AppUserPojo} carries no {@code @Filter}), and carries no
      * {@link com.pos.util.PlatformOperation} marker: unlike {@code countByTenant},
      * this reads one already-identified tenant's own users, not an aggregate across
      * every store, so it isn't cross-tenant reach in the sense the marker exists for.
      */
-    public AppUser findByTenantAndEmail(Long tenantId, String email) {
+    public AppUserPojo findByTenantAndEmail(Long tenantId, String email) {
         return em.createQuery(
-                        "SELECT u FROM AppUser u WHERE u.tenant.id = :tenantId "
+                        "SELECT u FROM AppUserPojo u WHERE u.tenant.id = :tenantId "
                                 + "AND lower(u.email) = :email",
-                        AppUser.class)
+                        AppUserPojo.class)
                 .setParameter("tenantId", tenantId)
                 .setParameter("email", email)
                 .getResultStream()
@@ -107,8 +107,8 @@ public class AppUserDao {
      * is never anything but {@code AuthService.currentSession().getId()}, i.e. the JWT
      * subject. A caller-supplied {@code cashierId} must never reach this method.
      */
-    public AppUser reference(Long id) {
-        return em.getReference(AppUser.class, id);
+    public AppUserPojo reference(Long id) {
+        return em.getReference(AppUserPojo.class, id);
     }
 
     /**
@@ -120,7 +120,7 @@ public class AppUserDao {
      * constraint name that turns it into a field-level 400. Harmless before C8: nothing
      * called this on a path a caller could race until user creation existed.
      */
-    public void insert(AppUser user) {
+    public void insert(AppUserPojo user) {
         em.persist(user);
         em.flush();
     }
@@ -132,10 +132,10 @@ public class AppUserDao {
      * instead, since insertion order is not a property a database read otherwise
      * guarantees.
      */
-    public List<AppUser> findByTenant(Long tenantId) {
+    public List<AppUserPojo> findByTenant(Long tenantId) {
         return em.createQuery(
-                        "SELECT u FROM AppUser u WHERE u.tenant.id = :tenantId ORDER BY u.username",
-                        AppUser.class)
+                        "SELECT u FROM AppUserPojo u WHERE u.tenant.id = :tenantId ORDER BY u.username",
+                        AppUserPojo.class)
                 .setParameter("tenantId", tenantId)
                 .getResultList();
     }
@@ -143,14 +143,14 @@ public class AppUserDao {
     /**
      * By id, <b>and</b> the tenant — the by-hand equivalent of what
      * {@code applyToLoadByKey} gives every other entity's {@code em.find()}. A plain
-     * {@code em.find(AppUser.class, id)} would return another tenant's user quite
+     * {@code em.find(AppUserPojo.class, id)} would return another tenant's user quite
      * happily, since nothing here is filtered; this is the one query that stands in for
      * that protection, and every write in {@code UserService} goes through it.
      */
-    public AppUser findInTenant(Long id, Long tenantId) {
+    public AppUserPojo findInTenant(Long id, Long tenantId) {
         return em.createQuery(
-                        "SELECT u FROM AppUser u WHERE u.id = :id AND u.tenant.id = :tenantId",
-                        AppUser.class)
+                        "SELECT u FROM AppUserPojo u WHERE u.id = :id AND u.tenant.id = :tenantId",
+                        AppUserPojo.class)
                 .setParameter("id", id)
                 .setParameter("tenantId", tenantId)
                 .getResultStream()
@@ -168,7 +168,7 @@ public class AppUserDao {
      * the store is left with none — the identical read-then-write gap
      * {@code OrderDao.findForUpdate} closes for a return's returnable-quantity check.
      *
-     * <p><b>The tenant row, not the two {@code AppUser} rows being raced</b> — there is no
+     * <p><b>The tenant row, not the two {@code AppUserPojo} rows being raced</b> — there is no
      * single row to lock the way a return locks one order, because the aggregate spans
      * every admin in the tenant and a concurrent {@code POST /api/users} could be adding
      * one mid-check. The tenant row is the one thing guaranteed to exist and common to
@@ -196,7 +196,7 @@ public class AppUserDao {
      * makes locking the whole tenant rather than a narrower row that doesn't exist yet.
      */
     public void lockTenant(Long tenantId) {
-        em.find(Tenant.class, tenantId, LockModeType.PESSIMISTIC_WRITE);
+        em.find(TenantPojo.class, tenantId, LockModeType.PESSIMISTIC_WRITE);
     }
 
     /**
@@ -206,7 +206,7 @@ public class AppUserDao {
      */
     public long countActiveAdmins(Long tenantId) {
         return em.createQuery(
-                        "SELECT count(u) FROM AppUser u WHERE u.tenant.id = :tenantId"
+                        "SELECT count(u) FROM AppUserPojo u WHERE u.tenant.id = :tenantId"
                                 + " AND u.role = :role AND u.active = true",
                         Long.class)
                 .setParameter("tenantId", tenantId)
@@ -219,7 +219,7 @@ public class AppUserDao {
      * {@code GET /api/tenants} shows a {@code SUPER_ADMIN} weighing a suspension (C8).
      *
      * <p>Needs no {@link PlatformOperation}-marked filter dance the way
-     * {@code TenantDao.productCount}/{@code orderCount} do: {@link AppUser} was never
+     * {@code TenantDao.productCount}/{@code orderCount} do: {@link AppUserPojo} was never
      * filtered in the first place, so there is nothing to disable. The reach is exactly
      * as cross-tenant in effect, though — this is only ever called once per store from
      * {@code TenantService}, never for the caller's own login — which is why it still
@@ -228,7 +228,7 @@ public class AppUserDao {
     @PlatformOperation
     public long countByTenant(Long tenantId) {
         return em.createQuery(
-                        "SELECT count(u) FROM AppUser u WHERE u.tenant.id = :tenantId", Long.class)
+                        "SELECT count(u) FROM AppUserPojo u WHERE u.tenant.id = :tenantId", Long.class)
                 .setParameter("tenantId", tenantId)
                 .getSingleResult();
     }
@@ -249,7 +249,7 @@ public class AppUserDao {
             return Map.of();
         }
         List<Object[]> rows = em.createQuery(
-                        "SELECT u.tenant.id, count(u) FROM AppUser u"
+                        "SELECT u.tenant.id, count(u) FROM AppUserPojo u"
                                 + " WHERE u.tenant.id IN :tenantIds GROUP BY u.tenant.id",
                         Object[].class)
                 .setParameter("tenantIds", tenantIds)
@@ -280,7 +280,7 @@ public class AppUserDao {
      */
     public long countByOwnTenant(Long tenantId) {
         return em.createQuery(
-                        "SELECT count(u) FROM AppUser u WHERE u.tenant.id = :tenantId", Long.class)
+                        "SELECT count(u) FROM AppUserPojo u WHERE u.tenant.id = :tenantId", Long.class)
                 .setParameter("tenantId", tenantId)
                 .getSingleResult();
     }
@@ -298,7 +298,7 @@ public class AppUserDao {
      */
     public long countActiveByOwnTenant(Long tenantId) {
         return em.createQuery(
-                        "SELECT count(u) FROM AppUser u WHERE u.tenant.id = :tenantId"
+                        "SELECT count(u) FROM AppUserPojo u WHERE u.tenant.id = :tenantId"
                                 + " AND u.active = true",
                         Long.class)
                 .setParameter("tenantId", tenantId)
@@ -312,7 +312,7 @@ public class AppUserDao {
      * nature</b> — there is no caller tenant at self-registration, and the whole point is
      * to count across every store this address has ever touched — so this carries
      * {@link PlatformOperation} like {@link #countByTenant}, for the same reason: it
-     * reaches {@link AppUser} rows outside any one tenant's own.
+     * reaches {@link AppUserPojo} rows outside any one tenant's own.
      *
      * <p>Case-insensitive, matching {@link #findByTenantAndEmail}: email addresses are
      * conventionally compared that way, and the caller passes an already-lowercased value
@@ -321,7 +321,7 @@ public class AppUserDao {
     @PlatformOperation
     public long countByEmail(String email) {
         return em.createQuery(
-                        "SELECT count(u) FROM AppUser u WHERE lower(u.email) = :email", Long.class)
+                        "SELECT count(u) FROM AppUserPojo u WHERE lower(u.email) = :email", Long.class)
                 .setParameter("email", email)
                 .getSingleResult();
     }
@@ -335,14 +335,14 @@ public class AppUserDao {
      * one row (the admin minted at registration), but nothing here assumes that.
      *
      * <p>Needs no filter dance for the reason {@link #countByTenant} already gives —
-     * {@link AppUser} was never filtered in the first place — but carries {@link
+     * {@link AppUserPojo} was never filtered in the first place — but carries {@link
      * PlatformOperation} for the same reason that method does: the caller is a
      * background job with no tenant of its own, reaching every tenant's users, which
      * is exactly the cross-tenant reach the marker exists to flag.
      */
     @PlatformOperation
     public void deleteByTenant(Long tenantId) {
-        em.createQuery("DELETE FROM AppUser u WHERE u.tenant.id = :tenantId")
+        em.createQuery("DELETE FROM AppUserPojo u WHERE u.tenant.id = :tenantId")
                 .setParameter("tenantId", tenantId)
                 .executeUpdate();
     }

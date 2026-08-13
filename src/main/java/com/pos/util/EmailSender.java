@@ -16,7 +16,7 @@ package com.pos.util;
 public interface EmailSender {
 
     /**
-     * @param to      the recipient address — {@code AppUser.email} for every caller so far
+     * @param to      the recipient address — {@code AppUserPojo.email} for every caller so far
      * @param subject plain text, no encoding surprises expected
      * @param body    plain text; a link is just a URL in the message body
      */

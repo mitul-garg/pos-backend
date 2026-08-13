@@ -10,10 +10,10 @@ import com.pos.config.RecaptchaConfig;
 import com.pos.config.RootConfig;
 import com.pos.config.SecurityConfig;
 import com.pos.config.WebConfig;
-import com.pos.pojo.AppUser;
-import com.pos.pojo.Role;
-import com.pos.pojo.Tenant;
-import com.pos.pojo.TenantStatus;
+import com.pos.pojo.AppUserPojo;
+import com.pos.pojo.enums.Role;
+import com.pos.pojo.TenantPojo;
+import com.pos.pojo.enums.TenantStatus;
 import com.pos.util.TenantContext;
 import com.pos.util.TestIps;
 import jakarta.persistence.EntityManager;
@@ -105,13 +105,13 @@ class UserWriteIT {
 
     private MockMvc mvc;
 
-    private Tenant mgRoad;
+    private TenantPojo mgRoad;
 
     @BeforeEach
     void setUp() {
         mvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
 
-        Tenant platform = tenant("Platform", Tenant.PLATFORM_CODE, true);
+        TenantPojo platform = tenant("Platform", TenantPojo.PLATFORM_CODE, true);
         mgRoad = tenant("MG Road Store", "mg-road", false);
 
         user(platform, "superadmin", SUPER_HASH, Role.SUPER_ADMIN);
@@ -668,7 +668,7 @@ class UserWriteIT {
         return "Bearer " + token;
     }
 
-    private String id(Tenant tenant) {
+    private String id(TenantPojo tenant) {
         return String.valueOf(tenant.getId());
     }
 
@@ -681,7 +681,7 @@ class UserWriteIT {
     }
 
     private String asPlatformAdmin() throws Exception {
-        return tokenFor(Tenant.PLATFORM_CODE, "superadmin", "super123");
+        return tokenFor(TenantPojo.PLATFORM_CODE, "superadmin", "super123");
     }
 
     private String tokenFor(String tenantCode, String username, String password) throws Exception {
@@ -697,8 +697,8 @@ class UserWriteIT {
         return JsonPath.read(response, "$.token");
     }
 
-    private Tenant tenant(String name, String code, boolean platform) {
-        Tenant tenant = new Tenant();
+    private TenantPojo tenant(String name, String code, boolean platform) {
+        TenantPojo tenant = new TenantPojo();
         tenant.setName(name);
         tenant.setCode(code);
         tenant.setStatus(TenantStatus.ACTIVE);
@@ -707,7 +707,7 @@ class UserWriteIT {
         return tenant;
     }
 
-    private void user(Tenant tenant, String username, String passwordHash, Role role) {
+    private void user(TenantPojo tenant, String username, String passwordHash, Role role) {
         user(tenant, username, passwordHash, role, true);
     }
 
@@ -717,8 +717,8 @@ class UserWriteIT {
      * ceiling without counting toward the active one, and a specific id to deactivate
      * through the real endpoint afterward.
      */
-    private Long user(Tenant tenant, String username, String passwordHash, Role role, boolean active) {
-        AppUser user = new AppUser();
+    private Long user(TenantPojo tenant, String username, String passwordHash, Role role, boolean active) {
+        AppUserPojo user = new AppUserPojo();
         user.setTenant(tenant);
         user.setUsername(username);
         user.setPasswordHash(passwordHash);

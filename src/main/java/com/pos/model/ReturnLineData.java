@@ -8,7 +8,7 @@ import java.math.BigDecimal;
  * lineRefund} (C7).
  *
  * <p>No {@code qrCode} or {@code lineDiscount} the way {@link OrderLineData} has — a
- * return line never discounts, and {@code ReturnLine} (the entity) carries no QR
+ * return line never discounts, and {@code ReturnLinePojo} (the entity) carries no QR
  * snapshot either, matching the mock's return items shape exactly.
  */
 public class ReturnLineData {

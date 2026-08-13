@@ -3,7 +3,7 @@ package com.pos.dao;
 import java.util.ArrayList;
 import java.util.List;
 
-import com.pos.pojo.Product;
+import com.pos.pojo.ProductPojo;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.TypedQuery;
@@ -14,7 +14,7 @@ import org.springframework.stereotype.Repository;
  *
  * <p><b>Read the signatures for what is missing.</b> Not one of them takes a
  * {@code tenantId}, and none of the JPQL below mentions {@code tenant_id} — the
- * {@code tenantFilter} on {@link Product} appends it to every statement here. That is the
+ * {@code tenantFilter} on {@link ProductPojo} appends it to every statement here. That is the
  * upgrade over the frontend, where scoping was a helper you had to remember to call: a
  * query written in this class is scoped whether or not its author was thinking about
  * tenancy. It is also why this is the first DAO in the codebase with no tenant argument;
@@ -41,8 +41,8 @@ public class ProductDao {
      * <p>Returns {@code null} for an id in another tenant, indistinguishable from one that
      * never existed. The caller turns both into the same 404.
      */
-    public Product find(Long id) {
-        return em.find(Product.class, id);
+    public ProductPojo find(Long id) {
+        return em.find(ProductPojo.class, id);
     }
 
     /**
@@ -54,12 +54,12 @@ public class ProductDao {
      * assembled form also keeps each generated statement to the columns it actually
      * filters on, so {@code idx_product_tenant_category} is usable.
      */
-    public List<Product> list(String search, String category, boolean includeInactive,
+    public List<ProductPojo> list(String search, String category, boolean includeInactive,
                               int offset, int limit) {
-        TypedQuery<Product> query = em.createQuery(
-                "SELECT p FROM Product p" + where(search, category, includeInactive)
+        TypedQuery<ProductPojo> query = em.createQuery(
+                "SELECT p FROM ProductPojo p" + where(search, category, includeInactive)
                         + " ORDER BY p.createdAt DESC, p.id DESC",
-                Product.class);
+                ProductPojo.class);
         bind(query, search, category);
         return query.setFirstResult(offset).setMaxResults(limit).getResultList();
     }
@@ -67,7 +67,7 @@ public class ProductDao {
     /** How many rows {@link #list} would return unpaged — the envelope's {@code total}. */
     public long count(String search, String category, boolean includeInactive) {
         TypedQuery<Long> query = em.createQuery(
-                "SELECT count(p) FROM Product p" + where(search, category, includeInactive),
+                "SELECT count(p) FROM ProductPojo p" + where(search, category, includeInactive),
                 Long.class);
         bind(query, search, category);
         return query.getSingleResult();
@@ -83,7 +83,7 @@ public class ProductDao {
      */
     public List<String> categories() {
         return em.createQuery(
-                        "SELECT DISTINCT p.category FROM Product p "
+                        "SELECT DISTINCT p.category FROM ProductPojo p "
                                 + "WHERE p.category IS NOT NULL AND p.category <> '' "
                                 + "ORDER BY p.category",
                         String.class)
@@ -94,13 +94,13 @@ public class ProductDao {
      * The only write here until C5, and its one caller is {@code DevSeeder}.
      *
      * <p>Nothing sets {@code tenant_id} on the way through: it comes from the
-     * {@link Product} handed in, which the caller stamped from the session (or, for the
+     * {@link ProductPojo} handed in, which the caller stamped from the session (or, for the
      * seeder, from the store being created). The filter does <b>not</b> police inserts —
      * it appends to {@code WHERE} clauses, and an {@code INSERT} has none. Writes are
      * scoped by whoever builds the entity, which is why CONVENTIONS.md states the rule
      * separately: stamp from the context, never from the request body.
      */
-    public void insert(Product product) {
+    public void insert(ProductPojo product) {
         em.persist(product);
     }
 

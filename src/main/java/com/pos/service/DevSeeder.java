@@ -17,13 +17,13 @@ import com.pos.model.OrderLineForm;
 import com.pos.model.PaymentForm;
 import com.pos.model.SessionUserData;
 import com.pos.model.VariantForm;
-import com.pos.pojo.AppUser;
-import com.pos.pojo.PaymentMethod;
-import com.pos.pojo.Product;
-import com.pos.pojo.Role;
-import com.pos.pojo.Tenant;
-import com.pos.pojo.TenantStatus;
-import com.pos.pojo.Variant;
+import com.pos.pojo.AppUserPojo;
+import com.pos.pojo.enums.PaymentMethod;
+import com.pos.pojo.ProductPojo;
+import com.pos.pojo.enums.Role;
+import com.pos.pojo.TenantPojo;
+import com.pos.pojo.enums.TenantStatus;
+import com.pos.pojo.VariantPojo;
 import com.pos.util.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -211,7 +211,7 @@ public class DevSeeder {
     /**
      * One completed sale, run through {@link OrderService#create} and
      * {@link PaymentService#pay} exactly as a real checkout would (C6) — see
-     * {@link #seedOrders} for why. {@code createdAt} is not here: {@code PosOrder} stamps
+     * {@link #seedOrders} for why. {@code createdAt} is not here: {@code PosOrderPojo} stamps
      * it with {@code @CreationTimestamp}, so a seeded order is dated the moment the app
      * booted rather than the mock's back-dated July timestamps. Nothing downstream reads
      * seeded orders for their age, so that is a difference worth knowing rather than
@@ -310,9 +310,9 @@ public class DevSeeder {
      */
     @Transactional
     public void seed() {
-        Tenant platform = seedTenant("Platform", Tenant.PLATFORM_CODE, true);
-        Tenant mgRoad = seedTenant("MG Road Store", "mg-road", false);
-        Tenant airport = seedTenant("Airport Store", "airport", false);
+        TenantPojo platform = seedTenant("Platform", TenantPojo.PLATFORM_CODE, true);
+        TenantPojo mgRoad = seedTenant("MG Road Store", "mg-road", false);
+        TenantPojo airport = seedTenant("Airport Store", "airport", false);
 
         seedUser(platform, "superadmin", "super123", "Platform Admin", Role.SUPER_ADMIN);
 
@@ -334,12 +334,12 @@ public class DevSeeder {
                 AIRPORT_ORDERS);
     }
 
-    private Tenant seedTenant(String name, String code, boolean platform) {
-        Tenant existing = tenantDao.findByCode(code);
+    private TenantPojo seedTenant(String name, String code, boolean platform) {
+        TenantPojo existing = tenantDao.findByCode(code);
         if (existing != null) {
             return existing;
         }
-        Tenant tenant = new Tenant();
+        TenantPojo tenant = new TenantPojo();
         tenant.setName(name);
         tenant.setCode(code);
         tenant.setStatus(TenantStatus.ACTIVE);
@@ -358,19 +358,19 @@ public class DevSeeder {
      * evaluated against {@code NO_TENANT}, answer "none" every time, and re-insert all 23
      * rows on every boot under {@code hbm2ddl.auto=update}. Setting the context makes the
      * check ask the question it looks like it is asking. {@code seedUser} needs none of
-     * this because {@code AppUser} is unfiltered.
+     * this because {@code AppUserPojo} is unfiltered.
      *
      * <p>Cleared in a {@code finally} for the same reason every other caller does, even
      * though the startup thread serves nothing afterwards. The habit is the safeguard; an
      * exception here must not leave a tenant on a thread the container may reuse.
      */
-    private void seedCatalogue(Tenant tenant, List<CatalogueEntry> catalogue,
+    private void seedCatalogue(TenantPojo tenant, List<CatalogueEntry> catalogue,
                                List<VariantEntry> variants) {
         TenantContext.set(tenant.getId());
         try {
             if (productDao.count(null, null, true) == 0) {
                 for (CatalogueEntry entry : catalogue) {
-                    Product product = new Product();
+                    ProductPojo product = new ProductPojo();
                     // Stamped from the tenant being seeded, never from the row's own data
                     // -- the same rule the API follows, where it comes from the session.
                     // The filter does not police inserts; only whoever builds the entity
@@ -404,9 +404,9 @@ public class DevSeeder {
      * store. Idempotent at the row level: a variant deleted by hand comes back on the next
      * boot, and one that is merely edited is left exactly as it is.
      */
-    private void seedVariants(Tenant tenant, List<VariantEntry> variants) {
+    private void seedVariants(TenantPojo tenant, List<VariantEntry> variants) {
         Map<String, Long> productIds = new HashMap<>();
-        for (Product product : productDao.list(null, null, true, 0, MAX_SEEDED_PRODUCTS)) {
+        for (ProductPojo product : productDao.list(null, null, true, 0, MAX_SEEDED_PRODUCTS)) {
             productIds.put(product.getName(), product.getId());
         }
 
@@ -481,7 +481,7 @@ public class DevSeeder {
      * {@code seed()} against a database that already has this store's orders must not
      * mint a second set with new, higher numbers.
      */
-    private void seedOrders(Tenant tenant, AppUser cashier, List<OrderSeed> orders) {
+    private void seedOrders(TenantPojo tenant, AppUserPojo cashier, List<OrderSeed> orders) {
         TenantContext.set(tenant.getId());
         SecurityContextHolder.getContext().setAuthentication(authenticationFor(cashier, tenant));
         try {
@@ -511,7 +511,7 @@ public class DevSeeder {
     }
 
     private OrderLineForm orderLineForm(OrderLineSeed seedLine) {
-        Variant variant = variantDao.findBySku(seedLine.sku());
+        VariantPojo variant = variantDao.findBySku(seedLine.sku());
         if (variant == null) {
             // A typo in the seed data -- see seedVariants' identical guard for why this
             // is the right place to fail rather than leaving a puzzling gap in the order.
@@ -529,10 +529,10 @@ public class DevSeeder {
      * request bearing this cashier's token — same principal shape
      * ({@code SessionUserData}), same {@code ROLE_*} authority Spring Security's
      * {@code hasRole} looks for. Built here rather than reused from {@code AuthService}
-     * because there is no token to resolve; the {@code AppUser} row (already in hand from
+     * because there is no token to resolve; the {@code AppUserPojo} row (already in hand from
      * seeding) is the input instead.
      */
-    private Authentication authenticationFor(AppUser cashier, Tenant tenant) {
+    private Authentication authenticationFor(AppUserPojo cashier, TenantPojo tenant) {
         SessionUserData session = new SessionUserData(
                 cashier.getId(), tenant.getId(), cashier.getUsername(), cashier.getDisplayName(),
                 cashier.getRole(), cashier.isActive(), tenant.getCode(), tenant.getName());
@@ -541,12 +541,12 @@ public class DevSeeder {
         return UsernamePasswordAuthenticationToken.authenticated(session, null, authorities);
     }
 
-    private void seedUser(Tenant tenant, String username, String password,
+    private void seedUser(TenantPojo tenant, String username, String password,
                           String displayName, Role role) {
         if (appUserDao.findByTenantAndUsername(tenant.getId(), username) != null) {
             return;
         }
-        AppUser user = new AppUser();
+        AppUserPojo user = new AppUserPojo();
         user.setTenant(tenant);
         user.setUsername(username);
         // Hashed on insert, never stored in plaintext -- backend-plan.md section 1,

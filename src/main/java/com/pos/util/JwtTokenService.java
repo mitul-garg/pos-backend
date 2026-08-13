@@ -9,7 +9,7 @@ import javax.crypto.SecretKey;
 
 import com.pos.config.AppProperties;
 import com.pos.exception.InvalidCredentialsException;
-import com.pos.pojo.Role;
+import com.pos.pojo.enums.Role;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtBuilder;
 import io.jsonwebtoken.JwtException;

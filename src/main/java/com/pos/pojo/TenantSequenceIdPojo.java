@@ -1,24 +1,24 @@
 package com.pos.pojo;
 
-import java.io.Serializable;
-import java.util.Objects;
-
+import com.pos.pojo.enums.SequenceKind;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import java.io.Serializable;
+import java.util.Objects;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * The composite primary key of {@link TenantSequence}: {@code (tenant_id, kind)}.
+ * The composite primary key of {@link TenantSequencePojo}: {@code (tenant_id, kind)}.
  *
  * <p>{@code equals} and {@code hashCode} are mandatory here, not optional politeness —
  * JPA uses them to identify the entity in the persistence context, and a composite key
  * without them silently produces duplicate managed instances.
  */
 @Embeddable
-public class TenantSequenceId implements Serializable {
+public class TenantSequenceIdPojo implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
@@ -33,11 +33,11 @@ public class TenantSequenceId implements Serializable {
     @Column(name = "kind", length = 16)
     private SequenceKind kind;
 
-    protected TenantSequenceId() {
+    protected TenantSequenceIdPojo() {
         // Required by JPA.
     }
 
-    public TenantSequenceId(Long tenantId, SequenceKind kind) {
+    public TenantSequenceIdPojo(Long tenantId, SequenceKind kind) {
         this.tenantId = tenantId;
         this.kind = kind;
     }
@@ -55,7 +55,7 @@ public class TenantSequenceId implements Serializable {
         if (this == other) {
             return true;
         }
-        if (!(other instanceof TenantSequenceId that)) {
+        if (!(other instanceof TenantSequenceIdPojo that)) {
             return false;
         }
         return Objects.equals(tenantId, that.tenantId) && kind == that.kind;

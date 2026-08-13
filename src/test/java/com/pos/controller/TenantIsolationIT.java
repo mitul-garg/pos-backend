@@ -11,15 +11,15 @@ import com.pos.config.RecaptchaConfig;
 import com.pos.config.RootConfig;
 import com.pos.config.SecurityConfig;
 import com.pos.config.WebConfig;
-import com.pos.pojo.AppUser;
-import com.pos.pojo.Product;
-import com.pos.pojo.Role;
-import com.pos.pojo.SequenceKind;
-import com.pos.pojo.Tenant;
-import com.pos.pojo.TenantSequence;
-import com.pos.pojo.TenantStatus;
-import com.pos.pojo.UnitOfMeasure;
-import com.pos.pojo.Variant;
+import com.pos.pojo.AppUserPojo;
+import com.pos.pojo.ProductPojo;
+import com.pos.pojo.enums.Role;
+import com.pos.pojo.enums.SequenceKind;
+import com.pos.pojo.TenantPojo;
+import com.pos.pojo.TenantSequencePojo;
+import com.pos.pojo.enums.TenantStatus;
+import com.pos.pojo.enums.UnitOfMeasure;
+import com.pos.pojo.VariantPojo;
 import com.pos.util.TenantContext;
 import com.pos.util.TestIps;
 import jakarta.persistence.EntityManager;
@@ -112,8 +112,8 @@ class TenantIsolationIT {
 
     private MockMvc mvc;
 
-    private Tenant mgRoad;
-    private Tenant airport;
+    private TenantPojo mgRoad;
+    private TenantPojo airport;
 
     /** t2-owned ids in a t1 user's hands — the threat model, as fields. */
     private Long airportBisleri;
@@ -131,7 +131,7 @@ class TenantIsolationIT {
     void setUp() {
         mvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
 
-        Tenant platform = tenant("Platform", "platform", true);
+        TenantPojo platform = tenant("Platform", "platform", true);
         mgRoad = tenant("MG Road Store", "mg-road", false);
         airport = tenant("Airport Store", "airport", false);
 
@@ -429,12 +429,12 @@ class TenantIsolationIT {
      * has to resolve to nothing, exactly as an unissued code does.
      *
      * <h2>Mutation-checked, and the result was not what was expected</h2>
-     * Removing {@code @Filter} from {@code Variant} <b>leaves the scan, the search and the
+     * Removing {@code @Filter} from {@code VariantPojo} <b>leaves the scan, the search and the
      * by-product list green</b>. It reddens exactly two cases here plus both coverage
      * assertions.
      *
      * <p>The reason is real rather than a fluke: every read in {@code VariantDao} is
-     * {@code JOIN FETCH v.product p}, and {@code Product} is filtered — so Hibernate scopes
+     * {@code JOIN FETCH v.product p}, and {@code ProductPojo} is filtered — so Hibernate scopes
      * those queries through the join whether or not the variant carries a filter of its
      * own. What reddens is precisely the two paths that do <b>not</b> join a product:
      * {@code em.find} by id (so {@code crossTenantVariantWritesAre404} answers 400 instead
@@ -794,11 +794,11 @@ class TenantIsolationIT {
     }
 
     /**
-     * {@code AppUser} carries no {@code @Filter} (see its own class Javadoc) — the one
+     * {@code AppUserPojo} carries no {@code @Filter} (see its own class Javadoc) — the one
      * entity this suite exercises where scoping is enforced by hand rather than by the
      * Hibernate filter every other case here relies on. A regression in
      * {@code AppUserDao.findByTenant}/{@code findInTenant} would show up nowhere else:
-     * {@code TenantFilterCoverageTest} explicitly excludes {@code AppUser} as unfiltered
+     * {@code TenantFilterCoverageTest} explicitly excludes {@code AppUserPojo} as unfiltered
      * by design, so this is the only automated check that a t1 admin cannot read or write
      * a t2 user.
      */
@@ -945,7 +945,7 @@ class TenantIsolationIT {
         return String.valueOf(value);
     }
 
-    private String id(Tenant tenant) {
+    private String id(TenantPojo tenant) {
         return String.valueOf(tenant.getId());
     }
 
@@ -1108,8 +1108,8 @@ class TenantIsolationIT {
         return JsonPath.read(response, "$.token");
     }
 
-    private Tenant tenant(String name, String code, boolean platform) {
-        Tenant tenant = new Tenant();
+    private TenantPojo tenant(String name, String code, boolean platform) {
+        TenantPojo tenant = new TenantPojo();
         tenant.setName(name);
         tenant.setCode(code);
         tenant.setStatus(TenantStatus.ACTIVE);
@@ -1118,8 +1118,8 @@ class TenantIsolationIT {
         return tenant;
     }
 
-    private void user(Tenant tenant, String username, String passwordHash, Role role) {
-        AppUser user = new AppUser();
+    private void user(TenantPojo tenant, String username, String passwordHash, Role role) {
+        AppUserPojo user = new AppUserPojo();
         user.setTenant(tenant);
         user.setUsername(username);
         user.setPasswordHash(passwordHash);
@@ -1142,11 +1142,11 @@ class TenantIsolationIT {
      * make the codes depend on insert order, and these two have to be predictable enough to
      * write into an assertion. The sequence has its own suite, {@code VariantSequenceIT}.
      */
-    private Long variant(Tenant tenant, Long productId, String label, String sku,
+    private Long variant(TenantPojo tenant, Long productId, String label, String sku,
                          String qrCode, int stock) {
-        Variant variant = new Variant();
+        VariantPojo variant = new VariantPojo();
         variant.setTenant(tenant);
-        variant.setProduct(em.getReference(Product.class, productId));
+        variant.setProduct(em.getReference(ProductPojo.class, productId));
         variant.setVariantLabel(label);
         variant.setSku(sku);
         variant.setQrCode(qrCode);
@@ -1160,14 +1160,14 @@ class TenantIsolationIT {
     }
 
     /** Where {@code TenantSequenceDao} would have left this store's QR counter. */
-    private void qrSequence(Tenant tenant, long nextValue) {
-        TenantSequence sequence = new TenantSequence(tenant, SequenceKind.QR);
+    private void qrSequence(TenantPojo tenant, long nextValue) {
+        TenantSequencePojo sequence = new TenantSequencePojo(tenant, SequenceKind.QR);
         sequence.setNextValue(nextValue);
         em.persist(sequence);
     }
 
-    private Long product(Tenant tenant, String name, String brand, String category, boolean active) {
-        Product product = new Product();
+    private Long product(TenantPojo tenant, String name, String brand, String category, boolean active) {
+        ProductPojo product = new ProductPojo();
         product.setTenant(tenant);
         product.setName(name);
         product.setBrand(brand);

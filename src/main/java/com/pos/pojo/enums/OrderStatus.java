@@ -1,4 +1,4 @@
-package com.pos.pojo;
+package com.pos.pojo.enums;
 
 /**
  * Order lifecycle. One record per real-world sale: resuming a {@code HELD} or

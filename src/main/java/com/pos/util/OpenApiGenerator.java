@@ -335,7 +335,7 @@ public class OpenApiGenerator {
         return patternsOf(mapping).stream().findFirst().orElse("");
     }
 
-    /** {@code ProductController} groups under the tag {@code Product}. */
+    /** {@code ProductController} groups under the tag {@code ProductPojo}. */
     private String tagFor(HandlerMethod handler) {
         io.swagger.v3.oas.annotations.tags.Tag tag =
                 handler.getBeanType().getAnnotation(io.swagger.v3.oas.annotations.tags.Tag.class);

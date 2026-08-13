@@ -4,7 +4,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import com.pos.exception.InvalidCredentialsException;
-import com.pos.pojo.Role;
+import com.pos.pojo.enums.Role;
 import com.pos.service.AuthService;
 import com.pos.util.ApiRateLimiter;
 import org.springframework.context.annotation.Bean;

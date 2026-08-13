@@ -11,10 +11,10 @@ import com.pos.exception.ValidationException;
 import com.pos.model.TenantData;
 import com.pos.model.TenantForm;
 import com.pos.model.TenantStatusForm;
-import com.pos.pojo.AppUser;
-import com.pos.pojo.Role;
-import com.pos.pojo.Tenant;
-import com.pos.pojo.TenantStatus;
+import com.pos.pojo.AppUserPojo;
+import com.pos.pojo.enums.Role;
+import com.pos.pojo.TenantPojo;
+import com.pos.pojo.enums.TenantStatus;
 import com.pos.util.MaxLength;
 import com.pos.util.PlatformOperation;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -73,8 +73,8 @@ public class TenantService {
     @Transactional(readOnly = true)
     @PlatformOperation
     public List<TenantData> list() {
-        List<Tenant> tenants = tenantDao.list();
-        List<Long> ids = tenants.stream().map(Tenant::getId).toList();
+        List<TenantPojo> tenants = tenantDao.list();
+        List<Long> ids = tenants.stream().map(TenantPojo::getId).toList();
 
         Map<Long, Long> userCounts = appUserDao.countsByTenants(ids);
         Map<Long, Long> productCounts = tenantDao.productCountsByTenants(ids);
@@ -92,13 +92,13 @@ public class TenantService {
      * {@code GET /api/tenants/{id}}.
      *
      * <p>The platform row itself answers 404 here, same as an id that was never issued —
-     * {@code Tenant.isPlatform()}'s Javadoc says it "is excluded from GET /api/tenants and
+     * {@code TenantPojo.isPlatform()}'s Javadoc says it "is excluded from GET /api/tenants and
      * cannot be suspended", and a direct-by-id fetch is the other half of "excluded".
      */
     @Transactional(readOnly = true)
     @PlatformOperation
     public TenantData get(Long id) {
-        Tenant tenant = requireManaged(id);
+        TenantPojo tenant = requireManaged(id);
         return toData(tenant);
     }
 
@@ -139,7 +139,7 @@ public class TenantService {
             throw new ValidationException(errors.values().iterator().next(), errors);
         }
 
-        Tenant tenant = new Tenant();
+        TenantPojo tenant = new TenantPojo();
         tenant.setName(name);
         tenant.setCode(code);
         tenant.setStatus(TenantStatus.ACTIVE);
@@ -148,7 +148,7 @@ public class TenantService {
 
         // No uniqueness check against other tenants' usernames: (tenant_id, username) is
         // the constraint, and this tenant is brand new, so its namespace starts empty.
-        AppUser admin = new AppUser();
+        AppUserPojo admin = new AppUserPojo();
         admin.setTenant(tenant);
         admin.setUsername(adminUsername);
         admin.setPasswordHash(passwordEncoder.encode(form.getAdminPassword()));
@@ -168,16 +168,16 @@ public class TenantService {
     @Transactional
     @PlatformOperation
     public TenantData updateStatus(Long id, TenantStatusForm form) {
-        Tenant tenant = requireManaged(id);
+        TenantPojo tenant = requireManaged(id);
         if (form.getStatus() != null) {
             tenant.setStatus(form.getStatus());
         }
         return toData(tenant);
     }
 
-    /** {@link Tenant#find} by id, excluding the reserved platform row either way. */
-    private Tenant requireManaged(Long id) {
-        Tenant tenant = tenantDao.find(id);
+    /** {@link TenantPojo#find} by id, excluding the reserved platform row either way. */
+    private TenantPojo requireManaged(Long id) {
+        TenantPojo tenant = tenantDao.find(id);
         if (tenant == null || tenant.isPlatform()) {
             throw new NotFoundException(NOT_FOUND);
         }
@@ -194,7 +194,7 @@ public class TenantService {
      * and {@link #updateStatus}, each mapping exactly one tenant — {@link #list} batches
      * all three counts instead (peer-review Phase 1) and goes through the overload below.
      */
-    private TenantData toData(Tenant tenant) {
+    private TenantData toData(TenantPojo tenant) {
         Long id = tenant.getId();
         return toData(tenant, appUserDao.countByTenant(id), tenantDao.productCount(id),
                 tenantDao.orderCount(id));
@@ -206,7 +206,7 @@ public class TenantService {
      * {@code GROUP BY} queries run once for the whole list (peer-review Phase 1's
      * {@code 3N+1} fix) instead of three per-tenant queries times every row.
      */
-    private TenantData toData(Tenant tenant, long userCount, long productCount, long orderCount) {
+    private TenantData toData(TenantPojo tenant, long userCount, long productCount, long orderCount) {
         return new TenantData(
                 tenant.getId(),
                 tenant.getName(),

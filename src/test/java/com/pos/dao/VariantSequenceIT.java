@@ -21,11 +21,11 @@ import com.pos.config.RecaptchaConfig;
 import com.pos.config.RootConfig;
 import com.pos.config.SecurityConfig;
 import com.pos.config.WebConfig;
-import com.pos.pojo.AppUser;
-import com.pos.pojo.Product;
-import com.pos.pojo.Role;
-import com.pos.pojo.Tenant;
-import com.pos.pojo.TenantStatus;
+import com.pos.pojo.AppUserPojo;
+import com.pos.pojo.ProductPojo;
+import com.pos.pojo.enums.Role;
+import com.pos.pojo.TenantPojo;
+import com.pos.pojo.enums.TenantStatus;
 import com.pos.util.TenantContext;
 import com.pos.util.TestIps;
 import jakarta.persistence.EntityManager;
@@ -133,7 +133,7 @@ class VariantSequenceIT {
         transactions = new TransactionTemplate(transactionManager);
 
         Long[] ids = transactions.execute(status -> {
-            Tenant mgRoad = tenant("MG Road Store", "mg-road");
+            TenantPojo mgRoad = tenant("MG Road Store", "mg-road");
             user(mgRoad, "admin", "admin123", Role.ADMIN);
             return new Long[] { mgRoad.getId(), product(mgRoad, "Amul Taaza Toned Milk") };
         });
@@ -282,8 +282,8 @@ class VariantSequenceIT {
         return JsonPath.read(response, "$.token");
     }
 
-    private Tenant tenant(String name, String code) {
-        Tenant tenant = new Tenant();
+    private TenantPojo tenant(String name, String code) {
+        TenantPojo tenant = new TenantPojo();
         tenant.setName(name);
         tenant.setCode(code);
         tenant.setStatus(TenantStatus.ACTIVE);
@@ -292,8 +292,8 @@ class VariantSequenceIT {
         return tenant;
     }
 
-    private void user(Tenant tenant, String username, String password, Role role) {
-        AppUser user = new AppUser();
+    private void user(TenantPojo tenant, String username, String password, Role role) {
+        AppUserPojo user = new AppUserPojo();
         user.setTenant(tenant);
         user.setUsername(username);
         user.setPasswordHash(HASHER.encode(password));
@@ -303,8 +303,8 @@ class VariantSequenceIT {
         em.persist(user);
     }
 
-    private Long product(Tenant tenant, String name) {
-        Product product = new Product();
+    private Long product(TenantPojo tenant, String name) {
+        ProductPojo product = new ProductPojo();
         product.setTenant(tenant);
         product.setName(name);
         product.setBrand("Amul");

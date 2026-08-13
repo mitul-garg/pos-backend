@@ -11,10 +11,10 @@ import com.pos.config.RootConfig;
 import com.pos.config.SecurityConfig;
 import com.pos.config.WebConfig;
 import com.pos.exception.InvalidCredentialsException;
-import com.pos.pojo.AppUser;
-import com.pos.pojo.Role;
-import com.pos.pojo.Tenant;
-import com.pos.pojo.TenantStatus;
+import com.pos.pojo.AppUserPojo;
+import com.pos.pojo.enums.Role;
+import com.pos.pojo.TenantPojo;
+import com.pos.pojo.enums.TenantStatus;
 import com.pos.util.TestIps;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -118,15 +118,15 @@ class AuthControllerIT {
 
     private MockMvc mvc;
 
-    private Tenant mgRoad;
-    private Tenant airport;
-    private AppUser mgRoadCashier;
+    private TenantPojo mgRoad;
+    private TenantPojo airport;
+    private AppUserPojo mgRoadCashier;
 
     @BeforeEach
     void setUp() {
         mvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
 
-        Tenant platform = tenant("Platform", "platform", true);
+        TenantPojo platform = tenant("Platform", "platform", true);
         mgRoad = tenant("MG Road Store", "mg-road", false);
         airport = tenant("Airport Store", "airport", false);
 
@@ -436,7 +436,7 @@ class AuthControllerIT {
         @Test
         @DisplayName("never puts a password or its hash on the wire")
         void neverLeaksTheHash() throws Exception {
-            // The concrete reason CONVENTIONS.md forbids returning entities: AppUser
+            // The concrete reason CONVENTIONS.md forbids returning entities: AppUserPojo
             // carries passwordHash, and every incident of this kind starts with
             // serializing one.
             String loginBody = login("mg-road", "admin", "admin123")
@@ -455,9 +455,9 @@ class AuthControllerIT {
         @Test
         @DisplayName("stores a hash, not the password")
         void storesAHash() {
-            AppUser stored = em.createQuery(
-                            "SELECT u FROM AppUser u WHERE u.username = 'cashier' "
-                                    + "AND u.tenant.code = 'mg-road'", AppUser.class)
+            AppUserPojo stored = em.createQuery(
+                            "SELECT u FROM AppUserPojo u WHERE u.username = 'cashier' "
+                                    + "AND u.tenant.code = 'mg-road'", AppUserPojo.class)
                     .getSingleResult();
 
             assertFalse(stored.getPasswordHash().contains("cashier123"),
@@ -539,8 +539,8 @@ class AuthControllerIT {
         return mvc.perform(get("/api/auth/me").header("Authorization", "Bearer " + token));
     }
 
-    private Tenant tenant(String name, String code, boolean platform) {
-        Tenant tenant = new Tenant();
+    private TenantPojo tenant(String name, String code, boolean platform) {
+        TenantPojo tenant = new TenantPojo();
         tenant.setName(name);
         tenant.setCode(code);
         tenant.setStatus(TenantStatus.ACTIVE);
@@ -549,9 +549,9 @@ class AuthControllerIT {
         return tenant;
     }
 
-    private AppUser user(Tenant tenant, String username, String passwordHash,
+    private AppUserPojo user(TenantPojo tenant, String username, String passwordHash,
                          String displayName, Role role) {
-        AppUser user = new AppUser();
+        AppUserPojo user = new AppUserPojo();
         user.setTenant(tenant);
         user.setUsername(username);
         user.setPasswordHash(passwordHash);

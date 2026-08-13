@@ -21,7 +21,7 @@ import org.hibernate.annotations.Filter;
 
 /**
  * The parent concept — "Amul Milk". <b>Not the thing that gets scanned</b>: that is
- * {@link Variant}, and keeping the two apart is the core domain decision in
+ * {@link VariantPojo}, and keeping the two apart is the core domain decision in
  * requirements.md section 2.
  *
  * <p>Tax lives here rather than on the variant, because every variant of a product
@@ -36,7 +36,7 @@ import org.hibernate.annotations.Filter;
                 @Index(name = "idx_product_tenant_category", columnList = "tenant_id, category")
         }
 )
-public class Product {
+public class ProductPojo {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -49,7 +49,7 @@ public class Product {
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_product_tenant")
     )
-    private Tenant tenant;
+    private TenantPojo tenant;
 
     @Column(name = "name", nullable = false, length = 200)
     private String name;
@@ -94,11 +94,11 @@ public class Product {
         this.id = id;
     }
 
-    public Tenant getTenant() {
+    public TenantPojo getTenant() {
         return tenant;
     }
 
-    public void setTenant(Tenant tenant) {
+    public void setTenant(TenantPojo tenant) {
         this.tenant = tenant;
     }
 

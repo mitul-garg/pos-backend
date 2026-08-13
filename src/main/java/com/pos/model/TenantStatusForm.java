@@ -1,6 +1,6 @@
 package com.pos.model;
 
-import com.pos.pojo.TenantStatus;
+import com.pos.pojo.enums.TenantStatus;
 
 /**
  * Input DTO for {@code PATCH /api/tenants/{id}} (C8) — suspend or reactivate, the only

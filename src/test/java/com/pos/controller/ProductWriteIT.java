@@ -10,11 +10,11 @@ import com.pos.config.RecaptchaConfig;
 import com.pos.config.RootConfig;
 import com.pos.config.SecurityConfig;
 import com.pos.config.WebConfig;
-import com.pos.pojo.AppUser;
-import com.pos.pojo.Product;
-import com.pos.pojo.Role;
-import com.pos.pojo.Tenant;
-import com.pos.pojo.TenantStatus;
+import com.pos.pojo.AppUserPojo;
+import com.pos.pojo.ProductPojo;
+import com.pos.pojo.enums.Role;
+import com.pos.pojo.TenantPojo;
+import com.pos.pojo.enums.TenantStatus;
 import com.pos.util.TenantContext;
 import com.pos.util.TestIps;
 import jakarta.persistence.EntityManager;
@@ -108,13 +108,13 @@ class ProductWriteIT {
 
     private MockMvc mvc;
 
-    private Tenant mgRoad;
+    private TenantPojo mgRoad;
 
     @BeforeEach
     void setUp() {
         mvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
 
-        Tenant platform = tenant("Platform", Tenant.PLATFORM_CODE, true);
+        TenantPojo platform = tenant("Platform", TenantPojo.PLATFORM_CODE, true);
         mgRoad = tenant("MG Road Store", "mg-road", false);
 
         user(platform, "superadmin", SUPER_HASH, Role.SUPER_ADMIN);
@@ -565,7 +565,7 @@ class ProductWriteIT {
         return "Bearer " + token;
     }
 
-    private String id(Tenant tenant) {
+    private String id(TenantPojo tenant) {
         return String.valueOf(tenant.getId());
     }
 
@@ -578,7 +578,7 @@ class ProductWriteIT {
     }
 
     private String asPlatformAdmin() throws Exception {
-        return tokenFor(Tenant.PLATFORM_CODE, "superadmin", "super123");
+        return tokenFor(TenantPojo.PLATFORM_CODE, "superadmin", "super123");
     }
 
     private String tokenFor(String tenantCode, String username, String password) throws Exception {
@@ -596,8 +596,8 @@ class ProductWriteIT {
         return JsonPath.read(response, "$.token");
     }
 
-    private Tenant tenant(String name, String code, boolean platform) {
-        Tenant tenant = new Tenant();
+    private TenantPojo tenant(String name, String code, boolean platform) {
+        TenantPojo tenant = new TenantPojo();
         tenant.setName(name);
         tenant.setCode(code);
         tenant.setStatus(TenantStatus.ACTIVE);
@@ -606,8 +606,8 @@ class ProductWriteIT {
         return tenant;
     }
 
-    private void user(Tenant tenant, String username, String passwordHash, Role role) {
-        AppUser user = new AppUser();
+    private void user(TenantPojo tenant, String username, String passwordHash, Role role) {
+        AppUserPojo user = new AppUserPojo();
         user.setTenant(tenant);
         user.setUsername(username);
         user.setPasswordHash(passwordHash);
@@ -618,7 +618,7 @@ class ProductWriteIT {
     }
 
     /** Fast-path fixture for the product-ceiling test — 2000 of these beats 2000 round trips. */
-    private void product(Tenant tenant, String name) {
+    private void product(TenantPojo tenant, String name) {
         product(tenant, name, true);
     }
 
@@ -628,8 +628,8 @@ class ProductWriteIT {
      * counting toward the active one. Returns the id so a test can deactivate a
      * specific row through the real endpoint afterward.
      */
-    private Long product(Tenant tenant, String name, boolean active) {
-        Product product = new Product();
+    private Long product(TenantPojo tenant, String name, boolean active) {
+        ProductPojo product = new ProductPojo();
         product.setTenant(tenant);
         product.setName(name);
         product.setTaxRatePercent(BigDecimal.ZERO);

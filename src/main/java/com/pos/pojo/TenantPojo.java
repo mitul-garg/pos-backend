@@ -1,8 +1,6 @@
 package com.pos.pojo;
 
-import java.time.Instant;
-import java.util.List;
-
+import com.pos.pojo.enums.TenantStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -12,6 +10,8 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import java.time.Instant;
+import java.util.List;
 import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
@@ -37,7 +37,7 @@ import org.hibernate.type.SqlTypes;
                 @UniqueConstraint(name = "uk_tenant_verification_token", columnNames = "verification_token")
         }
 )
-public class Tenant {
+public class TenantPojo {
 
     /**
      * The reserved code a platform {@code SUPER_ADMIN} logs in with, mirroring the

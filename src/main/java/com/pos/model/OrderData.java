@@ -4,7 +4,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
-import com.pos.pojo.OrderStatus;
+import com.pos.pojo.enums.OrderStatus;
 
 /**
  * An order on the wire — requirements.md section 3's {@code Order}, field for field with
@@ -12,7 +12,7 @@ import com.pos.pojo.OrderStatus;
  *
  * <p>{@code payment} is {@code null} until {@code POST /api/orders/{id}/payments}
  * completes it; every field below it is a snapshot, never recomputed from the variant's
- * current row after the fact. See {@code PosOrder}'s Javadoc for why payment is embedded
+ * current row after the fact. See {@code PosOrderPojo}'s Javadoc for why payment is embedded
  * rather than a child table.
  */
 public class OrderData {

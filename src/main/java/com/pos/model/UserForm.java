@@ -1,7 +1,7 @@
 package com.pos.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.pos.pojo.Role;
+import com.pos.pojo.enums.Role;
 
 /**
  * Input DTO for {@code POST /api/users} and {@code PUT /api/users/{id}} (C8) — one form

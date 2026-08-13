@@ -12,8 +12,8 @@ import com.pos.model.TenantRegistrationForm;
 import com.pos.model.TenantResendVerificationForm;
 import com.pos.model.TenantVerificationData;
 import com.pos.model.TenantVerifyForm;
-import com.pos.pojo.Tenant;
-import com.pos.pojo.TenantStatus;
+import com.pos.pojo.TenantPojo;
+import com.pos.pojo.enums.TenantStatus;
 import com.pos.util.EmailSender;
 import com.pos.util.Honeypot;
 import com.pos.util.RecaptchaVerifier;
@@ -111,7 +111,7 @@ public class TenantRegistrationService {
     @Transactional
     public TenantVerificationData verify(TenantVerifyForm form) {
         String token = blankToNull(form.getToken());
-        Tenant tenant = token == null ? null : tenantDao.findByVerificationToken(token);
+        TenantPojo tenant = token == null ? null : tenantDao.findByVerificationToken(token);
 
         // Must also require the CURRENT status to still be PENDING_VERIFICATION, not
         // just a matching, unexpired token (frontend/BUGS.md #17): the token is only

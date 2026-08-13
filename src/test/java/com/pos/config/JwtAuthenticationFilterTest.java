@@ -6,7 +6,7 @@ import java.time.Duration;
 import com.pos.exception.ForbiddenException;
 import com.pos.exception.InvalidCredentialsException;
 import com.pos.model.SessionUserData;
-import com.pos.pojo.Role;
+import com.pos.pojo.enums.Role;
 import com.pos.service.AuthService;
 import com.pos.util.ApiRateLimiter;
 import com.pos.util.TenantContext;

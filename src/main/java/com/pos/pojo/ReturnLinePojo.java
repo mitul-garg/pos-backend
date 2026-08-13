@@ -31,21 +31,21 @@ import org.hibernate.annotations.OnDeleteAction;
         name = "return_line",
         indexes = @Index(name = "idx_returnline_return", columnList = "return_id")
 )
-public class ReturnLine {
+public class ReturnLinePojo {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "id")
     private Long id;
 
-    /** Denormalised for the same reason as {@link OrderLine}'s. */
+    /** Denormalised for the same reason as {@link OrderLinePojo}'s. */
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(
             name = "tenant_id",
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_return_line_tenant")
     )
-    private Tenant tenant;
+    private TenantPojo tenant;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(
@@ -54,7 +54,7 @@ public class ReturnLine {
             foreignKey = @ForeignKey(name = "fk_return_line_sales_return")
     )
     @OnDelete(action = OnDeleteAction.CASCADE)
-    private SalesReturn salesReturn;
+    private SalesReturnPojo salesReturn;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(
@@ -62,7 +62,7 @@ public class ReturnLine {
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_return_line_variant")
     )
-    private Variant variant;
+    private VariantPojo variant;
 
     /** <b>Snapshot</b>. */
     @Column(name = "name", nullable = false, length = 255)
@@ -90,27 +90,27 @@ public class ReturnLine {
         this.id = id;
     }
 
-    public Tenant getTenant() {
+    public TenantPojo getTenant() {
         return tenant;
     }
 
-    public void setTenant(Tenant tenant) {
+    public void setTenant(TenantPojo tenant) {
         this.tenant = tenant;
     }
 
-    public SalesReturn getSalesReturn() {
+    public SalesReturnPojo getSalesReturn() {
         return salesReturn;
     }
 
-    public void setSalesReturn(SalesReturn salesReturn) {
+    public void setSalesReturn(SalesReturnPojo salesReturn) {
         this.salesReturn = salesReturn;
     }
 
-    public Variant getVariant() {
+    public VariantPojo getVariant() {
         return variant;
     }
 
-    public void setVariant(Variant variant) {
+    public void setVariant(VariantPojo variant) {
         this.variant = variant;
     }
 

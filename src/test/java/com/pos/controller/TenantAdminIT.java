@@ -10,12 +10,12 @@ import com.pos.config.RecaptchaConfig;
 import com.pos.config.RootConfig;
 import com.pos.config.SecurityConfig;
 import com.pos.config.WebConfig;
-import com.pos.pojo.AppUser;
-import com.pos.pojo.PosOrder;
-import com.pos.pojo.Product;
-import com.pos.pojo.Role;
-import com.pos.pojo.Tenant;
-import com.pos.pojo.TenantStatus;
+import com.pos.pojo.AppUserPojo;
+import com.pos.pojo.PosOrderPojo;
+import com.pos.pojo.ProductPojo;
+import com.pos.pojo.enums.Role;
+import com.pos.pojo.TenantPojo;
+import com.pos.pojo.enums.TenantStatus;
 import com.pos.util.TenantContext;
 import com.pos.util.TestIps;
 import jakarta.persistence.EntityManager;
@@ -96,20 +96,20 @@ class TenantAdminIT {
 
     private MockMvc mvc;
 
-    private Tenant platform;
-    private Tenant mgRoad;
-    private Tenant airport;
+    private TenantPojo platform;
+    private TenantPojo mgRoad;
+    private TenantPojo airport;
 
     @BeforeEach
     void setUp() {
         mvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
 
-        platform = tenant("Platform", Tenant.PLATFORM_CODE, true);
+        platform = tenant("Platform", TenantPojo.PLATFORM_CODE, true);
         mgRoad = tenant("MG Road Store", "mg-road", false);
         airport = tenant("Airport Store", "airport", false);
 
         user(platform, "superadmin", SUPER_HASH, Role.SUPER_ADMIN);
-        AppUser mgRoadAdmin = user(mgRoad, "admin", ADMIN_HASH, Role.ADMIN);
+        AppUserPojo mgRoadAdmin = user(mgRoad, "admin", ADMIN_HASH, Role.ADMIN);
         user(mgRoad, "cashier", CASHIER_HASH, Role.CASHIER);
         user(airport, "admin", ADMIN_HASH, Role.ADMIN);
 
@@ -211,7 +211,7 @@ class TenantAdminIT {
         }
 
         /**
-         * {@code Tenant.isPlatform()}'s own Javadoc: "excluded from GET /api/tenants and
+         * {@code TenantPojo.isPlatform()}'s own Javadoc: "excluded from GET /api/tenants and
          * cannot be suspended" — the other half of "excluded" is a direct-by-id fetch, and
          * this is the case that pins it.
          */
@@ -462,12 +462,12 @@ class TenantAdminIT {
         return "Bearer " + token;
     }
 
-    private String id(Tenant tenant) {
+    private String id(TenantPojo tenant) {
         return String.valueOf(tenant.getId());
     }
 
     private String asSuperAdmin() throws Exception {
-        return tokenFor(Tenant.PLATFORM_CODE, "superadmin", "super123");
+        return tokenFor(TenantPojo.PLATFORM_CODE, "superadmin", "super123");
     }
 
     private String asMgRoadAdmin() throws Exception {
@@ -491,8 +491,8 @@ class TenantAdminIT {
         return JsonPath.read(response, "$.token");
     }
 
-    private Tenant tenant(String name, String code, boolean platform) {
-        Tenant tenant = new Tenant();
+    private TenantPojo tenant(String name, String code, boolean platform) {
+        TenantPojo tenant = new TenantPojo();
         tenant.setName(name);
         tenant.setCode(code);
         tenant.setStatus(TenantStatus.ACTIVE);
@@ -501,8 +501,8 @@ class TenantAdminIT {
         return tenant;
     }
 
-    private AppUser user(Tenant tenant, String username, String passwordHash, Role role) {
-        AppUser user = new AppUser();
+    private AppUserPojo user(TenantPojo tenant, String username, String passwordHash, Role role) {
+        AppUserPojo user = new AppUserPojo();
         user.setTenant(tenant);
         user.setUsername(username);
         user.setPasswordHash(passwordHash);
@@ -513,8 +513,8 @@ class TenantAdminIT {
         return user;
     }
 
-    private void product(Tenant tenant, String name) {
-        Product product = new Product();
+    private void product(TenantPojo tenant, String name) {
+        ProductPojo product = new ProductPojo();
         product.setTenant(tenant);
         product.setName(name);
         product.setBrand("Amul");
@@ -524,9 +524,9 @@ class TenantAdminIT {
         em.persist(product);
     }
 
-    /** The minimum {@link PosOrder} needs, for a count fixture with no cart behind it. */
-    private void order(Tenant tenant, AppUser cashier, String orderNumber) {
-        PosOrder order = new PosOrder();
+    /** The minimum {@link PosOrderPojo} needs, for a count fixture with no cart behind it. */
+    private void order(TenantPojo tenant, AppUserPojo cashier, String orderNumber) {
+        PosOrderPojo order = new PosOrderPojo();
         order.setTenant(tenant);
         order.setCashier(cashier);
         order.setOrderNumber(orderNumber);

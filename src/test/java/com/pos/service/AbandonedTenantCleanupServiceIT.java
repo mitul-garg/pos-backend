@@ -8,10 +8,10 @@ import com.pos.config.PersistenceConfig;
 import com.pos.config.RecaptchaConfig;
 import com.pos.config.RootConfig;
 import com.pos.config.SecurityConfig;
-import com.pos.pojo.AppUser;
-import com.pos.pojo.Role;
-import com.pos.pojo.Tenant;
-import com.pos.pojo.TenantStatus;
+import com.pos.pojo.AppUserPojo;
+import com.pos.pojo.enums.Role;
+import com.pos.pojo.TenantPojo;
+import com.pos.pojo.enums.TenantStatus;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.DisplayName;
@@ -65,8 +65,8 @@ class AbandonedTenantCleanupServiceIT {
     @Test
     @DisplayName("deletes a PENDING_VERIFICATION tenant whose token expired, and its admin")
     void deletesAnExpiredAbandonedRegistration() {
-        Tenant tenant = pendingTenant("cleanup-expired", Instant.now().minus(1, ChronoUnit.HOURS));
-        AppUser admin = adminFor(tenant, "cleanup-expired-admin@example.com");
+        TenantPojo tenant = pendingTenant("cleanup-expired", Instant.now().minus(1, ChronoUnit.HOURS));
+        AppUserPojo admin = adminFor(tenant, "cleanup-expired-admin@example.com");
         em.flush();
         Long tenantId = tenant.getId();
         Long adminId = admin.getId();
@@ -84,14 +84,14 @@ class AbandonedTenantCleanupServiceIT {
         em.clear();
 
         assertEquals(1, removed);
-        assertNull(em.find(Tenant.class, tenantId), "the abandoned tenant should be gone");
-        assertNull(em.find(AppUser.class, adminId), "its admin should be gone too");
+        assertNull(em.find(TenantPojo.class, tenantId), "the abandoned tenant should be gone");
+        assertNull(em.find(AppUserPojo.class, adminId), "its admin should be gone too");
     }
 
     @Test
     @DisplayName("leaves a PENDING_VERIFICATION tenant alone while its token is still valid")
     void leavesAStillPendingRegistrationAlone() {
-        Tenant tenant = pendingTenant("cleanup-still-pending", Instant.now().plus(23, ChronoUnit.HOURS));
+        TenantPojo tenant = pendingTenant("cleanup-still-pending", Instant.now().plus(23, ChronoUnit.HOURS));
         adminFor(tenant, "cleanup-still-pending-admin@example.com");
         em.flush();
         Long tenantId = tenant.getId();
@@ -102,7 +102,7 @@ class AbandonedTenantCleanupServiceIT {
         em.clear();
 
         assertEquals(0, removed);
-        assertNotNull(em.find(Tenant.class, tenantId), "a still-valid registration must survive");
+        assertNotNull(em.find(TenantPojo.class, tenantId), "a still-valid registration must survive");
     }
 
     @Test
@@ -113,7 +113,7 @@ class AbandonedTenantCleanupServiceIT {
         // the status check itself is load-bearing, not merely a timestamp comparison
         // that happens to work only because active rows never have a stale one in
         // practice.
-        Tenant tenant = new Tenant();
+        TenantPojo tenant = new TenantPojo();
         tenant.setName("Cleanup Test: Active, Stale Timestamp");
         tenant.setCode("cleanup-active-stale");
         tenant.setStatus(TenantStatus.ACTIVE);
@@ -130,15 +130,15 @@ class AbandonedTenantCleanupServiceIT {
         em.clear();
 
         assertEquals(0, removed);
-        assertNotNull(em.find(Tenant.class, tenantId), "an ACTIVE tenant must never be swept");
+        assertNotNull(em.find(TenantPojo.class, tenantId), "an ACTIVE tenant must never be swept");
     }
 
     @Test
     @DisplayName("removes every abandoned tenant in one run, not just the first")
     void removesMultipleAbandonedTenantsInOneRun() {
-        Tenant first = pendingTenant("cleanup-batch-1", Instant.now().minus(2, ChronoUnit.HOURS));
+        TenantPojo first = pendingTenant("cleanup-batch-1", Instant.now().minus(2, ChronoUnit.HOURS));
         adminFor(first, "cleanup-batch-1-admin@example.com");
-        Tenant second = pendingTenant("cleanup-batch-2", Instant.now().minus(30, ChronoUnit.MINUTES));
+        TenantPojo second = pendingTenant("cleanup-batch-2", Instant.now().minus(30, ChronoUnit.MINUTES));
         adminFor(second, "cleanup-batch-2-admin@example.com");
         em.flush();
         Long firstId = first.getId();
@@ -150,14 +150,14 @@ class AbandonedTenantCleanupServiceIT {
         em.clear();
 
         assertEquals(2, removed);
-        assertNull(em.find(Tenant.class, firstId));
-        assertNull(em.find(Tenant.class, secondId));
+        assertNull(em.find(TenantPojo.class, firstId));
+        assertNull(em.find(TenantPojo.class, secondId));
     }
 
     // --- fixtures -----------------------------------------------------------------
 
-    private Tenant pendingTenant(String code, Instant verificationExpiresAt) {
-        Tenant tenant = new Tenant();
+    private TenantPojo pendingTenant(String code, Instant verificationExpiresAt) {
+        TenantPojo tenant = new TenantPojo();
         tenant.setName("Cleanup Test Store " + code);
         tenant.setCode(code);
         tenant.setStatus(TenantStatus.PENDING_VERIFICATION);
@@ -168,8 +168,8 @@ class AbandonedTenantCleanupServiceIT {
         return tenant;
     }
 
-    private AppUser adminFor(Tenant tenant, String email) {
-        AppUser admin = new AppUser();
+    private AppUserPojo adminFor(TenantPojo tenant, String email) {
+        AppUserPojo admin = new AppUserPojo();
         admin.setTenant(tenant);
         admin.setUsername("admin");
         admin.setPasswordHash("not-a-real-hash");

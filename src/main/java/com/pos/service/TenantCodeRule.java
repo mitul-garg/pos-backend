@@ -5,7 +5,7 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 import com.pos.dao.TenantDao;
-import com.pos.pojo.Tenant;
+import com.pos.pojo.TenantPojo;
 import com.pos.util.MaxLength;
 
 /**
@@ -13,7 +13,7 @@ import com.pos.util.MaxLength;
  * {@link TenantService#create} (the {@code SUPER_ADMIN} platform path, C8) and
  * {@link TenantRegistrationWriter#register} (the public self-registration path, C9).
  * Extracted rather than duplicated a second time: a code is either safe to claim or
- * it isn't, regardless of which of the two ways a {@code Tenant} row gets minted, and
+ * it isn't, regardless of which of the two ways a {@code TenantPojo} row gets minted, and
  * `tenant-registration-plan.md` §4 says explicitly that registration "reuses
  * {@code TenantService.create}'s validation shape" for exactly this reason.
  *
@@ -50,7 +50,7 @@ final class TenantCodeRule {
             errors.put(fieldKey, CODE_REQUIRED);
         } else if (!CODE_PATTERN.matcher(value).matches()) {
             errors.put(fieldKey, CODE_FORMAT);
-        } else if (Tenant.RESERVED_CODES.contains(value)) {
+        } else if (TenantPojo.RESERVED_CODES.contains(value)) {
             errors.put(fieldKey, "\"" + value + "\" is reserved and cannot be used as a tenant code");
         } else if (tenantDao.findByCode(value) != null) {
             errors.put(fieldKey, CODE_TAKEN);

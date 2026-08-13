@@ -1,4 +1,4 @@
-package com.pos.pojo;
+package com.pos.pojo.enums;
 
 import java.util.List;
 

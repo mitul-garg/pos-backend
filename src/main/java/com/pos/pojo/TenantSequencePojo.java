@@ -1,5 +1,6 @@
 package com.pos.pojo;
 
+import com.pos.pojo.enums.SequenceKind;
 import com.pos.util.TenantContext;
 import jakarta.persistence.Column;
 import jakarta.persistence.EmbeddedId;
@@ -39,10 +40,10 @@ import org.hibernate.annotations.Filter;
 @Entity
 @Filter(name = TenantContext.FILTER_NAME, condition = TenantContext.CONDITION)
 @Table(name = "tenant_sequence")
-public class TenantSequence {
+public class TenantSequencePojo {
 
     @EmbeddedId
-    private TenantSequenceId id;
+    private TenantSequenceIdPojo id;
 
     /**
      * {@code @MapsId} ties this association to the {@code tenantId} half of the key, so
@@ -56,35 +57,35 @@ public class TenantSequence {
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_tenant_sequence_tenant")
     )
-    private Tenant tenant;
+    private TenantPojo tenant;
 
     /** The next value to hand out — so a fresh counter starts at 1, not 0. */
     @Column(name = "next_value", nullable = false)
     @ColumnDefault("1")
     private long nextValue = 1L;
 
-    protected TenantSequence() {
+    protected TenantSequencePojo() {
         // Required by JPA.
     }
 
-    public TenantSequence(Tenant tenant, SequenceKind kind) {
+    public TenantSequencePojo(TenantPojo tenant, SequenceKind kind) {
         this.tenant = tenant;
-        this.id = new TenantSequenceId(tenant.getId(), kind);
+        this.id = new TenantSequenceIdPojo(tenant.getId(), kind);
     }
 
-    public TenantSequenceId getId() {
+    public TenantSequenceIdPojo getId() {
         return id;
     }
 
-    public void setId(TenantSequenceId id) {
+    public void setId(TenantSequenceIdPojo id) {
         this.id = id;
     }
 
-    public Tenant getTenant() {
+    public TenantPojo getTenant() {
         return tenant;
     }
 
-    public void setTenant(Tenant tenant) {
+    public void setTenant(TenantPojo tenant) {
         this.tenant = tenant;
     }
 

@@ -3,7 +3,7 @@ package com.pos.model;
 import java.math.BigDecimal;
 
 /**
- * One line of an order on the wire — requirements.md section 3's {@code OrderLine},
+ * One line of an order on the wire — requirements.md section 3's {@code OrderLinePojo},
  * unchanged from the mock's shape (C6).
  *
  * <p><b>Every field here is a snapshot</b> taken when the line was priced — {@code name}

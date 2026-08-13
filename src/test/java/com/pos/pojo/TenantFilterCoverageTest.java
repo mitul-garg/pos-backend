@@ -43,11 +43,11 @@ class TenantFilterCoverageTest {
      * {@link #appUserIsUnfilteredOnPurpose()} fails if someone "fixes" it by adding the
      * annotation, which would break every login in the application.
      */
-    private static final Class<?> UNFILTERED_BY_DESIGN = AppUser.class;
+    private static final Class<?> UNFILTERED_BY_DESIGN = AppUserPojo.class;
 
     /**
-     * Seven filtered entities as of C4: Product, Variant, PosOrder, OrderLine,
-     * SalesReturn, ReturnLine, TenantSequence.
+     * Seven filtered entities as of C4: ProductPojo, VariantPojo, PosOrderPojo, OrderLinePojo,
+     * SalesReturnPojo, ReturnLinePojo, TenantSequencePojo.
      *
      * <p>Pinned so that <b>deleting an entity</b> is as loud as forgetting to annotate a
      * new one — without it, a scan that silently matched less would still pass. Raise it
@@ -114,13 +114,13 @@ class TenantFilterCoverageTest {
                 "AppUser must stay unfiltered; see the note on the class and c4-tenancy.md");
     }
 
-    /** Every {@code @Entity} in {@code com.pos.pojo} with a {@link Tenant} association. */
+    /** Every {@code @Entity} in {@code com.pos.pojo} with a {@link TenantPojo} association. */
     private List<Class<?>> tenantOwnedEntities() {
         List<Class<?>> owned = new ArrayList<>();
 
         for (Class<?> candidate : entityClasses()) {
             for (Field field : candidate.getDeclaredFields()) {
-                if (Tenant.class.equals(field.getType())) {
+                if (TenantPojo.class.equals(field.getType())) {
                     owned.add(candidate);
                     break;
                 }

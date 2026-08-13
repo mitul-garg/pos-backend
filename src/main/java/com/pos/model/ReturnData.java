@@ -4,7 +4,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
-import com.pos.pojo.PaymentMethod;
+import com.pos.pojo.enums.PaymentMethod;
 
 /**
  * A return on the wire — requirements.md section 3's {@code Return}, field for field

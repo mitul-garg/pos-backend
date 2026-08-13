@@ -3,7 +3,7 @@ package com.pos.model;
 import java.math.BigDecimal;
 import java.util.List;
 
-import com.pos.pojo.OrderStatus;
+import com.pos.pojo.enums.OrderStatus;
 
 /**
  * Input DTO for {@code POST /api/orders} and {@code PATCH /api/orders/{id}} (C6) — one

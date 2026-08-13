@@ -1,7 +1,6 @@
 package com.pos.pojo;
 
-import java.time.Instant;
-
+import com.pos.pojo.enums.Role;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -16,6 +15,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import java.time.Instant;
 import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
@@ -50,7 +50,7 @@ import org.hibernate.type.SqlTypes;
                 @Index(name = "idx_user_email", columnList = "email")
         }
 )
-public class AppUser {
+public class AppUserPojo {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -59,7 +59,7 @@ public class AppUser {
 
     /**
      * Never null — platform users point at the reserved {@code platform} tenant rather
-     * than carrying a NULL. See {@link Tenant#isPlatform()} for why that matters.
+     * than carrying a NULL. See {@link TenantPojo#isPlatform()} for why that matters.
      */
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(
@@ -67,7 +67,7 @@ public class AppUser {
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_app_user_tenant")
     )
-    private Tenant tenant;
+    private TenantPojo tenant;
 
     @Column(name = "username", nullable = false, length = 64)
     private String username;
@@ -129,11 +129,11 @@ public class AppUser {
         this.id = id;
     }
 
-    public Tenant getTenant() {
+    public TenantPojo getTenant() {
         return tenant;
     }
 
-    public void setTenant(Tenant tenant) {
+    public void setTenant(TenantPojo tenant) {
         this.tenant = tenant;
     }
 

@@ -4,7 +4,7 @@ import java.math.BigDecimal;
 import java.util.Map;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.pos.pojo.UnitOfMeasure;
+import com.pos.pojo.enums.UnitOfMeasure;
 
 /**
  * Input DTO for {@code POST /api/products/{productId}/variants} and

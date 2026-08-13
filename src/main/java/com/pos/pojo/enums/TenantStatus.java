@@ -1,4 +1,4 @@
-package com.pos.pojo;
+package com.pos.pojo.enums;
 
 /**
  * Tenant lifecycle (requirements.md section 13). A {@code SUSPENDED} tenant cannot log

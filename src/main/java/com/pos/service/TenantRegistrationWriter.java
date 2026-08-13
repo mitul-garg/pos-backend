@@ -11,10 +11,10 @@ import com.pos.dao.AppUserDao;
 import com.pos.dao.TenantDao;
 import com.pos.exception.ValidationException;
 import com.pos.model.TenantRegistrationForm;
-import com.pos.pojo.AppUser;
-import com.pos.pojo.Role;
-import com.pos.pojo.Tenant;
-import com.pos.pojo.TenantStatus;
+import com.pos.pojo.AppUserPojo;
+import com.pos.pojo.enums.Role;
+import com.pos.pojo.TenantPojo;
+import com.pos.pojo.enums.TenantStatus;
 import com.pos.util.EmailFormat;
 import com.pos.util.MaxLength;
 import com.pos.util.VerificationTokens;
@@ -47,7 +47,7 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>Returns a small handoff record ({@link RegisteredTenant}), not the JPA entities
  * themselves — the persistence context this method's transaction owns closes the
- * moment it returns, and {@code AppUser.tenant} is {@code LAZY} (CONVENTIONS.md), so
+ * moment it returns, and {@code AppUserPojo.tenant} is {@code LAZY} (CONVENTIONS.md), so
  * handing back an entity would invite exactly the post-transaction lazy access the
  * "entities never leave the service layer" rule exists to avoid, one layer removed.
  *
@@ -158,7 +158,7 @@ public class TenantRegistrationWriter {
             throw ValidationException.field("adminEmail", TOO_MANY_TENANTS_FOR_EMAIL);
         }
 
-        Tenant tenant = new Tenant();
+        TenantPojo tenant = new TenantPojo();
         tenant.setName(storeName);
         tenant.setCode(tenantCode);
         tenant.setStatus(TenantStatus.PENDING_VERIFICATION);
@@ -166,7 +166,7 @@ public class TenantRegistrationWriter {
         String token = mintToken(tenant);
         tenantDao.insert(tenant);
 
-        AppUser admin = new AppUser();
+        AppUserPojo admin = new AppUserPojo();
         admin.setTenant(tenant);
         admin.setUsername(adminUsername);
         admin.setPasswordHash(passwordEncoder.encode(form.getAdminPassword()));
@@ -195,11 +195,11 @@ public class TenantRegistrationWriter {
         String code = tenantCode == null ? "" : tenantCode.trim().toLowerCase(Locale.ROOT);
         String email = adminEmail == null ? "" : adminEmail.trim().toLowerCase(Locale.ROOT);
 
-        Tenant tenant = tenantDao.findByCode(code);
+        TenantPojo tenant = tenantDao.findByCode(code);
         if (tenant == null || tenant.getStatus() != TenantStatus.PENDING_VERIFICATION) {
             return null;
         }
-        AppUser admin = appUserDao.findByTenantAndEmail(tenant.getId(), email);
+        AppUserPojo admin = appUserDao.findByTenantAndEmail(tenant.getId(), email);
         if (admin == null) {
             return null;
         }
@@ -208,7 +208,7 @@ public class TenantRegistrationWriter {
         return new RegisteredTenant(tenant.getName(), tenant.getCode(), admin.getEmail(), token);
     }
 
-    private String mintToken(Tenant tenant) {
+    private String mintToken(TenantPojo tenant) {
         String token = VerificationTokens.generate();
         tenant.setVerificationToken(token);
         tenant.setVerificationExpiresAt(Instant.now().plus(TOKEN_TTL_HOURS, ChronoUnit.HOURS));

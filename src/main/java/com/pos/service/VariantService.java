@@ -15,11 +15,11 @@ import com.pos.exception.ValidationException;
 import com.pos.model.ProductRefData;
 import com.pos.model.VariantData;
 import com.pos.model.VariantForm;
-import com.pos.pojo.Product;
-import com.pos.pojo.SequenceKind;
-import com.pos.pojo.Tenant;
-import com.pos.pojo.UnitOfMeasure;
-import com.pos.pojo.Variant;
+import com.pos.pojo.ProductPojo;
+import com.pos.pojo.enums.SequenceKind;
+import com.pos.pojo.TenantPojo;
+import com.pos.pojo.enums.UnitOfMeasure;
+import com.pos.pojo.VariantPojo;
 import com.pos.util.MaxLength;
 import com.pos.util.QrCodes;
 import com.pos.util.TenantContext;
@@ -125,7 +125,7 @@ public class VariantService {
         TenantContext.requireTenant();
 
         String code = qrCode == null ? "" : qrCode.trim();
-        Variant variant = code.isEmpty() ? null : variantDao.findByQrCode(code);
+        VariantPojo variant = code.isEmpty() ? null : variantDao.findByQrCode(code);
         if (variant == null) {
             throw new NotFoundException(NOT_FOUND);
         }
@@ -173,7 +173,7 @@ public class VariantService {
     public VariantData create(Long productId, VariantForm form) {
         TenantContext.requireTenant();
 
-        Product product = productDao.find(productId);
+        ProductPojo product = productDao.find(productId);
         if (product == null) {
             // The parent's message, not this service's: from the caller's side what was
             // not found is the product they addressed.
@@ -187,10 +187,10 @@ public class VariantService {
         String variantLabel = trimToEmpty(form.getVariantLabel());
         validate(mrp, sellingPrice, stockQuantity, sku, null, variantLabel);
 
-        Tenant tenant = product.getTenant();
+        TenantPojo tenant = product.getTenant();
         long sequence = tenantSequenceDao.next(SequenceKind.QR, tenant);
 
-        Variant variant = new Variant();
+        VariantPojo variant = new VariantPojo();
         variant.setTenant(tenant);
         variant.setProduct(product);
         variant.setVariantLabel(variantLabel);
@@ -236,7 +236,7 @@ public class VariantService {
     public VariantData update(Long id, VariantForm form) {
         TenantContext.requireTenant();
 
-        Variant variant = variantDao.find(id);
+        VariantPojo variant = variantDao.find(id);
         if (variant == null) {
             throw new NotFoundException(NOT_FOUND);
         }
@@ -287,7 +287,7 @@ public class VariantService {
     public VariantData deactivate(Long id) {
         TenantContext.requireTenant();
 
-        Variant variant = variantDao.find(id);
+        VariantPojo variant = variantDao.find(id);
         if (variant == null) {
             throw new NotFoundException(NOT_FOUND);
         }
@@ -310,11 +310,11 @@ public class VariantService {
     public VariantData regenerateQrCode(Long id) {
         TenantContext.requireTenant();
 
-        Variant variant = variantDao.find(id);
+        VariantPojo variant = variantDao.find(id);
         if (variant == null) {
             throw new NotFoundException(NOT_FOUND);
         }
-        Tenant tenant = variant.getTenant();
+        TenantPojo tenant = variant.getTenant();
         long sequence = tenantSequenceDao.next(SequenceKind.QR, tenant);
         variant.setQrCode(QrCodes.payload(tenant.getId(), sequence));
         return toData(variant);
@@ -381,8 +381,8 @@ public class VariantService {
      * character for character — it ends up on receipts and label prints, so "close enough"
      * would show up in print.
      */
-    private VariantData toData(Variant variant) {
-        Product product = variant.getProduct();
+    private VariantData toData(VariantPojo variant) {
+        ProductPojo product = variant.getProduct();
         return new VariantData(
                 variant.getId(),
                 variant.getTenant().getId(),

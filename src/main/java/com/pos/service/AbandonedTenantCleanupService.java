@@ -5,7 +5,7 @@ import java.util.List;
 
 import com.pos.dao.AppUserDao;
 import com.pos.dao.TenantDao;
-import com.pos.pojo.Tenant;
+import com.pos.pojo.TenantPojo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -57,8 +57,8 @@ public class AbandonedTenantCleanupService {
      */
     @Transactional
     public int cleanUp() {
-        List<Tenant> abandoned = tenantDao.findAbandonedPendingVerification(Instant.now());
-        for (Tenant tenant : abandoned) {
+        List<TenantPojo> abandoned = tenantDao.findAbandonedPendingVerification(Instant.now());
+        for (TenantPojo tenant : abandoned) {
             appUserDao.deleteByTenant(tenant.getId());
             tenantDao.delete(tenant);
         }

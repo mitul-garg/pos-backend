@@ -10,11 +10,11 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import com.jayway.jsonpath.JsonPath;
-import com.pos.pojo.AppUser;
-import com.pos.pojo.Product;
-import com.pos.pojo.Role;
-import com.pos.pojo.Tenant;
-import com.pos.pojo.TenantStatus;
+import com.pos.pojo.AppUserPojo;
+import com.pos.pojo.ProductPojo;
+import com.pos.pojo.enums.Role;
+import com.pos.pojo.TenantPojo;
+import com.pos.pojo.enums.TenantStatus;
 import com.pos.util.TenantContext;
 import com.pos.util.TestIps;
 import jakarta.persistence.EntityManager;
@@ -127,9 +127,9 @@ class TenantThreadLocalIT {
         transactions = new TransactionTemplate(transactionManager);
 
         Long[] ids = transactions.execute(status -> {
-            Tenant platform = platformTenant();
-            Tenant mgRoad = tenant("MG Road Store", "mg-road");
-            Tenant airport = tenant("Airport Store", "airport");
+            TenantPojo platform = platformTenant();
+            TenantPojo mgRoad = tenant("MG Road Store", "mg-road");
+            TenantPojo airport = tenant("Airport Store", "airport");
 
             user(platform, "superadmin", "super123", Role.SUPER_ADMIN);
             user(mgRoad, "cashier", "cashier123", Role.CASHIER);
@@ -270,8 +270,8 @@ class TenantThreadLocalIT {
         return JsonPath.read(response, "$.token");
     }
 
-    private Tenant tenant(String name, String code) {
-        Tenant tenant = new Tenant();
+    private TenantPojo tenant(String name, String code) {
+        TenantPojo tenant = new TenantPojo();
         tenant.setName(name);
         tenant.setCode(code);
         tenant.setStatus(TenantStatus.ACTIVE);
@@ -281,14 +281,14 @@ class TenantThreadLocalIT {
     }
 
     /** The reserved row a SUPER_ADMIN belongs to; it reports no tenant on the wire. */
-    private Tenant platformTenant() {
-        Tenant tenant = tenant("Platform", Tenant.PLATFORM_CODE);
+    private TenantPojo platformTenant() {
+        TenantPojo tenant = tenant("Platform", TenantPojo.PLATFORM_CODE);
         tenant.setPlatform(true);
         return tenant;
     }
 
-    private void user(Tenant tenant, String username, String password, Role role) {
-        AppUser user = new AppUser();
+    private void user(TenantPojo tenant, String username, String password, Role role) {
+        AppUserPojo user = new AppUserPojo();
         user.setTenant(tenant);
         user.setUsername(username);
         user.setPasswordHash(HASHER.encode(password));
@@ -298,8 +298,8 @@ class TenantThreadLocalIT {
         em.persist(user);
     }
 
-    private void product(Tenant tenant, String name) {
-        Product product = new Product();
+    private void product(TenantPojo tenant, String name) {
+        ProductPojo product = new ProductPojo();
         product.setTenant(tenant);
         product.setName(name);
         product.setBrand("Test");

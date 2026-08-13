@@ -2,7 +2,7 @@ package com.pos.model;
 
 import java.math.BigDecimal;
 
-import com.pos.pojo.PaymentMethod;
+import com.pos.pojo.enums.PaymentMethod;
 
 /**
  * Input DTO for {@code POST /api/orders/{id}/payments} (C6) — requirements.md section 3's

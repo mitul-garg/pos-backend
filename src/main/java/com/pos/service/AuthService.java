@@ -11,9 +11,9 @@ import com.pos.exception.TooManyRequestsException;
 import com.pos.model.LoginData;
 import com.pos.model.LoginForm;
 import com.pos.model.SessionUserData;
-import com.pos.pojo.AppUser;
-import com.pos.pojo.Tenant;
-import com.pos.pojo.TenantStatus;
+import com.pos.pojo.AppUserPojo;
+import com.pos.pojo.TenantPojo;
+import com.pos.pojo.enums.TenantStatus;
 import com.pos.util.JwtPrincipal;
 import com.pos.util.JwtTokenService;
 import com.pos.util.LoginAttemptGuard;
@@ -128,11 +128,11 @@ public class AuthService {
         // until the password is proved, so its status is checked further down, not now.
         // A blank or unknown code resolves nothing and falls through to the 401 below;
         // it is NOT a platform login.
-        Tenant tenant = Tenant.PLATFORM_CODE.equals(code)
+        TenantPojo tenant = TenantPojo.PLATFORM_CODE.equals(code)
                 ? tenantDao.findPlatform()
                 : tenantDao.findByCode(code);
 
-        AppUser user = tenant == null
+        AppUserPojo user = tenant == null
                 ? null
                 : appUserDao.findByTenantAndUsername(tenant.getId(), username);
 
@@ -175,7 +175,7 @@ public class AuthService {
     public SessionUserData resolveSession(String token) {
         JwtPrincipal principal = jwtTokenService.parse(token);
 
-        AppUser user = appUserDao.findWithTenant(principal.userId());
+        AppUserPojo user = appUserDao.findWithTenant(principal.userId());
         if (user == null) {
             // Deleted rather than deactivated. Users are soft-deleted, so this is mostly
             // a token for a database that has since been recreated -- exactly what a
@@ -220,11 +220,11 @@ public class AuthService {
      * The three 403s. All are specific, and all are safe only where this is called —
      * after the password, or behind a token that proves one was given.
      */
-    private void requireUsable(AppUser user) {
+    private void requireUsable(AppUserPojo user) {
         if (!user.isActive()) {
             throw new ForbiddenException(DEACTIVATED_MESSAGE);
         }
-        Tenant tenant = user.getTenant();
+        TenantPojo tenant = user.getTenant();
         // The reserved platform row has no lifecycle: it cannot be suspended (C8) or
         // self-registered (C9), and asking about its status would be asking about a
         // row that is infrastructure.
@@ -244,13 +244,13 @@ public class AuthService {
     }
 
     /** Null for a platform user: the reserved row is storage, not a tenant on the wire. */
-    private Long tenantIdOf(AppUser user) {
-        Tenant tenant = user.getTenant();
+    private Long tenantIdOf(AppUserPojo user) {
+        TenantPojo tenant = user.getTenant();
         return tenant.isPlatform() ? null : tenant.getId();
     }
 
-    private SessionUserData sessionUserOf(AppUser user) {
-        Tenant tenant = user.getTenant();
+    private SessionUserData sessionUserOf(AppUserPojo user) {
+        TenantPojo tenant = user.getTenant();
         boolean platform = tenant.isPlatform();
         return new SessionUserData(
                 user.getId(),

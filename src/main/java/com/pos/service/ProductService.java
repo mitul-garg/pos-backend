@@ -14,7 +14,7 @@ import com.pos.exception.ValidationException;
 import com.pos.model.PageData;
 import com.pos.model.ProductData;
 import com.pos.model.ProductForm;
-import com.pos.pojo.Product;
+import com.pos.pojo.ProductPojo;
 import com.pos.util.MaxLength;
 import com.pos.util.TenantContext;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -122,7 +122,7 @@ public class ProductService {
     public ProductData get(Long id) {
         TenantContext.requireTenant();
 
-        Product product = productDao.find(id);
+        ProductPojo product = productDao.find(id);
         if (product == null) {
             throw new NotFoundException(NOT_FOUND);
         }
@@ -156,7 +156,7 @@ public class ProductService {
         String hsnCode = trimToEmpty(form.getHsnCode());
         validate(name, taxRatePercent, brand, category, description, hsnCode);
 
-        Product product = new Product();
+        ProductPojo product = new ProductPojo();
         product.setTenant(tenantDao.reference(authService.currentSession().getTenantId()));
         product.setName(name);
         product.setBrand(brand);
@@ -201,7 +201,7 @@ public class ProductService {
     public ProductData update(Long id, ProductForm form) {
         TenantContext.requireTenant();
 
-        Product product = productDao.find(id);
+        ProductPojo product = productDao.find(id);
         if (product == null) {
             throw new NotFoundException(NOT_FOUND);
         }
@@ -244,7 +244,7 @@ public class ProductService {
     public ProductData deactivate(Long id) {
         TenantContext.requireTenant();
 
-        Product product = productDao.find(id);
+        ProductPojo product = productDao.find(id);
         if (product == null) {
             throw new NotFoundException(NOT_FOUND);
         }
@@ -291,7 +291,7 @@ public class ProductService {
      * {@code LazyInitializationException}. Only the id is read, which Hibernate answers
      * from the proxy without a second statement.
      */
-    private ProductData toData(Product product) {
+    private ProductData toData(ProductPojo product) {
         return new ProductData(
                 product.getId(),
                 product.getTenant().getId(),

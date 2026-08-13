@@ -99,7 +99,7 @@ class TenantRegistrationCommitOrderingIT {
                 + "the failing send is caught and logged, never rethrown");
 
         Boolean committed = transactions.execute(status -> em.createQuery(
-                        "SELECT COUNT(t) FROM Tenant t WHERE t.code = :code", Long.class)
+                        "SELECT COUNT(t) FROM TenantPojo t WHERE t.code = :code", Long.class)
                 .setParameter("code", code)
                 .getSingleResult() == 1L);
         assertTrue(Boolean.TRUE.equals(committed),

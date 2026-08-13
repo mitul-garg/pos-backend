@@ -1,8 +1,6 @@
 package com.pos.pojo;
 
-import java.math.BigDecimal;
-import java.util.Map;
-
+import com.pos.pojo.enums.UnitOfMeasure;
 import com.pos.util.TenantContext;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -18,6 +16,8 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import java.math.BigDecimal;
+import java.util.Map;
 import org.hibernate.annotations.Check;
 import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.Filter;
@@ -59,7 +59,7 @@ import org.hibernate.type.SqlTypes;
 // validation is NOT redundant.
 @Check(name = "ck_variant_price_within_mrp", constraints = "selling_price <= mrp")
 @Check(name = "ck_variant_stock_not_negative", constraints = "stock_quantity >= 0")
-public class Variant {
+public class VariantPojo {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -72,7 +72,7 @@ public class Variant {
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_variant_tenant")
     )
-    private Tenant tenant;
+    private TenantPojo tenant;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(
@@ -80,7 +80,7 @@ public class Variant {
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_variant_product")
     )
-    private Product product;
+    private ProductPojo product;
 
     /** Human label — "500 ml", "Large / Red". */
     @Column(name = "variant_label", nullable = false, length = 120)
@@ -141,19 +141,19 @@ public class Variant {
         this.id = id;
     }
 
-    public Tenant getTenant() {
+    public TenantPojo getTenant() {
         return tenant;
     }
 
-    public void setTenant(Tenant tenant) {
+    public void setTenant(TenantPojo tenant) {
         this.tenant = tenant;
     }
 
-    public Product getProduct() {
+    public ProductPojo getProduct() {
         return product;
     }
 
-    public void setProduct(Product product) {
+    public void setProduct(ProductPojo product) {
         this.product = product;
     }
 

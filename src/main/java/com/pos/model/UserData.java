@@ -3,7 +3,7 @@ package com.pos.model;
 import java.time.Instant;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.pos.pojo.Role;
+import com.pos.pojo.enums.Role;
 
 /**
  * A user on the wire — requirements.md section 3, field for field with the frontend's
@@ -12,7 +12,7 @@ import com.pos.pojo.Role;
  * <p><b>There is no password field and there must never be one.</b> Unlike the mock's
  * {@code sanitize()}, which strips {@code password} from an object that briefly carried
  * it, this shape never had one to begin with — {@code UserService} builds it from
- * {@link com.pos.pojo.AppUser} fields one at a time and simply never reads
+ * {@link com.pos.pojo.AppUserPojo} fields one at a time and simply never reads
  * {@code passwordHash}. That is the reason CONVENTIONS.md gives for DTOs over entities in
  * the first place: every "we accidentally returned the password hash" incident starts
  * with serializing the entity instead.

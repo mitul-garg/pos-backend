@@ -5,7 +5,7 @@
  *
  * <p>Populated in C2. C4 declared the tenant filter below and applied it, as
  * {@code @Filter}, to every entity that carries a {@code tenant_id} — all of them
- * except {@link com.pos.pojo.AppUser}, which authentication has to read before there
+ * except {@link com.pos.pojo.AppUserPojo}, which authentication has to read before there
  * is a tenant to scope by.
  */
 @FilterDef(
@@ -18,7 +18,7 @@
         autoEnabled = true,
 
         // Closes the classic trap with Hibernate filters: by default they apply to
-        // queries but NOT to em.find(). Without this a DAO doing find(Product.class, id)
+        // queries but NOT to em.find(). Without this a DAO doing find(ProductPojo.class, id)
         // returns another tenant's row quite happily -- which is precisely the case C4
         // is "done when" it prevents. C8 will disable the filter by name for the
         // platform surface; nothing else may.

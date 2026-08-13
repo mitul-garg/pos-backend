@@ -7,10 +7,10 @@ import com.pos.config.PersistenceConfig;
 import com.pos.config.RecaptchaConfig;
 import com.pos.config.RootConfig;
 import com.pos.config.SecurityConfig;
-import com.pos.pojo.AppUser;
-import com.pos.pojo.Role;
-import com.pos.pojo.Tenant;
-import com.pos.pojo.TenantStatus;
+import com.pos.pojo.AppUserPojo;
+import com.pos.pojo.enums.Role;
+import com.pos.pojo.TenantPojo;
+import com.pos.pojo.enums.TenantStatus;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.DisplayName;
@@ -85,8 +85,8 @@ class DevSeederIT {
         // Not a quirk of the fixtures -- the reason login takes a tenant code at all, and
         // the fixture the isolation suite is built on. A schema that rejected this would
         // have a global unique key where uk_user_tenant_username belongs.
-        List<AppUser> admins = em.createQuery(
-                        "SELECT u FROM AppUser u WHERE u.username = 'admin'", AppUser.class)
+        List<AppUserPojo> admins = em.createQuery(
+                        "SELECT u FROM AppUserPojo u WHERE u.username = 'admin'", AppUserPojo.class)
                 .getResultList();
 
         assertEquals(2, admins.size(), "both stores should have an `admin`");
@@ -98,7 +98,7 @@ class DevSeederIT {
     void hashesEveryPassword() {
         // backend-plan.md section 1, deferred obligation 4. The mock stores plaintext;
         // this is where that stops.
-        for (AppUser user : allUsers()) {
+        for (AppUserPojo user : allUsers()) {
             String hash = user.getPasswordHash();
             assertTrue(hash.startsWith("$2a$") || hash.startsWith("$2b$") || hash.startsWith("$2y$"),
                     () -> user.getUsername() + " has a password that is not a BCrypt hash: " + hash);
@@ -146,7 +146,7 @@ class DevSeederIT {
     @Test
     @DisplayName("leaves an existing tenant's status alone, so a suspension survives a restart")
     void doesNotResurrectASuspendedTenant() {
-        Tenant airport = tenant("airport");
+        TenantPojo airport = tenant("airport");
         airport.setStatus(TenantStatus.SUSPENDED);
         em.flush();
 
@@ -165,15 +165,15 @@ class DevSeederIT {
         // is really asserting that the platform user points at the reserved row rather
         // than at nothing -- the decision that lets uk_user_tenant_username constrain
         // platform usernames at all (MySQL treats NULLs as distinct).
-        for (AppUser user : allUsers()) {
+        for (AppUserPojo user : allUsers()) {
             assertNotNull(user.getTenant(), () -> user.getUsername() + " has no tenant");
         }
     }
 
     // --- helpers -----------------------------------------------------------------
 
-    private Tenant tenant(String code) {
-        Tenant tenant = em.createQuery("SELECT t FROM Tenant t WHERE t.code = :code", Tenant.class)
+    private TenantPojo tenant(String code) {
+        TenantPojo tenant = em.createQuery("SELECT t FROM TenantPojo t WHERE t.code = :code", TenantPojo.class)
                 .setParameter("code", code)
                 .getResultStream()
                 .findFirst()
@@ -182,10 +182,10 @@ class DevSeederIT {
         return tenant;
     }
 
-    private AppUser user(String tenantCode, String username) {
-        AppUser user = em.createQuery(
-                        "SELECT u FROM AppUser u WHERE u.tenant.code = :code "
-                                + "AND u.username = :username", AppUser.class)
+    private AppUserPojo user(String tenantCode, String username) {
+        AppUserPojo user = em.createQuery(
+                        "SELECT u FROM AppUserPojo u WHERE u.tenant.code = :code "
+                                + "AND u.username = :username", AppUserPojo.class)
                 .setParameter("code", tenantCode)
                 .setParameter("username", username)
                 .getResultStream()
@@ -195,11 +195,11 @@ class DevSeederIT {
         return user;
     }
 
-    private List<AppUser> allUsers() {
-        return em.createQuery("SELECT u FROM AppUser u", AppUser.class).getResultList();
+    private List<AppUserPojo> allUsers() {
+        return em.createQuery("SELECT u FROM AppUserPojo u", AppUserPojo.class).getResultList();
     }
 
     private long userCount() {
-        return em.createQuery("SELECT count(u) FROM AppUser u", Long.class).getSingleResult();
+        return em.createQuery("SELECT count(u) FROM AppUserPojo u", Long.class).getSingleResult();
     }
 }

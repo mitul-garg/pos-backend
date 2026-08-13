@@ -2,7 +2,7 @@ package com.pos.model;
 
 import java.util.List;
 
-import com.pos.pojo.PaymentMethod;
+import com.pos.pojo.enums.PaymentMethod;
 
 /**
  * Input DTO for {@code POST /api/returns} (C7) — requirements.md section 9.

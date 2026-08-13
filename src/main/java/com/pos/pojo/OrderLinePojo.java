@@ -36,7 +36,7 @@ import org.hibernate.annotations.OnDeleteAction;
 )
 // A zero-quantity line is meaningless -- removing the line is how you reach zero.
 @Check(name = "ck_order_line_quantity_positive", constraints = "quantity > 0")
-public class OrderLine {
+public class OrderLinePojo {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -55,7 +55,7 @@ public class OrderLine {
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_order_line_tenant")
     )
-    private Tenant tenant;
+    private TenantPojo tenant;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(
@@ -63,10 +63,10 @@ public class OrderLine {
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_order_line_pos_order")
     )
-    // Lines die with their order. The JPA cascade on PosOrder handles the ORM side;
+    // Lines die with their order. The JPA cascade on PosOrderPojo handles the ORM side;
     // this puts ON DELETE CASCADE in the DDL so the database enforces it too.
     @OnDelete(action = OnDeleteAction.CASCADE)
-    private PosOrder order;
+    private PosOrderPojo order;
 
     /** What was sold. */
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
@@ -75,7 +75,7 @@ public class OrderLine {
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_order_line_variant")
     )
-    private Variant variant;
+    private VariantPojo variant;
 
     /** <b>Snapshot</b> — product name plus variant label, as they read at sale time. */
     @Column(name = "name", nullable = false, length = 255)
@@ -111,27 +111,27 @@ public class OrderLine {
         this.id = id;
     }
 
-    public Tenant getTenant() {
+    public TenantPojo getTenant() {
         return tenant;
     }
 
-    public void setTenant(Tenant tenant) {
+    public void setTenant(TenantPojo tenant) {
         this.tenant = tenant;
     }
 
-    public PosOrder getOrder() {
+    public PosOrderPojo getOrder() {
         return order;
     }
 
-    public void setOrder(PosOrder order) {
+    public void setOrder(PosOrderPojo order) {
         this.order = order;
     }
 
-    public Variant getVariant() {
+    public VariantPojo getVariant() {
         return variant;
     }
 
-    public void setVariant(Variant variant) {
+    public void setVariant(VariantPojo variant) {
         this.variant = variant;
     }
 
