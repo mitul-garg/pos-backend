@@ -54,7 +54,7 @@ composite key work. See [README.md](./README.md).
 Every `tenant_id` is indexed, because **every query the application makes is
 filtered on it** — the Hibernate `tenantFilter` appends `tenant_id = :tenantId` to
 literally everything. An unindexed discriminator would mean a full scan per request.
-`idx_user_email` below is the one exception: `AppUser` is already the one entity C4
+`idx_user_email` below is the one exception: `AppUserPojo` is already the one entity C4
 never filters (see its class Javadoc), and the query it serves runs at
 self-registration, before any tenant exists to filter by.
 
@@ -227,7 +227,7 @@ It also asserts two things beyond the list:
   additionally depend on the server version.
 
 Mutation-checked when written, per `CONVENTIONS.md`, rather than trusted for
-passing: removing `uk_variant_tenant_sku` from `Variant` failed exactly the
+passing: removing `uk_variant_tenant_sku` from `VariantPojo` failed exactly the
 covering case and nothing else.
 
 It's a small test guarding a silent failure: without those keys, isolation still

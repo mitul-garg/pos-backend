@@ -19,9 +19,9 @@ or grepping the source tree for "how do we usually do X".
 > [c9-tenant-registration.md](./c9-tenant-registration.md).
 > **Scoping is now enforced rather than intended**: a query written against a
 > tenant-owned entity is scoped whether or not its author thought about tenancy —
-> except `AppUser`, the one entity C8 has to scope by hand for a documented reason
-> (`c4-tenancy.md`, `c8-users-tenants.md`). C9 touches neither `Tenant` nor
-> `AppUser`'s filter status; see `c9-tenant-registration.md`'s "Tenant scoping".
+> except `AppUserPojo`, the one entity C8 has to scope by hand for a documented reason
+> (`c4-tenancy.md`, `c8-users-tenants.md`). C9 touches neither `TenantPojo` nor
+> `AppUserPojo`'s filter status; see `c9-tenant-registration.md`'s "Tenant scoping".
 > As each C-step lands, replace intent with what was actually built and link the
 > class that establishes it; an unsubstantiated convention is worse than none.
 
@@ -366,7 +366,7 @@ Rules for this package:
 - **Two DAOs are permanently outside scoping, and only two.** `TenantDao`, because
   `tenant` carries no `tenant_id` — it *is* the discriminator; and `AppUserDao`,
   because authentication establishes which tenant a caller is in and so cannot be
-  scoped by its own answer. `AppUser` is correspondingly the one entity with a
+  scoped by its own answer. `AppUserPojo` is correspondingly the one entity with a
   `tenant_id` and no `@Filter`; filtered, every login would be evaluated against
   `NO_TENANT` and fail. Every DAO from C5 onwards takes the tenant from the filter
   and names it in no signature. The exception has a reason; it is not a
@@ -547,7 +547,7 @@ Rules for this package:
 - **A green isolation case does not prove the entity it exercises is filtered**
   (C5). A query that joins a filtered parent — `JOIN FETCH v.product` — is scoped
   through the join whether or not the child carries `@Filter`. Dropping it from
-  `Variant` left the scan, the search and the by-product list green; what reddened
+  `VariantPojo` left the scan, the search and the by-product list green; what reddened
   was the two paths joining no product, `em.find` and a `count` over the child
   alone. **`TenantFilterCoverageTest` is what actually holds that line**, and an
   aggregate over one entity is the shape with nothing else behind it.
@@ -584,3 +584,17 @@ Rules for this package:
   are a separate constant, mirroring the frontend's `TENANT_ROLES`. **A tenant
   admin must never be able to mint a `SUPER_ADMIN`** — that exact hole appeared in
   the frontend when the role was added to the shared list (BUGS.md, Phase 8/B4).
+- **`com.pos.pojo` classes carry an explicit `Pojo` suffix** (`AppUserPojo`,
+  `ProductPojo`, ...), decided peer-review Phase 2. Mirrors `Form`/`Data` on DTOs —
+  every class that crosses a layer boundary in this codebase names the shape it is,
+  and a bare `AppUserPojo` sitting next to `AppUserDao`/`UserService`/`UserData` was the
+  one place that convention was implicit rather than explicit. Applies to every
+  `@Entity` and the one `@Embeddable` (`TenantSequenceIdPojo`) — not to the enums
+  `pojo` also holds (`OrderStatus`, `Role`, etc.), which are value types rather than
+  persisted shapes, the same way DTOs don't suffix the enums they carry either.
+- **`com.pos.util` classes carry no forced suffix**, decided the same session,
+  deliberately. A `Util`/`Helper` suffix is exactly the vague catch-all naming this
+  codebase already rejects for services (see "No `ServiceImpl` unless there are two
+  implementations" above) — `Pricing`, `QrCodes`, `JwtTokenService`,
+  `LoginAttemptGuard` name what they do, and a class whose name doesn't say that on
+  its own is a sign it's poorly scoped, not that it's missing a suffix.

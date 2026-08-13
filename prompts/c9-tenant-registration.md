@@ -259,8 +259,8 @@ there's no per-environment secret to manage on that side.
 
 ## Tenant scoping
 
-- **Registration touches no tenant-scoped, `@Filter`ed entity.** `Tenant` and
-  `AppUser` are the two permanently-unfiltered entities (C4, C8) for reasons that
+- **Registration touches no tenant-scoped, `@Filter`ed entity.** `TenantPojo` and
+  `AppUserPojo` are the two permanently-unfiltered entities (C4, C8) for reasons that
   predate this feature; `TenantRegistrationWriter`/`Service` read/write only those
   two, so nothing here needed a new scoping decision.
 - **No new `@PlatformOperation`.** Unlike C8's platform surface, self-registration
@@ -346,7 +346,7 @@ Automated coverage added once each manual pass held:
 - `../BUGS.md` #18 — the `tenant.status` length bug this step found and fixed.
 - [c8-users-tenants.md](./c8-users-tenants.md) — the platform surface this sits
   beside; `TenantCodeRule`'s extraction touches `TenantService.create` directly.
-- [c4-tenancy.md](./c4-tenancy.md) — why `Tenant`/`AppUser` carry no `@Filter`, which
+- [c4-tenancy.md](./c4-tenancy.md) — why `TenantPojo`/`AppUserPojo` carry no `@Filter`, which
   is why this step needed no new scoping decision of its own.
 - [CONVENTIONS.md](./CONVENTIONS.md) — "Transactions" (the propagation/proxy
   reasoning `TenantRegistrationWriter`'s split relies on), "Testing" (mutation

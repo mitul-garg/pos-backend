@@ -14,7 +14,7 @@ the *what*.
   `JpaTransactionManager`, Hibernate settings. A **root**-context config.
 - `com.pos.config.AppProperties` — typed access to `application.properties`, so nothing
   outside `config/` reads raw configuration.
-- `com.pos.pojo.*` — nine entities and six enums. `Tenant` is the boundary; everything
+- `com.pos.pojo.*` — nine entities and six enums. `TenantPojo` is the boundary; everything
   else hangs off it.
 - `com.pos.model.JsonId` — the Jackson meta-annotation that makes an id serialize as a
   string.
@@ -133,7 +133,7 @@ before the filter exists.
 | `JsonIdTest` | no | Ids serialize as strings, non-ids don't, nulls stay null, and no `com.pos.model` id field is missing `@JsonId` |
 
 `SchemaConstraintsIT` was **mutation-checked**, not merely observed to pass: removing
-`uk_variant_tenant_sku` from `Variant` failed exactly the covering case and nothing else,
+`uk_variant_tenant_sku` from `VariantPojo` failed exactly the covering case and nothing else,
 and renaming `return_line`'s table failed only `createsEveryTable`.
 
 `createsEveryTable` exists to separate two failures the constraint assertions otherwise

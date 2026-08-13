@@ -37,7 +37,7 @@ So "two variants of the same product with different MRPs" is not an edge case to
 
 Keep these as the single source of truth for mock data and the service layer. Field names should match what the backend API will return (Section 9).
 
-> **Multi-tenancy (see Section 13):** the app is **multi-tenant, flat** — a **Tenant is a single store**. **Every record below except `Tenant` itself and platform (`SUPER_ADMIN`) users carries a `tenantId`**, and all uniqueness constraints are **scoped per tenant** (`(tenantId, username)`, `(tenantId, sku)`, `(tenantId, qrCode)`), never global. `tenantId` is set server-side from the caller's session, never accepted from the client. It's listed once here rather than repeated on every field bullet.
+> **Multi-tenancy (see Section 13):** the app is **multi-tenant, flat** — a **Tenant is a single store**. **Every record below except `TenantPojo` itself and platform (`SUPER_ADMIN`) users carries a `tenantId`**, and all uniqueness constraints are **scoped per tenant** (`(tenantId, username)`, `(tenantId, sku)`, `(tenantId, qrCode)`), never global. `tenantId` is set server-side from the caller's session, never accepted from the client. It's listed once here rather than repeated on every field bullet.
 
 **Tenant** (a store / merchant — the tenant boundary)
 
@@ -409,7 +409,7 @@ A **Tenant is a single store** (a merchant/shop). There is **no** org→stores h
 
 ### 13.3 Scoping rules
 
-- **`tenantId` on every domain record** except `Tenant` itself and platform (`SUPER_ADMIN`) users (§3).
+- **`tenantId` on every domain record** except `TenantPojo` itself and platform (`SUPER_ADMIN`) users (§3).
 - **Uniqueness is per tenant**, never global: `(tenantId, username)`, `(tenantId, sku)`, `(tenantId, qrCode)`, and per-tenant `orderNumber` / `returnNumber` sequences. Tenant `code` is the **one** globally-unique field (it's the login discriminator), and a small set of codes is **reserved** so no tenant can shadow the platform login (§13.4).
 - **`tenantId` comes from the session, never the client.** Service/API call signatures do **not** take a `tenantId` argument. The backend reads it from the JWT claim; the mock reads it from the logged-in user. Every read/write is filtered by it.
 - **Isolation is absolute and fail-closed.** A tenant-scoped caller can never read/write another tenant's data. Direct fetch of an out-of-tenant id resolves as **not found** (404 / `null`), not forbidden — so ids in one tenant don't reveal existence in another. This covers resumed orders, receipt/credit-note URLs, and QR scans alike.

@@ -141,7 +141,7 @@ Nothing new — which was the point of C4. Three things C5 did have to do by han
 
 - **Writes stamp the tenant.** Products from the session, variants from the parent.
 - **`TenantSequenceDao` names no tenant in its sequence query.** The filter scopes it, so it
-  can only ever advance the caller's own counter. Its `Tenant` argument exists to lock the
+  can only ever advance the caller's own counter. Its `TenantPojo` argument exists to lock the
   tenant row and to point a foreign key, never to select by.
 - **New cases in `TenantIsolationIT`**, including the scan.
 
@@ -169,11 +169,11 @@ why it was fine.
 |---|---|
 | `create` stamps the tenant from the request body | **only** the two create cases (`ProductWriteIT` + `TenantIsolationIT`); every filter-backed case stays green |
 | `applyToLoadByKey = false` | the three by-id cases in `TenantIsolationIT`, plus the C4 read ones — **not** the create case |
-| Drop `@Filter` from `Variant` | **only 2** isolation cases, plus both coverage assertions |
+| Drop `@Filter` from `VariantPojo` | **only 2** isolation cases, plus both coverage assertions |
 
 **The third row is the surprise, and it changes what a green run means.** The scan, the
 search and the by-product list stay green without the variant's filter, because every read
-in `VariantDao` is `JOIN FETCH v.product` and `Product` is filtered — Hibernate scopes those
+in `VariantDao` is `JOIN FETCH v.product` and `ProductPojo` is filtered — Hibernate scopes those
 queries through the join regardless. What reddens is exactly the two paths that join no
 product: `em.find` by id, and `VariantDao.skuExists`, whose count then spans every store and
 reports another tenant's SKU as taken.

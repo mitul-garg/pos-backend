@@ -65,7 +65,7 @@ and CONVENTIONS.md is explicit that bulk statements are not scoped automatically
 anyway: every caller reaches it with a `variantId` already resolved through a filtered
 read earlier in the *same* transaction (when the line was priced), so the id in hand is
 already proven to belong to the caller's tenant. Same reasoning `TenantSequenceDao.next`
-relies on for the `Tenant` argument it only ever locks, never selects by. This method must
+relies on for the `TenantPojo` argument it only ever locks, never selects by. This method must
 never be called with an id taken from anywhere else — there is nothing else that would
 catch it if it were.
 
@@ -150,7 +150,7 @@ Nothing new — C4's filter and C5's write-scoping rules both apply unchanged:
 
 - **Writes stamp the tenant from the session**, never the body: `OrderService.create`
   reads `AuthService.currentSession().getTenantId()`, exactly like `ProductService`.
-- **`OrderLine` inherits its order's tenant**, the same rule a variant inherits its
+- **`OrderLinePojo` inherits its order's tenant**, the same rule a variant inherits its
   product's — never re-read from the session inside `rebuildLines`.
 - **The cashier is stamped from the session too**, via `AppUserDao.reference`, never from
   a body field — `OrderForm` has no such field to begin with.
@@ -196,9 +196,9 @@ listed above.
 
 - **A new order field derived from the variant** — add it to `Pricing.LineInput`, thread
   it through `OrderService.lineInputOf`/`lineInputOfExisting`, and it's available to both
-  `computeLineTotals` and the snapshot written onto `OrderLine`.
-- **Split tender, if it ever arrives** — the payment fields are embedded on `PosOrder`
-  precisely so this is the join to extract into a child table; see `PosOrder`'s Javadoc.
+  `computeLineTotals` and the snapshot written onto `OrderLinePojo`.
+- **Split tender, if it ever arrives** — the payment fields are embedded on `PosOrderPojo`
+  precisely so this is the join to extract into a child table; see `PosOrderPojo`'s Javadoc.
 - **Returns (C7)** — `TenantSequenceDao.next(SequenceKind.RETURN, tenant)` is the identical
   call with a different enum value; refund math is `Pricing.computeOrderTotals` on
   snapshotted lines, the same function this step already uses; stock *restore* is the

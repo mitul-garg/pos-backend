@@ -7,7 +7,7 @@ restore, per-tenant return numbers. Corresponds to `backend-plan.md` C7, and to
 `requirements.md` §9 (the contract), §4/§5 (refund math and the return lifecycle),
 §10 ("can't return more than purchased") and §13 (tenancy).
 
-> **Nothing new to build at the persistence layer.** `SalesReturn`/`ReturnLine`
+> **Nothing new to build at the persistence layer.** `SalesReturnPojo`/`ReturnLinePojo`
 > landed in C2 with all nine tables, already `@Filter`ed and already counted in
 > `TenantFilterCoverageTest`'s `EXPECTED_FILTERED_ENTITIES`. C7 is service and
 > controller work over an entity shape that was correct from the start.
@@ -108,7 +108,7 @@ trick needed in the handler registration.
 Javadoc ("a return inherits its tenant from the original order rather than
 re-reading the session"). In practice the two are the same value — `order` was only
 reachable in the first place through `OrderDao.findForUpdate`, which is filtered —
-but the *rule* is the inheritance, the same distinction `OrderLine` draws from its
+but the *rule* is the inheritance, the same distinction `OrderLinePojo` draws from its
 parent order rather than re-reading the session per line.
 
 ### Refund math is `Pricing.computeOrderTotals`, not a second method
@@ -147,11 +147,11 @@ Nothing new in kind, all inherited from C4–C6:
 - **`create` reads through `OrderDao.findForUpdate`**, `em.find` with a lock mode —
   scoped by the `@FilterDef`'s `applyToLoadByKey`, the identical mechanism every
   other by-id lookup in the application relies on.
-- **`returnedQuantitiesByVariant` is filtered directly on `ReturnLine`'s own
+- **`returnedQuantitiesByVariant` is filtered directly on `ReturnLinePojo`'s own
   `tenant_id`**, not through a join to a filtered parent — see its Javadoc. This is
   the aggregate-over-one-entity shape `c5-catalogue.md` and `c6-orders.md` both
   flagged in advance as "the shape a totals query will have": nothing but
-  `ReturnLine`'s own `@Filter` stands behind it, which is exactly why
+  `ReturnLinePojo`'s own `@Filter` stands behind it, which is exactly why
   `TenantFilterCoverageTest` (not a passing isolation case) is what actually proves
   the annotation is there.
 - **Writes stamp the tenant from the order, never the session or the body** —
@@ -208,7 +208,7 @@ Automated coverage added the same day, once the manual pass held:
   it ever should.
 - **Refund approval / a `MANAGER` tier** (`backend-plan.md` §12, explicitly
   deferred) — would sit as a new guard inside `ReturnService.create`, likely a
-  status field on `SalesReturn` gating `PATCH`-style approval before stock moves;
+  status field on `SalesReturnPojo` gating `PATCH`-style approval before stock moves;
   no schema surprises, since the entity already carries everything a plain refund
   needs.
 - **A QR code on receipts for faster returns** (`backend-plan.md` §12, deferred) —

@@ -84,7 +84,7 @@ Safe because **nothing is concealed**: a `SUPER_ADMIN` is not being told whether
 exists — it gets the identical answer for an id that never did. `TenantIsolationIT` asserts
 exactly that, so the exception cannot quietly become a precedent.
 
-### `AppUser` is unfiltered, permanently
+### `AppUserPojo` is unfiltered, permanently
 
 The one entity with `tenant_id` and no `@Filter`. Authentication is what *establishes* the
 tenant, so it runs before there is one to scope by — filtered,
@@ -107,7 +107,7 @@ remaining edge in the design and nothing enforces it automatically.
 The only place outside a request that does. The seeder runs at startup with no request, so
 its "does this store already have products?" check would otherwise be evaluated against
 `NO_TENANT`, answer "none" every time, and re-insert 23 rows on every boot under
-`ddlAuto=update`. `seedUser` needs none of this, because `AppUser` is unfiltered — a neat
+`ddlAuto=update`. `seedUser` needs none of this, because `AppUserPojo` is unfiltered — a neat
 demonstration of exactly where the filter's reach starts and stops.
 
 ### Writes are not scoped by the filter
@@ -134,7 +134,7 @@ This step *is* the tenant scoping. The rule for everything after it:
 |---|---|---|
 | `TenantIsolationIT` (14) | yes | The port of `isolation.test.js`. Lists, counts, categories, search and by-id, each attempted across the boundary with a real token through the real chain |
 | `TenantThreadLocalIT` (2) | yes | Two tenants and a tenant-less admin over a **two-thread pool**, 40 requests. The per-query resolution claim, under real reuse |
-| `TenantFilterCoverageTest` (4) | no | Every tenant-owned entity is filtered, names the right filter, and `AppUser` still is not |
+| `TenantFilterCoverageTest` (4) | no | Every tenant-owned entity is filtered, names the right filter, and `AppUserPojo` still is not |
 | `JwtAuthenticationFilterTest` (7) | no | The tenant is set for the chain and cleared on **every** exit — completion, exception, 401, 403, no token |
 | `TenantContextTest` (5) | no | The sentinel, `null` meaning platform, per-thread isolation |
 
@@ -143,7 +143,7 @@ This step *is* the tenant scoping. The rule for everything after it:
 | Mutation | Reddens |
 |---|---|
 | `applyToLoadByKey = false` | exactly the 3 by-id cases; **all 6 list cases stay green** |
-| Drop `@Filter` from `Product` | 13 cases across all five suites, including both coverage assertions |
+| Drop `@Filter` from `ProductPojo` | 13 cases across all five suites, including both coverage assertions |
 | Drop the `finally` from `JwtAuthenticationFilter` | 3 cases — and **not** the concurrent one |
 
 **Row 1 is why the by-id cases are not redundant** with the list cases: they are the only

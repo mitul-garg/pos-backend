@@ -1,14 +1,14 @@
 # C8 — Users and the platform surface
 
 `GET/POST/PUT/DELETE /api/users`, `GET/POST/PATCH /api/tenants` — tenant-scoped user
-management re-established by hand against `AppUser`'s deliberate absence of `@Filter`,
+management re-established by hand against `AppUserPojo`'s deliberate absence of `@Filter`,
 and the platform surface: atomic tenant + first-admin creation, reserved/duplicate/
 malformed code rejection, suspend/reactivate, and the `@PlatformOperation` marker
 `c4-tenancy.md` promised it. Corresponds to `backend-plan.md` C8, and to
 `requirements.md` §9 (the contract), §5.7/§5.10 (the two screens), §13.2 (roles) and
 §13.4 (reserved codes).
 
-> **The one entity C4–C7 never had to scope by hand.** `AppUser` carries no `@Filter`
+> **The one entity C4–C7 never had to scope by hand.** `AppUserPojo` carries no `@Filter`
 > (see its own class Javadoc) — authentication has to read it before there is a tenant
 > to scope by. Every other tenant-scoped service leans entirely on the Hibernate
 > filter and calls `TenantContext.requireTenant()` only as a guard; `UserService` is
@@ -45,7 +45,7 @@ malformed code rejection, suspend/reactivate, and the `@PlatformOperation` marke
 `AppUserDao.countActiveAdmins`, a `SUM`-shaped check with no atomic `UPDATE` to bind
 to, the identical problem C7 solved for a return's returnable-quantity check. The
 fix is the same shape: lock a row first (`AppUserDao.lockTenant`, `PESSIMISTIC_WRITE`
-on the tenant row — there is no single `AppUser` row the way an order is one row for
+on the tenant row — there is no single `AppUserPojo` row the way an order is one row for
 a return, since the aggregate spans every admin in the tenant and a concurrent
 `POST /api/users` could be adding one mid-check).
 
@@ -77,14 +77,14 @@ row to protect a read-then-act aggregate** — it names the ordering requirement
 explicitly, which C7's version of this pattern satisfied without ever having to
 say it.
 
-### `AppUser` unfiltered means `UserService` scopes twice over: a guard *and* a filter
+### `AppUserPojo` unfiltered means `UserService` scopes twice over: a guard *and* a filter
 
 Every other C5–C7 service calls `TenantContext.requireTenant()` purely as a guard —
 a `SUPER_ADMIN`-shaped 403, never a scoping mechanism — because the Hibernate filter
 already scopes every query underneath it. `UserService` still calls
 `requireTenant()` for the same guard, but *additionally* passes
 `authService.currentSession().getTenantId()` into every `AppUserDao` call by hand,
-because `AppUser` has no filter to lean on. This is the cost `c4-tenancy.md`
+because `AppUserPojo` has no filter to lean on. This is the cost `c4-tenancy.md`
 predicted C8 would pay for `AppUserDao`'s pre-C4 exception, and it is the whole
 cost — nothing else in the application scopes this way.
 
@@ -96,8 +96,8 @@ those two queries to `NO_TENANT` and answer zero for every store. That is the
 narrow, mechanical claim a future coverage test can check: every `disableFilter`
 call site is inside a method carrying the marker.
 
-But `Tenant`/`AppUser` were never filtered in the first place — `Tenant` because it
-*is* the discriminator, `AppUser` because authentication runs before there is a
+But `TenantPojo`/`AppUserPojo` were never filtered in the first place — `TenantPojo` because it
+*is* the discriminator, `AppUserPojo` because authentication runs before there is a
 tenant to scope by. Reading or writing either across the caller's own boundary
 (`TenantService.list`/`get`/`create`/`updateStatus`, `AppUserDao.countByTenant`
 when called once per store rather than for a login) is exactly as cross-tenant in
@@ -161,7 +161,7 @@ than at commit, wrapped in a `TransactionSystemException` the handler never sees
 
 ## Tenant scoping
 
-- **`UserService` scopes by hand** — see "`AppUser` unfiltered" above. This is the
+- **`UserService` scopes by hand** — see "`AppUserPojo` unfiltered" above. This is the
   one service in the codebase where that sentence is true.
 - **`TenantService` scopes nothing** — the whole point of the platform surface is
   that it reaches across every tenant, gated by role rather than by the filter.
@@ -172,9 +172,9 @@ than at commit, wrapped in a `TransactionSystemException` the handler never sees
 - **New `TenantIsolationIT` cases** (`UsersAreScopedToo`): list never crosses over,
   and a t2 user id is 404 for a t1 admin on both `PUT` and `DELETE`, byte-identical
   to one that never existed — the user ones `README.md` said would "join last, as C8
-  gives them endpoints to aim at". `AppUser` being unfiltered means these are the
+  gives them endpoints to aim at". `AppUserPojo` being unfiltered means these are the
   *only* automated check that a t1 admin cannot reach a t2 user;
-  `TenantFilterCoverageTest` explicitly excludes `AppUser` as unfiltered by design,
+  `TenantFilterCoverageTest` explicitly excludes `AppUserPojo` as unfiltered by design,
   so it proves nothing here.
 - **The platform surface itself needs no isolation cases** — it has no "own tenant"
   to leak out of. What it needs instead is the role gate (`TenantAdminIT.RoleGate`)
@@ -251,5 +251,5 @@ Automated coverage added once the manual pass held:
 - [c5-catalogue.md](./c5-catalogue.md) — `TenantSequenceDao`'s lock-the-wider-row
   reasoning, and the `insert`-must-flush fix both `AppUserDao` and `TenantDao`
   needed once C8 made their uniqueness checks reachable by a request
-- [c4-tenancy.md](./c4-tenancy.md) — `AppUser`'s unfiltered exception and the
+- [c4-tenancy.md](./c4-tenancy.md) — `AppUserPojo`'s unfiltered exception and the
   `@PlatformOperation` marker, both named there and built here

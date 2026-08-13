@@ -27,7 +27,7 @@ something in `backend/`.
 > **Scoping is now enforced, not intended:** a query written against a
 > tenant-owned entity is scoped whether or not its author thought about tenancy.
 > The one thing a new entity must not forget is `@Filter`, and
-> `TenantFilterCoverageTest` fails the build if it does. **`AppUser` is the one
+> `TenantFilterCoverageTest` fails the build if it does. **`AppUserPojo` is the one
 > exception** — see [c8-users-tenants.md](./c8-users-tenants.md) for what a service
 > over an unfiltered entity has to do that every other service gets for free.
 > **What a write still has to do by hand** is in [c5-catalogue.md](./c5-catalogue.md):
@@ -125,7 +125,7 @@ section for what they cover — and the user ones close it out in C8, the last
 resource type the frontend's suite names. **Adding an endpoint without adding its
 case there is how a leak ships**, because the browser cannot show you one you did
 not think to look for. The user cases are the one set in the whole suite proving
-something no other test can: `AppUser` carries no `@Filter` at all, so
+something no other test can: `AppUserPojo` carries no `@Filter` at all, so
 `TenantFilterCoverageTest` has nothing to say about it — see
 [c8-users-tenants.md](./c8-users-tenants.md)'s Tenant scoping section.
 
