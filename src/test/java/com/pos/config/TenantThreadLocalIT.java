@@ -300,7 +300,7 @@ class TenantThreadLocalIT {
 
     private void product(TenantPojo tenant, String name) {
         ProductPojo product = new ProductPojo();
-        product.setTenant(tenant);
+        product.setTenantId(tenant.getId());
         product.setName(name);
         product.setBrand("Test");
         product.setCategory("Test");

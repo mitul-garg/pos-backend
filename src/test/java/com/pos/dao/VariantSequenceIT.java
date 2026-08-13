@@ -305,7 +305,7 @@ class VariantSequenceIT {
 
     private Long product(TenantPojo tenant, String name) {
         ProductPojo product = new ProductPojo();
-        product.setTenant(tenant);
+        product.setTenantId(tenant.getId());
         product.setName(name);
         product.setBrand("Amul");
         product.setCategory("Dairy");

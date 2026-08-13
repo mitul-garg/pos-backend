@@ -46,12 +46,12 @@ public class StubServiceConfig {
 
     @Bean
     public ProductService productService() {
-        return new ProductService(null, null, null, null);
+        return new ProductService(null, null, null);
     }
 
     @Bean
     public VariantService variantService() {
-        return new VariantService(null, null, null, null);
+        return new VariantService(null, null, null, null, null);
     }
 
     @Bean

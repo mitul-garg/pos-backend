@@ -1168,7 +1168,7 @@ class TenantIsolationIT {
 
     private Long product(TenantPojo tenant, String name, String brand, String category, boolean active) {
         ProductPojo product = new ProductPojo();
-        product.setTenant(tenant);
+        product.setTenantId(tenant.getId());
         product.setName(name);
         product.setBrand(brand);
         product.setCategory(category);

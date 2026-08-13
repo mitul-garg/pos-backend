@@ -8,7 +8,6 @@ import java.util.Map;
 
 import com.pos.config.AppProperties;
 import com.pos.dao.ProductDao;
-import com.pos.dao.TenantDao;
 import com.pos.exception.NotFoundException;
 import com.pos.exception.ValidationException;
 import com.pos.model.PageData;
@@ -73,7 +72,6 @@ public class ProductService {
     static final String TOO_MANY_PRODUCTS = "This store has reached its product limit";
 
     private final ProductDao productDao;
-    private final TenantDao tenantDao;
     private final AuthService authService;
     private final AppProperties appProperties;
 
@@ -83,10 +81,9 @@ public class ProductService {
      * field injection is applied even to a hand-built {@code @Bean}.
      */
     @Autowired
-    public ProductService(ProductDao productDao, TenantDao tenantDao, AuthService authService,
+    public ProductService(ProductDao productDao, AuthService authService,
                           AppProperties appProperties) {
         this.productDao = productDao;
-        this.tenantDao = tenantDao;
         this.authService = authService;
         this.appProperties = appProperties;
     }
@@ -157,7 +154,7 @@ public class ProductService {
         validate(name, taxRatePercent, brand, category, description, hsnCode);
 
         ProductPojo product = new ProductPojo();
-        product.setTenant(tenantDao.reference(authService.currentSession().getTenantId()));
+        product.setTenantId(authService.currentSession().getTenantId());
         product.setName(name);
         product.setBrand(brand);
         product.setCategory(category);
@@ -285,16 +282,10 @@ public class ProductService {
         }
     }
 
-    /**
-     * Mapped inside the transaction, which is what makes {@code product.getTenant()} safe
-     * — the association is {@code LAZY}, and reading it after the transaction closed is a
-     * {@code LazyInitializationException}. Only the id is read, which Hibernate answers
-     * from the proxy without a second statement.
-     */
     private ProductData toData(ProductPojo product) {
         return new ProductData(
                 product.getId(),
-                product.getTenant().getId(),
+                product.getTenantId(),
                 product.getName(),
                 product.getBrand(),
                 product.getCategory(),

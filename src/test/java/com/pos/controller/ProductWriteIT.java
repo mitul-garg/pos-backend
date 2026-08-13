@@ -630,7 +630,7 @@ class ProductWriteIT {
      */
     private Long product(TenantPojo tenant, String name, boolean active) {
         ProductPojo product = new ProductPojo();
-        product.setTenant(tenant);
+        product.setTenantId(tenant.getId());
         product.setName(name);
         product.setTaxRatePercent(BigDecimal.ZERO);
         product.setActive(active);

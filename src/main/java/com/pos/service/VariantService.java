@@ -8,6 +8,7 @@ import java.util.Map;
 
 import com.pos.config.AppProperties;
 import com.pos.dao.ProductDao;
+import com.pos.dao.TenantDao;
 import com.pos.dao.TenantSequenceDao;
 import com.pos.dao.VariantDao;
 import com.pos.exception.NotFoundException;
@@ -79,14 +80,16 @@ public class VariantService {
 
     private final VariantDao variantDao;
     private final ProductDao productDao;
+    private final TenantDao tenantDao;
     private final TenantSequenceDao tenantSequenceDao;
     private final AppProperties appProperties;
 
     @Autowired
-    public VariantService(VariantDao variantDao, ProductDao productDao,
+    public VariantService(VariantDao variantDao, ProductDao productDao, TenantDao tenantDao,
                           TenantSequenceDao tenantSequenceDao, AppProperties appProperties) {
         this.variantDao = variantDao;
         this.productDao = productDao;
+        this.tenantDao = tenantDao;
         this.tenantSequenceDao = tenantSequenceDao;
         this.appProperties = appProperties;
     }
@@ -187,7 +190,7 @@ public class VariantService {
         String variantLabel = trimToEmpty(form.getVariantLabel());
         validate(mrp, sellingPrice, stockQuantity, sku, null, variantLabel);
 
-        TenantPojo tenant = product.getTenant();
+        TenantPojo tenant = tenantDao.reference(product.getTenantId());
         long sequence = tenantSequenceDao.next(SequenceKind.QR, tenant);
 
         VariantPojo variant = new VariantPojo();

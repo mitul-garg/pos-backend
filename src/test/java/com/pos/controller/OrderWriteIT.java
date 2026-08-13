@@ -624,7 +624,7 @@ class OrderWriteIT {
 
     private Long product(TenantPojo tenant, String name, String taxRatePercent) {
         ProductPojo product = new ProductPojo();
-        product.setTenant(tenant);
+        product.setTenantId(tenant.getId());
         product.setName(name);
         product.setBrand("Test");
         product.setCategory("Test");

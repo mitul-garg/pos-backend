@@ -43,13 +43,36 @@ public class ProductPojo {
     @Column(name = "id")
     private Long id;
 
+    /**
+     * The tenant's id, not the entity — peer-review Phase 2 decision: minimize
+     * {@code @ManyToOne} navigation, keep the DB-level FK constraint. Read {@link #tenantFk}'s
+     * Javadoc for the mechanism; call {@code TenantDao.find(getTenantId())} on the rare
+     * occasion a caller actually needs the related row rather than just its id.
+     */
+    @Column(name = "tenant_id", nullable = false)
+    private Long tenantId;
+
+    /**
+     * <b>DDL-only shadow association — never navigate this.</b> Exists purely so Hibernate's
+     * schema generation still emits {@code fk_product_tenant}, the real database-enforced
+     * constraint this project keeps even though the Java-level relationship is gone.
+     * {@code insertable = false, updatable = false} means it never participates in a write —
+     * {@link #tenantId} above is what {@code TenantDao.insert}/queries actually use — and it
+     * has deliberately no getter or setter. Every entity in this codebase uses field access
+     * (the {@code @Id} is placed on the field), so Hibernate never needs an accessor either;
+     * with none exposed, nothing outside this file can reach it. If you find yourself wanting
+     * to add one, that's a sign a `TenantDao` method is missing instead.
+     */
+    @SuppressWarnings("unused")
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(
             name = "tenant_id",
+            insertable = false,
+            updatable = false,
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_product_tenant")
     )
-    private TenantPojo tenant;
+    private TenantPojo tenantFk;
 
     @Column(name = "name", nullable = false, length = 200)
     private String name;
@@ -94,12 +117,12 @@ public class ProductPojo {
         this.id = id;
     }
 
-    public TenantPojo getTenant() {
-        return tenant;
+    public Long getTenantId() {
+        return tenantId;
     }
 
-    public void setTenant(TenantPojo tenant) {
-        this.tenant = tenant;
+    public void setTenantId(Long tenantId) {
+        this.tenantId = tenantId;
     }
 
     public String getName() {

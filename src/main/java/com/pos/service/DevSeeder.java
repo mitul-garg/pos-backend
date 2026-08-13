@@ -375,7 +375,7 @@ public class DevSeeder {
                     // -- the same rule the API follows, where it comes from the session.
                     // The filter does not police inserts; only whoever builds the entity
                     // does.
-                    product.setTenant(tenant);
+                    product.setTenantId(tenant.getId());
                     product.setName(entry.name());
                     product.setBrand(entry.brand());
                     product.setCategory(entry.category());

@@ -132,7 +132,7 @@ public class TenantDao {
         session.disableFilter(TenantContext.FILTER_NAME);
         try {
             return em.createQuery(
-                            "SELECT count(p) FROM ProductPojo p WHERE p.tenant.id = :tenantId",
+                            "SELECT count(p) FROM ProductPojo p WHERE p.tenantId = :tenantId",
                             Long.class)
                     .setParameter("tenantId", tenantId)
                     .getSingleResult();
@@ -180,8 +180,8 @@ public class TenantDao {
         session.disableFilter(TenantContext.FILTER_NAME);
         try {
             List<Object[]> rows = em.createQuery(
-                            "SELECT p.tenant.id, count(p) FROM ProductPojo p"
-                                    + " WHERE p.tenant.id IN :tenantIds GROUP BY p.tenant.id",
+                            "SELECT p.tenantId, count(p) FROM ProductPojo p"
+                                    + " WHERE p.tenantId IN :tenantIds GROUP BY p.tenantId",
                             Object[].class)
                     .setParameter("tenantIds", tenantIds)
                     .getResultList();

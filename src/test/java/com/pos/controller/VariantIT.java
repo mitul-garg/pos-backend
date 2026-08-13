@@ -721,7 +721,7 @@ class VariantIT {
 
     private Long product(TenantPojo tenant, String name, String brand, String taxRate, boolean active) {
         ProductPojo product = new ProductPojo();
-        product.setTenant(tenant);
+        product.setTenantId(tenant.getId());
         product.setName(name);
         product.setBrand(brand);
         product.setCategory("Dairy");
