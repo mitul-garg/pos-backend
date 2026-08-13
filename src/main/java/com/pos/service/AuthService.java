@@ -154,11 +154,11 @@ public class AuthService {
         loginAttemptGuard.recordSuccess(accountKey);
 
         // --- past this line the caller has proved the password, so 403s may be specific
-        requireUsable(user);
+        requireUsable(user, tenant);
 
-        String token = jwtTokenService.issue(user.getId(), tenantIdOf(user), user.getRole());
+        String token = jwtTokenService.issue(user.getId(), tenantIdOf(tenant), user.getRole());
         log.info("Login: user {} ({}) in tenant {}", user.getId(), user.getRole(), code);
-        return new LoginData(token, sessionUserOf(user));
+        return new LoginData(token, sessionUserOf(user, tenant));
     }
 
     /**
@@ -175,15 +175,17 @@ public class AuthService {
     public SessionUserData resolveSession(String token) {
         JwtPrincipal principal = jwtTokenService.parse(token);
 
-        AppUserPojo user = appUserDao.findWithTenant(principal.userId());
-        if (user == null) {
+        AppUserDao.AppUserWithTenant found = appUserDao.findWithTenant(principal.userId());
+        if (found == null) {
             // Deleted rather than deactivated. Users are soft-deleted, so this is mostly
             // a token for a database that has since been recreated -- exactly what a
             // developer hits after `mvn test` drops and rebuilds pos_test.
             log.debug("Rejecting token: user {} no longer exists", principal.userId());
             throw new InvalidCredentialsException();
         }
-        if (!Objects.equals(principal.tenantId(), tenantIdOf(user))) {
+        AppUserPojo user = found.user();
+        TenantPojo tenant = found.tenant();
+        if (!Objects.equals(principal.tenantId(), tenantIdOf(tenant))) {
             // Unreachable without the signing key, since nothing moves a user between
             // tenants. Asserted anyway because the claim is what C4's filter will scope
             // queries by, and a claim that disagrees with its row must never be the one
@@ -193,8 +195,8 @@ public class AuthService {
                     principal.userId(), principal.tenantId());
             throw new InvalidCredentialsException();
         }
-        requireUsable(user);
-        return sessionUserOf(user);
+        requireUsable(user, tenant);
+        return sessionUserOf(user, tenant);
     }
 
     /**
@@ -220,11 +222,10 @@ public class AuthService {
      * The three 403s. All are specific, and all are safe only where this is called —
      * after the password, or behind a token that proves one was given.
      */
-    private void requireUsable(AppUserPojo user) {
+    private void requireUsable(AppUserPojo user, TenantPojo tenant) {
         if (!user.isActive()) {
             throw new ForbiddenException(DEACTIVATED_MESSAGE);
         }
-        TenantPojo tenant = user.getTenant();
         // The reserved platform row has no lifecycle: it cannot be suspended (C8) or
         // self-registered (C9), and asking about its status would be asking about a
         // row that is infrastructure.
@@ -244,13 +245,11 @@ public class AuthService {
     }
 
     /** Null for a platform user: the reserved row is storage, not a tenant on the wire. */
-    private Long tenantIdOf(AppUserPojo user) {
-        TenantPojo tenant = user.getTenant();
+    private Long tenantIdOf(TenantPojo tenant) {
         return tenant.isPlatform() ? null : tenant.getId();
     }
 
-    private SessionUserData sessionUserOf(AppUserPojo user) {
-        TenantPojo tenant = user.getTenant();
+    private SessionUserData sessionUserOf(AppUserPojo user, TenantPojo tenant) {
         boolean platform = tenant.isPlatform();
         return new SessionUserData(
                 user.getId(),

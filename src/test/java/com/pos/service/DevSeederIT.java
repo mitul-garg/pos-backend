@@ -90,7 +90,7 @@ class DevSeederIT {
                 .getResultList();
 
         assertEquals(2, admins.size(), "both stores should have an `admin`");
-        assertNotEquals(admins.get(0).getTenant().getId(), admins.get(1).getTenant().getId());
+        assertNotEquals(admins.get(0).getTenantId(), admins.get(1).getTenantId());
     }
 
     @Test
@@ -166,7 +166,7 @@ class DevSeederIT {
         // than at nothing -- the decision that lets uk_user_tenant_username constrain
         // platform usernames at all (MySQL treats NULLs as distinct).
         for (AppUserPojo user : allUsers()) {
-            assertNotNull(user.getTenant(), () -> user.getUsername() + " has no tenant");
+            assertNotNull(user.getTenantId(), () -> user.getUsername() + " has no tenant");
         }
     }
 
@@ -184,8 +184,8 @@ class DevSeederIT {
 
     private AppUserPojo user(String tenantCode, String username) {
         AppUserPojo user = em.createQuery(
-                        "SELECT u FROM AppUserPojo u WHERE u.tenant.code = :code "
-                                + "AND u.username = :username", AppUserPojo.class)
+                        "SELECT u FROM AppUserPojo u JOIN TenantPojo t ON t.id = u.tenantId "
+                                + "WHERE t.code = :code AND u.username = :username", AppUserPojo.class)
                 .setParameter("code", tenantCode)
                 .setParameter("username", username)
                 .getResultStream()

@@ -613,7 +613,7 @@ class OrderWriteIT {
 
     private void user(TenantPojo tenant, String username, String passwordHash, Role role) {
         AppUserPojo user = new AppUserPojo();
-        user.setTenant(tenant);
+        user.setTenantId(tenant.getId());
         user.setUsername(username);
         user.setPasswordHash(passwordHash);
         user.setDisplayName(username);

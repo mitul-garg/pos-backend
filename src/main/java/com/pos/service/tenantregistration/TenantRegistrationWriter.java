@@ -168,7 +168,7 @@ public class TenantRegistrationWriter {
         tenantDao.insert(tenant);
 
         AppUserPojo admin = new AppUserPojo();
-        admin.setTenant(tenant);
+        admin.setTenantId(tenant.getId());
         admin.setUsername(adminUsername);
         admin.setPasswordHash(passwordEncoder.encode(form.getAdminPassword()));
         admin.setDisplayName(adminDisplayName);

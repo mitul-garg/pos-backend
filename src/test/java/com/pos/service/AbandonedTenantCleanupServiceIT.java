@@ -170,7 +170,7 @@ class AbandonedTenantCleanupServiceIT {
 
     private AppUserPojo adminFor(TenantPojo tenant, String email) {
         AppUserPojo admin = new AppUserPojo();
-        admin.setTenant(tenant);
+        admin.setTenantId(tenant.getId());
         admin.setUsername("admin");
         admin.setPasswordHash("not-a-real-hash");
         admin.setDisplayName("Cleanup Test Admin");

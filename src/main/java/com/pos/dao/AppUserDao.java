@@ -31,6 +31,14 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class AppUserDao {
 
+    /**
+     * A user with its tenant, both loaded in the same round trip — the tuple
+     * {@link #findWithTenant} hands back now that {@code AppUserPojo.tenant} is no longer a
+     * navigable association (peer-review Phase 2) to {@code JOIN FETCH} into.
+     */
+    public record AppUserWithTenant(AppUserPojo user, TenantPojo tenant) {
+    }
+
     @PersistenceContext
     private EntityManager em;
 
@@ -40,11 +48,16 @@ public class AppUserDao {
      * each have an {@code admin}.
      *
      * <p>Returns {@code null} for an unknown username — a failed login, not an error.
+     *
+     * <p>No join onto the tenant (unlike before peer-review Phase 2): {@code AuthService}'s
+     * one caller already holds the {@link TenantPojo} it resolved the tenant code against,
+     * so fetching it a second time here would be pure waste, not the round-trip saver a
+     * {@code JOIN FETCH} used to be.
      */
     public AppUserPojo findByTenantAndUsername(Long tenantId, String username) {
         return em.createQuery(
-                        "SELECT u FROM AppUserPojo u JOIN FETCH u.tenant "
-                                + "WHERE u.tenant.id = :tenantId AND lower(u.username) = :username",
+                        "SELECT u FROM AppUserPojo u "
+                                + "WHERE u.tenantId = :tenantId AND lower(u.username) = :username",
                         AppUserPojo.class)
                 .setParameter("tenantId", tenantId)
                 .setParameter("username", username)
@@ -58,18 +71,20 @@ public class AppUserDao {
      *
      * <p>This is the hottest query in the application: it runs on <b>every authenticated
      * request</b>, because the session's status is re-checked per request rather than
-     * only at login (backend-plan.md section 1, deferred obligation 5). The
-     * {@code JOIN FETCH} is what keeps that one round trip instead of two —
-     * {@code AppUserPojo.tenant} is {@code LAZY}, and the caller always reads the tenant's
-     * status.
+     * only at login (backend-plan.md section 1, deferred obligation 5). An ad-hoc
+     * {@code JOIN ... ON} — the replacement for the {@code JOIN FETCH} this used to be,
+     * since {@code AppUserPojo.tenant} is no longer a navigable association (peer-review
+     * Phase 2) — is what keeps this one round trip instead of two.
      */
-    public AppUserPojo findWithTenant(Long id) {
+    public AppUserWithTenant findWithTenant(Long id) {
         return em.createQuery(
-                        "SELECT u FROM AppUserPojo u JOIN FETCH u.tenant WHERE u.id = :id",
-                        AppUserPojo.class)
+                        "SELECT u, t FROM AppUserPojo u JOIN TenantPojo t ON t.id = u.tenantId "
+                                + "WHERE u.id = :id",
+                        Object[].class)
                 .setParameter("id", id)
                 .getResultStream()
                 .findFirst()
+                .map(row -> new AppUserWithTenant((AppUserPojo) row[0], (TenantPojo) row[1]))
                 .orElse(null);
     }
 
@@ -84,13 +99,13 @@ public class AppUserDao {
      *
      * <p>Takes the tenant id explicitly, like every other {@code AppUserDao} lookup
      * (C4's exception — {@code AppUserPojo} carries no {@code @Filter}), and carries no
-     * {@link com.pos.util.PlatformOperation} marker: unlike {@code countByTenant},
+     * {@link com.pos.util.tenancy.PlatformOperation} marker: unlike {@code countByTenant},
      * this reads one already-identified tenant's own users, not an aggregate across
      * every store, so it isn't cross-tenant reach in the sense the marker exists for.
      */
     public AppUserPojo findByTenantAndEmail(Long tenantId, String email) {
         return em.createQuery(
-                        "SELECT u FROM AppUserPojo u WHERE u.tenant.id = :tenantId "
+                        "SELECT u FROM AppUserPojo u WHERE u.tenantId = :tenantId "
                                 + "AND lower(u.email) = :email",
                         AppUserPojo.class)
                 .setParameter("tenantId", tenantId)
@@ -134,7 +149,7 @@ public class AppUserDao {
      */
     public List<AppUserPojo> findByTenant(Long tenantId) {
         return em.createQuery(
-                        "SELECT u FROM AppUserPojo u WHERE u.tenant.id = :tenantId ORDER BY u.username",
+                        "SELECT u FROM AppUserPojo u WHERE u.tenantId = :tenantId ORDER BY u.username",
                         AppUserPojo.class)
                 .setParameter("tenantId", tenantId)
                 .getResultList();
@@ -149,7 +164,7 @@ public class AppUserDao {
      */
     public AppUserPojo findInTenant(Long id, Long tenantId) {
         return em.createQuery(
-                        "SELECT u FROM AppUserPojo u WHERE u.id = :id AND u.tenant.id = :tenantId",
+                        "SELECT u FROM AppUserPojo u WHERE u.id = :id AND u.tenantId = :tenantId",
                         AppUserPojo.class)
                 .setParameter("id", id)
                 .setParameter("tenantId", tenantId)
@@ -206,7 +221,7 @@ public class AppUserDao {
      */
     public long countActiveAdmins(Long tenantId) {
         return em.createQuery(
-                        "SELECT count(u) FROM AppUserPojo u WHERE u.tenant.id = :tenantId"
+                        "SELECT count(u) FROM AppUserPojo u WHERE u.tenantId = :tenantId"
                                 + " AND u.role = :role AND u.active = true",
                         Long.class)
                 .setParameter("tenantId", tenantId)
@@ -228,7 +243,7 @@ public class AppUserDao {
     @PlatformOperation
     public long countByTenant(Long tenantId) {
         return em.createQuery(
-                        "SELECT count(u) FROM AppUserPojo u WHERE u.tenant.id = :tenantId", Long.class)
+                        "SELECT count(u) FROM AppUserPojo u WHERE u.tenantId = :tenantId", Long.class)
                 .setParameter("tenantId", tenantId)
                 .getSingleResult();
     }
@@ -249,8 +264,8 @@ public class AppUserDao {
             return Map.of();
         }
         List<Object[]> rows = em.createQuery(
-                        "SELECT u.tenant.id, count(u) FROM AppUserPojo u"
-                                + " WHERE u.tenant.id IN :tenantIds GROUP BY u.tenant.id",
+                        "SELECT u.tenantId, count(u) FROM AppUserPojo u"
+                                + " WHERE u.tenantId IN :tenantIds GROUP BY u.tenantId",
                         Object[].class)
                 .setParameter("tenantIds", tenantIds)
                 .getResultList();
@@ -280,7 +295,7 @@ public class AppUserDao {
      */
     public long countByOwnTenant(Long tenantId) {
         return em.createQuery(
-                        "SELECT count(u) FROM AppUserPojo u WHERE u.tenant.id = :tenantId", Long.class)
+                        "SELECT count(u) FROM AppUserPojo u WHERE u.tenantId = :tenantId", Long.class)
                 .setParameter("tenantId", tenantId)
                 .getSingleResult();
     }
@@ -298,7 +313,7 @@ public class AppUserDao {
      */
     public long countActiveByOwnTenant(Long tenantId) {
         return em.createQuery(
-                        "SELECT count(u) FROM AppUserPojo u WHERE u.tenant.id = :tenantId"
+                        "SELECT count(u) FROM AppUserPojo u WHERE u.tenantId = :tenantId"
                                 + " AND u.active = true",
                         Long.class)
                 .setParameter("tenantId", tenantId)
@@ -342,7 +357,7 @@ public class AppUserDao {
      */
     @PlatformOperation
     public void deleteByTenant(Long tenantId) {
-        em.createQuery("DELETE FROM AppUserPojo u WHERE u.tenant.id = :tenantId")
+        em.createQuery("DELETE FROM AppUserPojo u WHERE u.tenantId = :tenantId")
                 .setParameter("tenantId", tenantId)
                 .executeUpdate();
     }

@@ -456,8 +456,9 @@ class AuthControllerIT {
         @DisplayName("stores a hash, not the password")
         void storesAHash() {
             AppUserPojo stored = em.createQuery(
-                            "SELECT u FROM AppUserPojo u WHERE u.username = 'cashier' "
-                                    + "AND u.tenant.code = 'mg-road'", AppUserPojo.class)
+                            "SELECT u FROM AppUserPojo u JOIN TenantPojo t ON t.id = u.tenantId "
+                                    + "WHERE u.username = 'cashier' AND t.code = 'mg-road'",
+                            AppUserPojo.class)
                     .getSingleResult();
 
             assertFalse(stored.getPasswordHash().contains("cashier123"),
@@ -552,7 +553,7 @@ class AuthControllerIT {
     private AppUserPojo user(TenantPojo tenant, String username, String passwordHash,
                          String displayName, Role role) {
         AppUserPojo user = new AppUserPojo();
-        user.setTenant(tenant);
+        user.setTenantId(tenant.getId());
         user.setUsername(username);
         user.setPasswordHash(passwordHash);
         user.setDisplayName(displayName);

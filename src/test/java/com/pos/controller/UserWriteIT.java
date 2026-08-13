@@ -719,7 +719,7 @@ class UserWriteIT {
      */
     private Long user(TenantPojo tenant, String username, String passwordHash, Role role, boolean active) {
         AppUserPojo user = new AppUserPojo();
-        user.setTenant(tenant);
+        user.setTenantId(tenant.getId());
         user.setUsername(username);
         user.setPasswordHash(passwordHash);
         user.setDisplayName(username);

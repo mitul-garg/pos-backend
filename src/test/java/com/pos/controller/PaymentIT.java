@@ -495,7 +495,7 @@ class PaymentIT {
 
     private void user(TenantPojo tenant, String username, String password, Role role) {
         AppUserPojo user = new AppUserPojo();
-        user.setTenant(tenant);
+        user.setTenantId(tenant.getId());
         user.setUsername(username);
         user.setPasswordHash(HASHER.encode(password));
         user.setDisplayName(username);

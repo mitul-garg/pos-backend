@@ -60,14 +60,31 @@ public class AppUserPojo {
     /**
      * Never null — platform users point at the reserved {@code platform} tenant rather
      * than carrying a NULL. See {@link TenantPojo#isPlatform()} for why that matters.
+     *
+     * <p>The id only, not the entity — peer-review Phase 2 decision: minimize
+     * {@code @ManyToOne} navigation, keep the DB-level FK constraint. See
+     * {@link #tenantFk}'s Javadoc for the mechanism.
      */
+    @Column(name = "tenant_id", nullable = false)
+    private Long tenantId;
+
+    /**
+     * <b>DDL-only shadow association — never navigate this.</b> Exists purely so Hibernate's
+     * schema generation still emits {@code fk_app_user_tenant}. {@code insertable = false,
+     * updatable = false} means it never participates in a write, and it has deliberately no
+     * getter or setter — see {@code ProductPojo#tenantFk}'s Javadoc for the full reasoning,
+     * identical here.
+     */
+    @SuppressWarnings("unused")
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(
             name = "tenant_id",
+            insertable = false,
+            updatable = false,
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_app_user_tenant")
     )
-    private TenantPojo tenant;
+    private TenantPojo tenantFk;
 
     @Column(name = "username", nullable = false, length = 64)
     private String username;
@@ -129,12 +146,12 @@ public class AppUserPojo {
         this.id = id;
     }
 
-    public TenantPojo getTenant() {
-        return tenant;
+    public Long getTenantId() {
+        return tenantId;
     }
 
-    public void setTenant(TenantPojo tenant) {
-        this.tenant = tenant;
+    public void setTenantId(Long tenantId) {
+        this.tenantId = tenantId;
     }
 
     public String getUsername() {

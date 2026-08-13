@@ -149,7 +149,7 @@ public class TenantService {
         // No uniqueness check against other tenants' usernames: (tenant_id, username) is
         // the constraint, and this tenant is brand new, so its namespace starts empty.
         AppUserPojo admin = new AppUserPojo();
-        admin.setTenant(tenant);
+        admin.setTenantId(tenant.getId());
         admin.setUsername(adminUsername);
         admin.setPasswordHash(passwordEncoder.encode(form.getAdminPassword()));
         admin.setDisplayName(name + " Admin");

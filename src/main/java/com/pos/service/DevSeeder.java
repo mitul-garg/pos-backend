@@ -547,7 +547,7 @@ public class DevSeeder {
             return;
         }
         AppUserPojo user = new AppUserPojo();
-        user.setTenant(tenant);
+        user.setTenantId(tenant.getId());
         user.setUsername(username);
         // Hashed on insert, never stored in plaintext -- backend-plan.md section 1,
         // deferred obligation 4. The frontend mock keeps plaintext; that stops here.

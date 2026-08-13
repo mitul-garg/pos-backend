@@ -7,8 +7,8 @@
         email varchar(254),
         password_hash varchar(100) not null,
         role varchar(16) not null check (role in ('SUPER_ADMIN','ADMIN','CASHIER')),
-        username varchar(64) not null,
         tenant_id bigint not null,
+        username varchar(64) not null,
         primary key (id)
     ) engine=InnoDB;
 

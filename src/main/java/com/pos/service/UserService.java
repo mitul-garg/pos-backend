@@ -5,7 +5,6 @@ import java.util.Locale;
 
 import com.pos.config.AppProperties;
 import com.pos.dao.AppUserDao;
-import com.pos.dao.TenantDao;
 import com.pos.exception.NotFoundException;
 import com.pos.exception.ValidationException;
 import com.pos.model.UserData;
@@ -55,7 +54,6 @@ public class UserService {
     static final String TOO_MANY_USERS = "This store has reached its user limit";
 
     private final AppUserDao appUserDao;
-    private final TenantDao tenantDao;
     private final AuthService authService;
     private final PasswordEncoder passwordEncoder;
     private final AppProperties appProperties;
@@ -65,10 +63,9 @@ public class UserService {
      * context-only test has to be able to stub this without dragging in a database.
      */
     @Autowired
-    public UserService(AppUserDao appUserDao, TenantDao tenantDao, AuthService authService,
+    public UserService(AppUserDao appUserDao, AuthService authService,
                        PasswordEncoder passwordEncoder, AppProperties appProperties) {
         this.appUserDao = appUserDao;
-        this.tenantDao = tenantDao;
         this.authService = authService;
         this.passwordEncoder = passwordEncoder;
         this.appProperties = appProperties;
@@ -144,7 +141,7 @@ public class UserService {
         }
 
         AppUserPojo user = new AppUserPojo();
-        user.setTenant(tenantDao.reference(tenantId));
+        user.setTenantId(tenantId);
         user.setUsername(username);
         user.setPasswordHash(passwordEncoder.encode(form.getPassword()));
         String displayName = trimToNull(form.getDisplayName());
@@ -248,15 +245,10 @@ public class UserService {
         return toData(user);
     }
 
-    /**
-     * Mapped inside the transaction, so {@code user.getTenant()} is safe to read despite
-     * being {@code LAZY} — only the id is read, which Hibernate answers from the proxy
-     * without a second statement.
-     */
     private UserData toData(AppUserPojo user) {
         return new UserData(
                 user.getId(),
-                user.getTenant().getId(),
+                user.getTenantId(),
                 user.getUsername(),
                 user.getDisplayName(),
                 user.getRole(),
