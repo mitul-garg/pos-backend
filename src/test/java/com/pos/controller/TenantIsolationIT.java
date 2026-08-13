@@ -1145,8 +1145,8 @@ class TenantIsolationIT {
     private Long variant(TenantPojo tenant, Long productId, String label, String sku,
                          String qrCode, int stock) {
         VariantPojo variant = new VariantPojo();
-        variant.setTenant(tenant);
-        variant.setProduct(em.getReference(ProductPojo.class, productId));
+        variant.setTenantId(tenant.getId());
+        variant.setProductId(productId);
         variant.setVariantLabel(label);
         variant.setSku(sku);
         variant.setQrCode(qrCode);

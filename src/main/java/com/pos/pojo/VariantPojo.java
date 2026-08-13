@@ -66,21 +66,49 @@ public class VariantPojo {
     @Column(name = "id")
     private Long id;
 
+    /**
+     * The id only, not the entity — peer-review Phase 2 decision: minimize
+     * {@code @ManyToOne} navigation, keep the DB-level FK constraint. See
+     * {@link #tenantFk}'s Javadoc for the mechanism.
+     */
+    @Column(name = "tenant_id", nullable = false)
+    private Long tenantId;
+
+    /**
+     * <b>DDL-only shadow association — never navigate this.</b> Exists purely so Hibernate's
+     * schema generation still emits {@code fk_variant_tenant}. See
+     * {@code ProductPojo#tenantFk}'s Javadoc for the full reasoning, identical here.
+     */
+    @SuppressWarnings("unused")
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(
             name = "tenant_id",
+            insertable = false,
+            updatable = false,
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_variant_tenant")
     )
-    private TenantPojo tenant;
+    private TenantPojo tenantFk;
 
+    /** The id only, not the entity — same reasoning as {@link #tenantId} above. */
+    @Column(name = "product_id", nullable = false)
+    private Long productId;
+
+    /**
+     * <b>DDL-only shadow association — never navigate this.</b> Exists purely so Hibernate's
+     * schema generation still emits {@code fk_variant_product}. See
+     * {@code ProductPojo#tenantFk}'s Javadoc for the full reasoning, identical here.
+     */
+    @SuppressWarnings("unused")
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(
             name = "product_id",
+            insertable = false,
+            updatable = false,
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_variant_product")
     )
-    private ProductPojo product;
+    private ProductPojo productFk;
 
     /** Human label — "500 ml", "Large / Red". */
     @Column(name = "variant_label", nullable = false, length = 120)
@@ -141,20 +169,20 @@ public class VariantPojo {
         this.id = id;
     }
 
-    public TenantPojo getTenant() {
-        return tenant;
+    public Long getTenantId() {
+        return tenantId;
     }
 
-    public void setTenant(TenantPojo tenant) {
-        this.tenant = tenant;
+    public void setTenantId(Long tenantId) {
+        this.tenantId = tenantId;
     }
 
-    public ProductPojo getProduct() {
-        return product;
+    public Long getProductId() {
+        return productId;
     }
 
-    public void setProduct(ProductPojo product) {
-        this.product = product;
+    public void setProductId(Long productId) {
+        this.productId = productId;
     }
 
     public String getVariantLabel() {

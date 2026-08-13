@@ -637,8 +637,8 @@ class OrderWriteIT {
     private Long variant(TenantPojo tenant, Long productId, String label, String sku,
                          String mrp, String sellingPrice, int stock) {
         VariantPojo variant = new VariantPojo();
-        variant.setTenant(tenant);
-        variant.setProduct(em.getReference(ProductPojo.class, productId));
+        variant.setTenantId(tenant.getId());
+        variant.setProductId(productId);
         variant.setVariantLabel(label);
         variant.setSku(sku);
         variant.setQrCode("POS-QR-" + tenant.getId() + "-" + sku);

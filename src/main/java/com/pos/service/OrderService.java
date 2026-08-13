@@ -262,9 +262,9 @@ public class OrderService {
         List<VariantPojo> variants = new ArrayList<>(itemForms.size());
         List<Pricing.LineInput> inputs = new ArrayList<>(itemForms.size());
         for (OrderLineForm itemForm : itemForms) {
-            VariantPojo variant = resolveVariant(itemForm);
-            variants.add(variant);
-            inputs.add(lineInputOf(variant, itemForm));
+            VariantDao.VariantWithProduct found = resolveVariant(itemForm);
+            variants.add(found.variant());
+            inputs.add(lineInputOf(found.variant(), found.product(), itemForm));
         }
 
         Pricing.OrderTotals totals = Pricing.computeOrderTotals(inputs, orderDiscount);
@@ -311,22 +311,21 @@ public class OrderService {
      * fails exactly like a missing one, the same fail-closed answer
      * {@code VariantService.create} gives a foreign {@code productId}.
      */
-    private VariantPojo resolveVariant(OrderLineForm form) {
+    private VariantDao.VariantWithProduct resolveVariant(OrderLineForm form) {
         if (form.getVariantId() == null) {
             throw ValidationException.field("variantId", VARIANT_REQUIRED);
         }
         if (form.getQuantity() == null || form.getQuantity() <= 0) {
             throw ValidationException.field("quantity", QUANTITY_INVALID);
         }
-        VariantPojo variant = variantDao.findWithProduct(form.getVariantId());
-        if (variant == null) {
+        VariantDao.VariantWithProduct found = variantDao.findWithProduct(form.getVariantId());
+        if (found == null) {
             throw new NotFoundException(VariantService.NOT_FOUND);
         }
-        return variant;
+        return found;
     }
 
-    private Pricing.LineInput lineInputOf(VariantPojo variant, OrderLineForm form) {
-        ProductPojo product = variant.getProduct();
+    private Pricing.LineInput lineInputOf(VariantPojo variant, ProductPojo product, OrderLineForm form) {
         String name = product.getName() + " — " + variant.getVariantLabel();
         BigDecimal lineDiscount = form.getLineDiscount() == null ? BigDecimal.ZERO : form.getLineDiscount();
         return new Pricing.LineInput(variant.getId(), name, variant.getQrCode(),

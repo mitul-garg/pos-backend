@@ -23,7 +23,6 @@ import com.pos.pojo.ProductPojo;
 import com.pos.pojo.enums.Role;
 import com.pos.pojo.TenantPojo;
 import com.pos.pojo.enums.TenantStatus;
-import com.pos.pojo.VariantPojo;
 import com.pos.util.tenancy.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -511,15 +510,15 @@ public class DevSeeder {
     }
 
     private OrderLineForm orderLineForm(OrderLineSeed seedLine) {
-        VariantPojo variant = variantDao.findBySku(seedLine.sku());
-        if (variant == null) {
+        VariantDao.VariantWithProduct found = variantDao.findBySku(seedLine.sku());
+        if (found == null) {
             // A typo in the seed data -- see seedVariants' identical guard for why this
             // is the right place to fail rather than leaving a puzzling gap in the order.
             throw new IllegalStateException(
                     "Seed order names an unknown SKU: " + seedLine.sku());
         }
         OrderLineForm form = new OrderLineForm();
-        form.setVariantId(variant.getId());
+        form.setVariantId(found.variant().getId());
         form.setQuantity(seedLine.quantity());
         return form;
     }

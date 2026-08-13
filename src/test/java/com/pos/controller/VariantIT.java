@@ -744,8 +744,8 @@ class VariantIT {
      */
     private Long variant(TenantPojo tenant, Long productId, String sku, boolean active) {
         VariantPojo variant = new VariantPojo();
-        variant.setTenant(tenant);
-        variant.setProduct(em.getReference(ProductPojo.class, productId));
+        variant.setTenantId(tenant.getId());
+        variant.setProductId(productId);
         variant.setVariantLabel(sku);
         variant.setSku(sku);
         variant.setQrCode("QR-" + sku);

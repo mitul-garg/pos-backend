@@ -108,7 +108,9 @@ public class VariantService {
     @Transactional(readOnly = true)
     public List<VariantData> listByProduct(Long productId) {
         TenantContext.requireTenant();
-        return variantDao.findByProduct(productId).stream().map(this::toData).toList();
+        return variantDao.findByProduct(productId).stream()
+                .map(vp -> toData(vp.variant(), vp.product()))
+                .toList();
     }
 
     /**
@@ -128,11 +130,11 @@ public class VariantService {
         TenantContext.requireTenant();
 
         String code = qrCode == null ? "" : qrCode.trim();
-        VariantPojo variant = code.isEmpty() ? null : variantDao.findByQrCode(code);
-        if (variant == null) {
+        VariantDao.VariantWithProduct found = code.isEmpty() ? null : variantDao.findByQrCode(code);
+        if (found == null) {
             throw new NotFoundException(NOT_FOUND);
         }
-        return toData(variant);
+        return toData(found.variant(), found.product());
     }
 
     /**
@@ -153,7 +155,9 @@ public class VariantService {
             return List.of();
         }
         int safeLimit = Math.min(Math.max(limit, 1), MAX_SEARCH_LIMIT);
-        return variantDao.search(needle, safeLimit).stream().map(this::toData).toList();
+        return variantDao.search(needle, safeLimit).stream()
+                .map(vp -> toData(vp.variant(), vp.product()))
+                .toList();
     }
 
     /**
@@ -194,8 +198,8 @@ public class VariantService {
         long sequence = tenantSequenceDao.next(SequenceKind.QR, tenant);
 
         VariantPojo variant = new VariantPojo();
-        variant.setTenant(tenant);
-        variant.setProduct(product);
+        variant.setTenantId(tenant.getId());
+        variant.setProductId(product.getId());
         variant.setVariantLabel(variantLabel);
         variant.setAttributes(form.getAttributes());
         variant.setSku(sku == null ? QrCodes.fallbackSku(sequence) : sku);
@@ -224,7 +228,7 @@ public class VariantService {
         }
 
         variantDao.insert(variant);
-        return toData(variant);
+        return toData(variant, product);
     }
 
     /**
@@ -274,7 +278,7 @@ public class VariantService {
             variant.setActive(form.getActive());
         }
 
-        return toData(variant);
+        return toData(variant, productDao.find(variant.getProductId()));
     }
 
     /**
@@ -295,7 +299,7 @@ public class VariantService {
             throw new NotFoundException(NOT_FOUND);
         }
         variant.setActive(false);
-        return toData(variant);
+        return toData(variant, productDao.find(variant.getProductId()));
     }
 
     /**
@@ -317,10 +321,10 @@ public class VariantService {
         if (variant == null) {
             throw new NotFoundException(NOT_FOUND);
         }
-        TenantPojo tenant = variant.getTenant();
+        TenantPojo tenant = tenantDao.reference(variant.getTenantId());
         long sequence = tenantSequenceDao.next(SequenceKind.QR, tenant);
         variant.setQrCode(QrCodes.payload(tenant.getId(), sequence));
-        return toData(variant);
+        return toData(variant, productDao.find(variant.getProductId()));
     }
 
     /**
@@ -376,19 +380,14 @@ public class VariantService {
     }
 
     /**
-     * Mapped inside the transaction, which is what makes the parent's fields reachable:
-     * the association is {@code LAZY}, and every query in {@code VariantDao}
-     * {@code JOIN FETCH}es it precisely so this does not become one statement per row.
-     *
-     * <p>The display name uses an em dash, matching {@code withProduct()} in the mock
+     * The display name uses an em dash, matching {@code withProduct()} in the mock
      * character for character — it ends up on receipts and label prints, so "close enough"
      * would show up in print.
      */
-    private VariantData toData(VariantPojo variant) {
-        ProductPojo product = variant.getProduct();
+    private VariantData toData(VariantPojo variant, ProductPojo product) {
         return new VariantData(
                 variant.getId(),
-                variant.getTenant().getId(),
+                variant.getTenantId(),
                 product.getId(),
                 variant.getVariantLabel(),
                 variant.getAttributes(),

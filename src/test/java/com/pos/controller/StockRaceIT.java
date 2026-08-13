@@ -296,8 +296,8 @@ class StockRaceIT {
 
     private Long variant(Long productId, String sku, int stock) {
         VariantPojo variant = new VariantPojo();
-        variant.setTenant(em.getReference(TenantPojo.class, tenantId));
-        variant.setProduct(em.getReference(ProductPojo.class, productId));
+        variant.setTenantId(tenantId);
+        variant.setProductId(productId);
         variant.setVariantLabel(sku);
         variant.setSku(sku);
         variant.setQrCode("POS-QR-" + tenantId + "-" + sku);

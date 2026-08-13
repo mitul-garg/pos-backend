@@ -2,6 +2,7 @@ package com.pos.dao;
 
 import java.util.List;
 
+import com.pos.pojo.ProductPojo;
 import com.pos.pojo.VariantPojo;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -16,14 +17,23 @@ import org.springframework.stereotype.Repository;
  * printed in another store cannot resolve here, so it is indistinguishable from a code
  * that was never issued.
  *
- * <p><b>Every read {@code JOIN FETCH}es the product</b>, because every response is
- * enriched with the parent's name and GST slab ({@code VariantData}). The association is
- * {@code LAZY} — correct for the entity, since scoping happens on the column and eager
- * loading would make list queries N+1 — so the fetch is stated per query instead. Left
- * lazy, a 34-row catalogue list would be 35 statements.
+ * <p><b>Every read joins the product</b>, because every response is enriched with the
+ * parent's name and GST slab ({@code VariantData}). Peer-review Phase 2 replaced the old
+ * {@code JOIN FETCH v.product} with an ad-hoc {@code JOIN ... ON} — {@code VariantPojo.product}
+ * is no longer a navigable association — so reads now come back as a
+ * {@link VariantWithProduct} tuple instead of an enriched entity. Same single SQL join,
+ * same one round trip; left un-joined, a 34-row catalogue list would be 35 statements.
  */
 @Repository
 public class VariantDao {
+
+    /**
+     * A variant with its product, both loaded in the same round trip — the replacement for
+     * the entity {@code JOIN FETCH} used to hand back directly, now that
+     * {@code VariantPojo.product} is a plain id rather than a navigable association.
+     */
+    public record VariantWithProduct(VariantPojo variant, ProductPojo product) {
+    }
 
     /**
      * Both halves of the enrichment come from the parent, and the parent is filtered too
@@ -33,7 +43,7 @@ public class VariantDao {
      * two {@code tenant_id} foreign keys make structural.
      */
     private static final String SELECT_WITH_PRODUCT =
-            "SELECT v FROM VariantPojo v JOIN FETCH v.product p";
+            "SELECT v, p FROM VariantPojo v JOIN ProductPojo p ON p.id = v.productId";
 
     @PersistenceContext
     private EntityManager em;
@@ -51,24 +61,27 @@ public class VariantDao {
     /**
      * By primary key, product pre-fetched (C6). {@link #find} stays a plain {@code em.find}
      * for the reason on its own Javadoc; this is a second, JPQL, method for the one caller
-     * that needs the association loaded up front — {@code OrderService}, building a line
+     * that needs the product loaded up front — {@code OrderService}, building a line
      * snapshot from the product's name and GST slab. Ordinary-query scoping is exactly
      * what is wanted here, since this method has no by-id regression to hide.
      */
-    public VariantPojo findWithProduct(Long id) {
-        return em.createQuery(SELECT_WITH_PRODUCT + " WHERE v.id = :id", VariantPojo.class)
+    public VariantWithProduct findWithProduct(Long id) {
+        return em.createQuery(SELECT_WITH_PRODUCT + " WHERE v.id = :id", Object[].class)
                 .setParameter("id", id)
                 .getResultStream()
                 .findFirst()
+                .map(row -> new VariantWithProduct((VariantPojo) row[0], (ProductPojo) row[1]))
                 .orElse(null);
     }
 
     /** The variants of one product, oldest first, inactive ones included. */
-    public List<VariantPojo> findByProduct(Long productId) {
-        return em.createQuery(SELECT_WITH_PRODUCT + " WHERE p.id = :productId ORDER BY v.id",
-                        VariantPojo.class)
+    public List<VariantWithProduct> findByProduct(Long productId) {
+        return em.createQuery(SELECT_WITH_PRODUCT + " WHERE v.productId = :productId ORDER BY v.id",
+                        Object[].class)
                 .setParameter("productId", productId)
-                .getResultList();
+                .getResultStream()
+                .map(row -> new VariantWithProduct((VariantPojo) row[0], (ProductPojo) row[1]))
+                .toList();
     }
 
     /**
@@ -86,7 +99,7 @@ public class VariantDao {
      */
     public long countByProduct(Long productId) {
         return em.createQuery(
-                        "SELECT count(v) FROM VariantPojo v WHERE v.product.id = :productId", Long.class)
+                        "SELECT count(v) FROM VariantPojo v WHERE v.productId = :productId", Long.class)
                 .setParameter("productId", productId)
                 .getSingleResult();
     }
@@ -100,7 +113,7 @@ public class VariantDao {
      */
     public long countActiveByProduct(Long productId) {
         return em.createQuery(
-                        "SELECT count(v) FROM VariantPojo v WHERE v.product.id = :productId"
+                        "SELECT count(v) FROM VariantPojo v WHERE v.productId = :productId"
                                 + " AND v.active = true",
                         Long.class)
                 .setParameter("productId", productId)
@@ -120,27 +133,20 @@ public class VariantDao {
      * "not sellable" rather than "unknown code", which is a different conversation with
      * the customer.
      */
-    public VariantPojo findByQrCode(String qrCode) {
-        return em.createQuery(SELECT_WITH_PRODUCT + " WHERE v.qrCode = :qrCode", VariantPojo.class)
+    public VariantWithProduct findByQrCode(String qrCode) {
+        return em.createQuery(SELECT_WITH_PRODUCT + " WHERE v.qrCode = :qrCode", Object[].class)
                 .setParameter("qrCode", qrCode)
                 .getResultStream()
                 .findFirst()
+                .map(row -> new VariantWithProduct((VariantPojo) row[0], (ProductPojo) row[1]))
                 .orElse(null);
     }
 
     /**
-     * Manual-add search for the counter: active variants of active products, by product
-     * name or brand, or the variant's own SKU or label.
-     *
-     * <p>Both {@code active} predicates are the mock's, and the second is the one worth
-     * noticing — a variant of a deactivated product is not sellable even if the variant
-     * row itself was never touched.
-     */
-    /**
      * Is this SKU already taken <b>in this tenant</b>? {@code excludeId} is the row being
      * edited, so a variant does not collide with itself.
      *
-     * <p><b>TenantPojo-WIDE, not per product</b>, which is the mock's rule too after B4:
+     * <p><b>Tenant-wide, not per product</b>, which is the mock's rule too after B4:
      * uniqueness is {@code (tenant_id, sku)}, so two different products in one store must
      * not share a SKU. Checking only the parent's siblings — the obvious reading of "is
      * this SKU free for this product?" — is too narrow and lets a duplicate through to the
@@ -152,19 +158,6 @@ public class VariantDao {
      * {@code ApiExceptionHandler}'s constraint mapping turns the loser's violation into
      * the same 400 this produces for the uncontended case.
      */
-    /**
-     * By SKU, product pre-fetched. {@code DevSeeder}'s only caller: seeded orders
-     * (C6) reference variants by the same stable SKU literals the variant fixtures use,
-     * rather than by an id that only exists after that variant has been inserted.
-     */
-    public VariantPojo findBySku(String sku) {
-        return em.createQuery(SELECT_WITH_PRODUCT + " WHERE v.sku = :sku", VariantPojo.class)
-                .setParameter("sku", sku)
-                .getResultStream()
-                .findFirst()
-                .orElse(null);
-    }
-
     public boolean skuExists(String sku, Long excludeId) {
         return em.createQuery(
                         "SELECT count(v) FROM VariantPojo v WHERE v.sku = :sku"
@@ -173,6 +166,20 @@ public class VariantDao {
                 .setParameter("sku", sku)
                 .setParameter("excludeId", excludeId)
                 .getSingleResult() > 0;
+    }
+
+    /**
+     * By SKU, product pre-fetched. {@code DevSeeder}'s only caller: seeded orders
+     * (C6) reference variants by the same stable SKU literals the variant fixtures use,
+     * rather than by an id that only exists after that variant has been inserted.
+     */
+    public VariantWithProduct findBySku(String sku) {
+        return em.createQuery(SELECT_WITH_PRODUCT + " WHERE v.sku = :sku", Object[].class)
+                .setParameter("sku", sku)
+                .getResultStream()
+                .findFirst()
+                .map(row -> new VariantWithProduct((VariantPojo) row[0], (ProductPojo) row[1]))
+                .orElse(null);
     }
 
     /**
@@ -246,15 +253,25 @@ public class VariantDao {
                 .executeUpdate();
     }
 
-    public List<VariantPojo> search(String term, int limit) {
+    /**
+     * Manual-add search for the counter: active variants of active products, by product
+     * name or brand, or the variant's own SKU or label.
+     *
+     * <p>Both {@code active} predicates are the mock's, and the second is the one worth
+     * noticing — a variant of a deactivated product is not sellable even if the variant
+     * row itself was never touched.
+     */
+    public List<VariantWithProduct> search(String term, int limit) {
         return em.createQuery(SELECT_WITH_PRODUCT
                                 + " WHERE v.active = true AND p.active = true"
                                 + " AND (lower(p.name) LIKE :term OR lower(p.brand) LIKE :term"
                                 + " OR lower(v.sku) LIKE :term OR lower(v.variantLabel) LIKE :term)"
                                 + " ORDER BY p.name, v.variantLabel, v.id",
-                        VariantPojo.class)
+                        Object[].class)
                 .setParameter("term", "%" + term + "%")
                 .setMaxResults(limit)
-                .getResultList();
+                .getResultStream()
+                .map(row -> new VariantWithProduct((VariantPojo) row[0], (ProductPojo) row[1]))
+                .toList();
     }
 }
