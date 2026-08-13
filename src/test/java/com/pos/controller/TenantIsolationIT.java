@@ -20,7 +20,7 @@ import com.pos.pojo.TenantSequencePojo;
 import com.pos.pojo.enums.TenantStatus;
 import com.pos.pojo.enums.UnitOfMeasure;
 import com.pos.pojo.VariantPojo;
-import com.pos.util.TenantContext;
+import com.pos.util.tenancy.TenantContext;
 import com.pos.util.TestIps;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;

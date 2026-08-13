@@ -33,7 +33,7 @@ import com.pos.pojo.enums.SequenceKind;
 import com.pos.pojo.TenantPojo;
 import com.pos.util.MaxLength;
 import com.pos.util.Pricing;
-import com.pos.util.TenantContext;
+import com.pos.util.tenancy.TenantContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

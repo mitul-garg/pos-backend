@@ -11,16 +11,19 @@ import com.pos.util.MaxLength;
 /**
  * The tenant-code rule (required / format / reserved / duplicate) — shared between
  * {@link TenantService#create} (the {@code SUPER_ADMIN} platform path, C8) and
- * {@link TenantRegistrationWriter#register} (the public self-registration path, C9).
- * Extracted rather than duplicated a second time: a code is either safe to claim or
- * it isn't, regardless of which of the two ways a {@code TenantPojo} row gets minted, and
- * `tenant-registration-plan.md` §4 says explicitly that registration "reuses
- * {@code TenantService.create}'s validation shape" for exactly this reason.
+ * {@link com.pos.service.tenantregistration.TenantRegistrationWriter#register} (the public
+ * self-registration path, C9). Extracted rather than duplicated a second time: a code is
+ * either safe to claim or it isn't, regardless of which of the two ways a {@code TenantPojo}
+ * row gets minted, and `tenant-registration-plan.md` §4 says explicitly that registration
+ * "reuses {@code TenantService.create}'s validation shape" for exactly this reason.
  *
- * <p>Package-private — both callers live in {@code com.pos.service}, and this has no
- * business being part of the platform surface's own public API.
+ * <p><b>Public rather than package-private</b>, as of peer-review Phase 2's
+ * {@code service.tenantregistration} subpackage split — its two callers no longer share a
+ * package, so package-private visibility stopped being available, not merely stylistic.
+ * Still has no business being part of the platform surface's own public API in spirit; the
+ * two callers listed above remain the only ones.
  */
-final class TenantCodeRule {
+public final class TenantCodeRule {
 
     static final String CODE_REQUIRED = "Tenant code is required";
     static final String CODE_FORMAT = "Use lowercase letters, numbers and hyphens only";
@@ -44,7 +47,7 @@ final class TenantCodeRule {
      *         a caller can still read back what would have been stored — matching
      *         {@code TenantService.create}'s existing contract for this method
      */
-    static String validate(TenantDao tenantDao, String rawCode, String fieldKey, Map<String, String> errors) {
+    public static String validate(TenantDao tenantDao, String rawCode, String fieldKey, Map<String, String> errors) {
         String value = rawCode == null ? "" : rawCode.trim().toLowerCase(Locale.ROOT);
         if (value.isEmpty()) {
             errors.put(fieldKey, CODE_REQUIRED);

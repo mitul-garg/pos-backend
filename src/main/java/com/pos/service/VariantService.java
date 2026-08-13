@@ -22,7 +22,7 @@ import com.pos.pojo.enums.UnitOfMeasure;
 import com.pos.pojo.VariantPojo;
 import com.pos.util.MaxLength;
 import com.pos.util.QrCodes;
-import com.pos.util.TenantContext;
+import com.pos.util.tenancy.TenantContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

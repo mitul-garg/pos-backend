@@ -1,8 +1,8 @@
 package com.pos.config;
 
-import com.pos.util.GoogleRecaptchaVerifier;
-import com.pos.util.NoopRecaptchaVerifier;
-import com.pos.util.RecaptchaVerifier;
+import com.pos.util.recaptcha.GoogleRecaptchaVerifier;
+import com.pos.util.recaptcha.NoopRecaptchaVerifier;
+import com.pos.util.recaptcha.RecaptchaVerifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 

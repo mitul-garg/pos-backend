@@ -16,7 +16,7 @@ import com.pos.pojo.enums.Role;
 import com.pos.pojo.TenantPojo;
 import com.pos.pojo.enums.TenantStatus;
 import com.pos.util.MaxLength;
-import com.pos.util.PlatformOperation;
+import com.pos.util.tenancy.PlatformOperation;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;

@@ -228,6 +228,47 @@ com.pos
 never HTTP ones — needed somewhere for them to live, and `model/` is the wire
 contract, not the failure vocabulary.
 
+**`util/` and `service/` are subpackaged by cluster, as of peer-review Phase 2 —
+the one deliberate, scoped exception to "one package per layer."** `util/` had
+grown into 22 unrelated classes (rate-limiting, email, reCAPTCHA, JWT, tenancy,
+pricing/sequences/OpenAPI with no natural cluster) with nothing in the directory
+tree showing which classes belonged together; `service/` had one obvious cluster
+(the C9 tenant-registration trio). Only these two got split — `controller/`,
+`dao/`, `pojo/`, `model/` stay flat, since none of them have `util/`'s grab-bag
+problem at this codebase's size:
+
+```
+com.pos.util
+  ├─ ratelimit/    ApiRateLimiter, FixedWindowLimiter, LoginRateLimiter,
+  │                RegistrationRateLimiter, LoginAttemptGuard
+  ├─ email/        EmailSender, JavaMailEmailSender, LoggingEmailSender, EmailFormat
+  ├─ recaptcha/    RecaptchaVerifier, GoogleRecaptchaVerifier, NoopRecaptchaVerifier
+  ├─ jwt/          JwtPrincipal, JwtTokenService
+  ├─ tenancy/      TenantContext, PlatformOperation
+  └─ (flat)        Pricing, QrCodes, MaxLength, VerificationTokens, Honeypot,
+                   OpenApiGenerator — no cluster of more than one, left alone
+
+com.pos.service
+  ├─ tenantregistration/   TenantRegistrationService, TenantRegistrationWriter,
+  │                        RegisteredTenant
+  └─ (flat)                everything else, including TenantService
+```
+
+**`TenantService` stays in the flat `service/` package on purpose**, not
+`service.tenantregistration` — the `Tenant*`-prefix alphabetical-clustering
+convention below (the platform-class audit trail) is a property of one directory
+listing, and splitting the platform surface's own services across two packages
+would break the exact thing that convention exists to keep greppable.
+
+**A real cost, not a free move**: `TenantCodeRule` was package-private in
+`service/` specifically because both its callers — `TenantService.create` and
+`TenantRegistrationWriter.register` — lived in the same package; its own Javadoc
+said so. Once `TenantRegistrationWriter` moved out, that stopped being true, and
+`TenantCodeRule` (the class and its `validate` method) had to become `public`.
+Any future subpackaging move should check for this same trap — package-private
+access is a real dependency, not incidental — before assuming a file move is
+purely mechanical.
+
 `dao/` and "repository" are the same layer; the course uses both names, the
 annotation is `@Repository`.
 

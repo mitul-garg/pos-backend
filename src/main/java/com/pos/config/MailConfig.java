@@ -2,9 +2,9 @@ package com.pos.config;
 
 import java.util.Properties;
 
-import com.pos.util.EmailSender;
-import com.pos.util.JavaMailEmailSender;
-import com.pos.util.LoggingEmailSender;
+import com.pos.util.email.EmailSender;
+import com.pos.util.email.JavaMailEmailSender;
+import com.pos.util.email.LoggingEmailSender;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.mail.javamail.JavaMailSenderImpl;

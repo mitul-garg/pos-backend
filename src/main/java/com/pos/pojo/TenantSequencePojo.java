@@ -1,7 +1,7 @@
 package com.pos.pojo;
 
 import com.pos.pojo.enums.SequenceKind;
-import com.pos.util.TenantContext;
+import com.pos.util.tenancy.TenantContext;
 import jakarta.persistence.Column;
 import jakarta.persistence.EmbeddedId;
 import jakarta.persistence.Entity;

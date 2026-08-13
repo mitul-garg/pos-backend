@@ -5,7 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
 
-import com.pos.util.TenantContext;
+import com.pos.util.tenancy.TenantContext;
 import jakarta.persistence.Entity;
 import org.hibernate.annotations.Filter;
 import org.junit.jupiter.api.DisplayName;

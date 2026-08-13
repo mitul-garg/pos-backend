@@ -7,7 +7,7 @@ import java.util.Map;
 import com.pos.pojo.AppUserPojo;
 import com.pos.pojo.enums.Role;
 import com.pos.pojo.TenantPojo;
-import com.pos.util.PlatformOperation;
+import com.pos.util.tenancy.PlatformOperation;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import jakarta.persistence.PersistenceContext;

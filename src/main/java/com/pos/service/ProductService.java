@@ -16,7 +16,7 @@ import com.pos.model.ProductData;
 import com.pos.model.ProductForm;
 import com.pos.pojo.ProductPojo;
 import com.pos.util.MaxLength;
-import com.pos.util.TenantContext;
+import com.pos.util.tenancy.TenantContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

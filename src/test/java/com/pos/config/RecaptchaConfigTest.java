@@ -1,8 +1,8 @@
 package com.pos.config;
 
-import com.pos.util.GoogleRecaptchaVerifier;
-import com.pos.util.NoopRecaptchaVerifier;
-import com.pos.util.RecaptchaVerifier;
+import com.pos.util.recaptcha.GoogleRecaptchaVerifier;
+import com.pos.util.recaptcha.NoopRecaptchaVerifier;
+import com.pos.util.recaptcha.RecaptchaVerifier;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

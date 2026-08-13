@@ -13,7 +13,7 @@ import com.pos.model.UserForm;
 import com.pos.pojo.AppUserPojo;
 import com.pos.pojo.enums.Role;
 import com.pos.util.MaxLength;
-import com.pos.util.TenantContext;
+import com.pos.util.tenancy.TenantContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;

@@ -3,7 +3,7 @@ package com.pos.pojo;
 import java.math.BigDecimal;
 import java.time.Instant;
 
-import com.pos.util.TenantContext;
+import com.pos.util.tenancy.TenantContext;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;

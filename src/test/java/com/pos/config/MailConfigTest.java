@@ -1,8 +1,8 @@
 package com.pos.config;
 
-import com.pos.util.EmailSender;
-import com.pos.util.JavaMailEmailSender;
-import com.pos.util.LoggingEmailSender;
+import com.pos.util.email.EmailSender;
+import com.pos.util.email.JavaMailEmailSender;
+import com.pos.util.email.LoggingEmailSender;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

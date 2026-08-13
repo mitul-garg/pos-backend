@@ -6,7 +6,7 @@ import java.util.List;
 import com.pos.exception.InvalidCredentialsException;
 import com.pos.pojo.enums.Role;
 import com.pos.service.AuthService;
-import com.pos.util.ApiRateLimiter;
+import com.pos.util.ratelimit.ApiRateLimiter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;

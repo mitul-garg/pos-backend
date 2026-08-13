@@ -2,7 +2,7 @@ package com.pos.pojo;
 
 import com.pos.pojo.enums.OrderStatus;
 import com.pos.pojo.enums.PaymentMethod;
-import com.pos.util.TenantContext;
+import com.pos.util.tenancy.TenantContext;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

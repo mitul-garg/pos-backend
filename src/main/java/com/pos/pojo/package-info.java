@@ -33,6 +33,6 @@
                 resolver = TenantContext.Resolver.class))
 package com.pos.pojo;
 
-import com.pos.util.TenantContext;
+import com.pos.util.tenancy.TenantContext;
 import org.hibernate.annotations.FilterDef;
 import org.hibernate.annotations.ParamDef;

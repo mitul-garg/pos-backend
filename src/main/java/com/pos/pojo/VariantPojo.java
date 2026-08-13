@@ -1,7 +1,7 @@
 package com.pos.pojo;
 
 import com.pos.pojo.enums.UnitOfMeasure;
-import com.pos.util.TenantContext;
+import com.pos.util.tenancy.TenantContext;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

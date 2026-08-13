@@ -5,13 +5,13 @@ import com.pos.service.OrderService;
 import com.pos.service.PaymentService;
 import com.pos.service.ProductService;
 import com.pos.service.ReturnService;
-import com.pos.service.TenantRegistrationService;
-import com.pos.service.TenantRegistrationWriter;
+import com.pos.service.tenantregistration.TenantRegistrationService;
+import com.pos.service.tenantregistration.TenantRegistrationWriter;
 import com.pos.service.TenantService;
 import com.pos.service.UserService;
 import com.pos.service.VariantService;
-import com.pos.util.LoginRateLimiter;
-import com.pos.util.RegistrationRateLimiter;
+import com.pos.util.ratelimit.LoginRateLimiter;
+import com.pos.util.ratelimit.RegistrationRateLimiter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 

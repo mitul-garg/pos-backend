@@ -14,7 +14,7 @@ import com.pos.pojo.AppUserPojo;
 import com.pos.pojo.enums.Role;
 import com.pos.pojo.TenantPojo;
 import com.pos.pojo.enums.TenantStatus;
-import com.pos.util.TenantContext;
+import com.pos.util.tenancy.TenantContext;
 import com.pos.util.TestIps;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;

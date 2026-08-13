@@ -24,7 +24,7 @@ import com.pos.pojo.enums.Role;
 import com.pos.pojo.TenantPojo;
 import com.pos.pojo.enums.TenantStatus;
 import com.pos.pojo.VariantPojo;
-import com.pos.util.TenantContext;
+import com.pos.util.tenancy.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
