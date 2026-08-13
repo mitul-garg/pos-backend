@@ -135,6 +135,26 @@ declarations become inert: nothing errors, but orphaned rows become possible and
 the integrity has to move into the service layer. Worth re-checking at deploy time
 rather than assuming the assumption held.
 
+### Deleting a product/variant referenced by order or return history (peer-review Phase 1)
+
+**Not reachable, checked at both layers.** `ProductDao`/`VariantDao` expose no
+`delete()` method — `DELETE /api/products/{id}` and `DELETE /api/variants/{id}` are
+both `deactivate()`, which flips `is_active` and nothing else (see
+`ProductService`/`VariantService`). So there is no code path that issues a SQL
+`DELETE` against `product` or `variant` at all today.
+
+Even if one existed, `fk_order_line_variant`, `fk_return_line_variant` and
+`fk_variant_product` carry no `ON DELETE` clause — MySQL's default is
+`NO ACTION`/`RESTRICT` — so a hard delete of a variant or product still referenced
+by an order line, return line, or (for a product) any of its variants would be
+rejected by the database itself. This is the correct backstop precisely because
+"nothing cascades" above already covers it: order/return lines are financial
+history and must never silently disappear because a catalogue row did.
+
+Revisit only if a `delete()`/hard-delete path is ever added to either DAO — at
+that point this section needs a real answer for "what happens to the FK
+violation", not just a description of why it can't happen yet.
+
 ## `SchemaConstraintsIT` — the test that guards this file
 
 **Built in C2** (`src/test/java/com/pos/pojo/SchemaConstraintsIT.java`).
