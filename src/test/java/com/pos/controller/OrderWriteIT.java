@@ -351,6 +351,46 @@ class OrderWriteIT {
             list(asCashier(), "status", "HELD").andExpect(jsonPath("$.total").value(1))
                     .andExpect(jsonPath("$.items[0].status").value("HELD"));
         }
+
+        /**
+         * Peer-review Phase 1: {@code list} used to read each order's {@code lines} lazily,
+         * one extra query per row (N+1). {@code OrderDao.findLinesByOrderIds} batches the
+         * whole page's lines into one query instead, grouped back onto each order by id —
+         * the risk that refactor introduces is lines leaking across orders, which this pins
+         * against two orders of different line counts on the page at once.
+         */
+        @Test
+        @DisplayName("each order's items are its own, not mixed across orders on the page")
+        void eachOrdersItemsAreItsOwn() throws Exception {
+            String orderAId = JsonPath.read(create(asCashier(), """
+                            {"items":[{"variantId":"%s","quantity":2},{"variantId":"%s","quantity":1}]}
+                            """.formatted(milk500, lays52))
+                            .andExpect(status().isCreated())
+                            .andReturn().getResponse().getContentAsString(),
+                    "$.id");
+            String orderBId = JsonPath.read(create(asCashier(), """
+                            {"items":[{"variantId":"%s","quantity":3}]}
+                            """.formatted(lays52))
+                            .andExpect(status().isCreated())
+                            .andReturn().getResponse().getContentAsString(),
+                    "$.id");
+
+            ResultActions result = list(asCashier());
+            result.andExpect(jsonPath("$.total").value(2));
+
+            // Newest first, tie-broken by id -- orderB was created second.
+            result.andExpect(jsonPath("$.items[0].id").value(orderBId))
+                    .andExpect(jsonPath("$.items[0].items", hasSize(1)))
+                    .andExpect(jsonPath("$.items[0].items[0].variantId").value(lays52.toString()))
+                    .andExpect(jsonPath("$.items[0].items[0].quantity").value(3));
+
+            result.andExpect(jsonPath("$.items[1].id").value(orderAId))
+                    .andExpect(jsonPath("$.items[1].items", hasSize(2)))
+                    .andExpect(jsonPath("$.items[1].items[0].variantId").value(milk500.toString()))
+                    .andExpect(jsonPath("$.items[1].items[0].quantity").value(2))
+                    .andExpect(jsonPath("$.items[1].items[1].variantId").value(lays52.toString()))
+                    .andExpect(jsonPath("$.items[1].items[1].quantity").value(1));
+        }
     }
 
     @Nested

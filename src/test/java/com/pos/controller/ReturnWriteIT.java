@@ -402,6 +402,43 @@ class ReturnWriteIT {
 
             list(asAdmin()).andExpect(jsonPath("$.total").value(1));
         }
+
+        /**
+         * Peer-review Phase 1: {@code list} used to read each return's {@code lines} lazily,
+         * one extra query per row (N+1). {@code ReturnDao.findLinesByReturnIds} batches the
+         * whole page's lines into one query instead, grouped back onto each return by id —
+         * the risk that refactor introduces is lines leaking across returns, which this
+         * pins against two returns on the page at once.
+         */
+        @Test
+        @DisplayName("each return's items are its own, not mixed across returns on the page")
+        void eachReturnsItemsAreItsOwn() throws Exception {
+            String orderAId = createAndPayOrderId(milk500, 3);
+            String orderBId = createAndPayOrderId(lays52, 4);
+
+            String returnAId = JsonPath.read(
+                    createReturn(orderAId, milk500, 2).andExpect(status().isCreated())
+                            .andReturn().getResponse().getContentAsString(),
+                    "$.id");
+            String returnBId = JsonPath.read(
+                    createReturn(orderBId, lays52, 3).andExpect(status().isCreated())
+                            .andReturn().getResponse().getContentAsString(),
+                    "$.id");
+
+            ResultActions result = list(asAdmin());
+            result.andExpect(jsonPath("$.total").value(2));
+
+            // Newest first, tie-broken by id -- returnB was created second.
+            result.andExpect(jsonPath("$.items[0].id").value(returnBId))
+                    .andExpect(jsonPath("$.items[0].items", hasSize(1)))
+                    .andExpect(jsonPath("$.items[0].items[0].variantId").value(lays52.toString()))
+                    .andExpect(jsonPath("$.items[0].items[0].quantity").value(3));
+
+            result.andExpect(jsonPath("$.items[1].id").value(returnAId))
+                    .andExpect(jsonPath("$.items[1].items", hasSize(1)))
+                    .andExpect(jsonPath("$.items[1].items[0].variantId").value(milk500.toString()))
+                    .andExpect(jsonPath("$.items[1].items[0].quantity").value(2));
+        }
     }
 
     @Nested

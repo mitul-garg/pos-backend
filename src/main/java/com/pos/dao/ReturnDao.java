@@ -1,9 +1,12 @@
 package com.pos.dao;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.pos.pojo.ReturnLine;
 import com.pos.pojo.SalesReturn;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -103,5 +106,31 @@ public class ReturnDao {
             byVariant.put((Long) row[0], ((Number) row[1]).intValue());
         }
         return byVariant;
+    }
+
+    /**
+     * Every line for a whole page of returns, batched into one query and grouped by
+     * return id — the return-history half of {@code OrderDao.findLinesByOrderIds}'s N+1
+     * fix (peer-review Phase 1), same shape for the identical reason.
+     *
+     * <p>Ordered {@code return_id, id} so each return's lines come back in the same
+     * order {@code salesReturn.getLines()} would produce.
+     */
+    public Map<Long, List<ReturnLine>> findLinesByReturnIds(List<Long> returnIds) {
+        if (returnIds.isEmpty()) {
+            return Map.of();
+        }
+        List<ReturnLine> lines = em.createQuery(
+                        "SELECT l FROM ReturnLine l WHERE l.salesReturn.id IN :returnIds"
+                                + " ORDER BY l.salesReturn.id, l.id",
+                        ReturnLine.class)
+                .setParameter("returnIds", returnIds)
+                .getResultList();
+
+        Map<Long, List<ReturnLine>> byReturn = new LinkedHashMap<>();
+        for (ReturnLine line : lines) {
+            byReturn.computeIfAbsent(line.getSalesReturn().getId(), k -> new ArrayList<>()).add(line);
+        }
+        return byReturn;
     }
 }

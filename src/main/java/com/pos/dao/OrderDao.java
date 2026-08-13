@@ -1,8 +1,11 @@
 package com.pos.dao;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
+import com.pos.pojo.OrderLine;
 import com.pos.pojo.OrderStatus;
 import com.pos.pojo.PosOrder;
 import jakarta.persistence.EntityManager;
@@ -23,10 +26,10 @@ import org.springframework.stereotype.Repository;
  * here, unlike {@code VariantDao}'s join onto its parent product. A to-many collection
  * cannot be fetch-joined under {@code setFirstResult}/{@code setMaxResults} without
  * Hibernate silently paginating in memory — the classic JPA trap — so {@link #list}
- * leaves it lazy and {@code OrderService} reads it per row inside the same transaction.
- * That is one extra statement per order on a page (bounded by {@code pageSize}, at most
- * 200), not per line, and is the same trade {@code ProductDao} already makes for every
- * association it does not eagerly join.
+ * leaves it lazy. {@code OrderService.list} no longer reads it per row, though
+ * ({@link #findLinesByOrderIds} below, peer-review Phase 1) — {@link #get} and
+ * {@code PaymentService} still do, which is one extra statement for one order, not a
+ * per-row problem.
  */
 @Repository
 public class OrderDao {
@@ -106,6 +109,37 @@ public class OrderDao {
     public void insert(PosOrder order) {
         em.persist(order);
         em.flush();
+    }
+
+    /**
+     * Every line for a whole page of orders, batched into one query and grouped by
+     * order id — the fix for {@code OrderService.list}'s N+1 (peer-review Phase 1):
+     * one extra {@code SELECT} for the whole page instead of one per row.
+     * {@code OrderLine} carries its own {@code tenant_id} column (denormalised for
+     * exactly this reason, per its own Javadoc), so this query is scoped on its own
+     * terms rather than through a joined parent.
+     *
+     * <p>Ordered {@code order_id, id} so each order's lines come back in the same order
+     * {@code order.getLines()} would produce — neither side declares an
+     * {@code @OrderBy}, so that order is insertion order, which is also primary-key
+     * order.
+     */
+    public Map<Long, List<OrderLine>> findLinesByOrderIds(List<Long> orderIds) {
+        if (orderIds.isEmpty()) {
+            return Map.of();
+        }
+        List<OrderLine> lines = em.createQuery(
+                        "SELECT l FROM OrderLine l WHERE l.order.id IN :orderIds"
+                                + " ORDER BY l.order.id, l.id",
+                        OrderLine.class)
+                .setParameter("orderIds", orderIds)
+                .getResultList();
+
+        Map<Long, List<OrderLine>> byOrder = new LinkedHashMap<>();
+        for (OrderLine line : lines) {
+            byOrder.computeIfAbsent(line.getOrder().getId(), k -> new ArrayList<>()).add(line);
+        }
+        return byOrder;
     }
 
     private String where(OrderStatus status, Long cashierId) {

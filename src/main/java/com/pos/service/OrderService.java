@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.Year;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import com.pos.config.AppProperties;
 import com.pos.dao.AppUserDao;
@@ -130,10 +131,14 @@ public class OrderService {
         int safePageSize = Math.min(Math.max(pageSize, 1), 200);
 
         long total = orderDao.count(status, effectiveCashierId);
-        List<OrderData> items = orderDao
-                .list(status, effectiveCashierId, (safePage - 1) * safePageSize, safePageSize)
-                .stream()
-                .map(this::toData)
+        List<PosOrder> orders = orderDao.list(
+                status, effectiveCashierId, (safePage - 1) * safePageSize, safePageSize);
+        // Peer-review Phase 1: one batched query for the whole page's lines, instead of
+        // each row's lazy `lines` firing its own SELECT (see OrderDao.findLinesByOrderIds).
+        Map<Long, List<OrderLine>> linesByOrder =
+                orderDao.findLinesByOrderIds(orders.stream().map(PosOrder::getId).toList());
+        List<OrderData> items = orders.stream()
+                .map(o -> toData(o, linesByOrder.getOrDefault(o.getId(), List.of())))
                 .toList();
         return new PageData<>(items, total, safePage, safePageSize);
     }
@@ -338,10 +343,23 @@ public class OrderService {
 
     /**
      * Mapped inside the transaction — {@code order.getLines()} and the {@code cashier}
-     * association are both {@code LAZY}, and this is the one read of either.
+     * association are both {@code LAZY}, and this is the one read of either. Used by
+     * {@link #get} and {@code PaymentService}, where reading the lazy collection directly
+     * is one extra query for one order, not a per-row problem.
      */
     OrderData toData(PosOrder order) {
-        List<OrderLineData> items = order.getLines().stream()
+        return toData(order, order.getLines());
+    }
+
+    /**
+     * The core mapper, taking {@code lines} explicitly rather than reading
+     * {@code order.getLines()} itself — {@link #list} batches every order's lines on
+     * the page into one query ({@code OrderDao.findLinesByOrderIds}, peer-review
+     * Phase 1) rather than letting each row's lazy association fire its own
+     * {@code SELECT}, and passes the already-loaded lines in here instead.
+     */
+    private OrderData toData(PosOrder order, List<OrderLine> lines) {
+        List<OrderLineData> items = lines.stream()
                 .map(l -> new OrderLineData(l.getVariant().getId(), l.getName(), l.getQrCode(),
                         l.getQuantity(), l.getUnitPrice(), l.getTaxRatePercent(),
                         l.getLineDiscount(), l.getLineTotal()))

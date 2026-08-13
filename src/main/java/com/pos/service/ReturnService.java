@@ -149,10 +149,14 @@ public class ReturnService {
         int safePageSize = Math.min(Math.max(pageSize, 1), 200);
 
         long total = returnDao.count(effectiveProcessedBy);
-        List<ReturnData> items = returnDao
-                .list(effectiveProcessedBy, (safePage - 1) * safePageSize, safePageSize)
-                .stream()
-                .map(this::toData)
+        List<SalesReturn> returns =
+                returnDao.list(effectiveProcessedBy, (safePage - 1) * safePageSize, safePageSize);
+        // Peer-review Phase 1: one batched query for the whole page's lines, instead of
+        // each row's lazy `lines` firing its own SELECT (see ReturnDao.findLinesByReturnIds).
+        Map<Long, List<ReturnLine>> linesByReturn = returnDao.findLinesByReturnIds(
+                returns.stream().map(SalesReturn::getId).toList());
+        List<ReturnData> items = returns.stream()
+                .map(r -> toData(r, linesByReturn.getOrDefault(r.getId(), List.of())))
                 .toList();
         return new PageData<>(items, total, safePage, safePageSize);
     }
@@ -319,9 +323,24 @@ public class ReturnService {
                 returnable);
     }
 
-    /** Mapped inside the transaction — {@code getLines()} and {@code processedBy} are LAZY. */
+    /**
+     * Mapped inside the transaction — {@code getLines()} and {@code processedBy} are LAZY.
+     * Used by {@link #get} and {@link #create}, where reading the lazy collection directly
+     * is one extra query for one return, not a per-row problem.
+     */
     private ReturnData toData(SalesReturn salesReturn) {
-        List<ReturnLineData> items = salesReturn.getLines().stream()
+        return toData(salesReturn, salesReturn.getLines());
+    }
+
+    /**
+     * The core mapper, taking {@code lines} explicitly rather than reading
+     * {@code salesReturn.getLines()} itself — {@link #list} batches every return's
+     * lines on the page into one query ({@code ReturnDao.findLinesByReturnIds},
+     * peer-review Phase 1) rather than letting each row's lazy association fire its own
+     * {@code SELECT}, and passes the already-loaded lines in here instead.
+     */
+    private ReturnData toData(SalesReturn salesReturn, List<ReturnLine> lines) {
+        List<ReturnLineData> items = lines.stream()
                 .map(l -> new ReturnLineData(l.getVariant().getId(), l.getName(), l.getQuantity(),
                         l.getUnitPrice(), l.getTaxRatePercent(), l.getLineRefund()))
                 .toList();
