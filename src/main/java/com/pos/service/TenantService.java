@@ -62,11 +62,30 @@ public class TenantService {
         this.passwordEncoder = passwordEncoder;
     }
 
-    /** {@code GET /api/tenants} — every tenant but the reserved platform row, newest first. */
+    /**
+     * {@code GET /api/tenants} — every tenant but the reserved platform row, newest first.
+     *
+     * <p>The three counts {@link #toData} needs are batched here rather than read one
+     * tenant at a time — peer-review Phase 1's {@code 3N+1} fix. See
+     * {@code AppUserDao.countsByTenants} / {@code TenantDao.productCountsByTenants} /
+     * {@code orderCountsByTenants}.
+     */
     @Transactional(readOnly = true)
     @PlatformOperation
     public List<TenantData> list() {
-        return tenantDao.list().stream().map(this::toData).toList();
+        List<Tenant> tenants = tenantDao.list();
+        List<Long> ids = tenants.stream().map(Tenant::getId).toList();
+
+        Map<Long, Long> userCounts = appUserDao.countsByTenants(ids);
+        Map<Long, Long> productCounts = tenantDao.productCountsByTenants(ids);
+        Map<Long, Long> orderCounts = tenantDao.orderCountsByTenants(ids);
+
+        return tenants.stream()
+                .map(t -> toData(t,
+                        userCounts.getOrDefault(t.getId(), 0L),
+                        productCounts.getOrDefault(t.getId(), 0L),
+                        orderCounts.getOrDefault(t.getId(), 0L)))
+                .toList();
     }
 
     /**
@@ -171,19 +190,32 @@ public class TenantService {
      * rather than one join, matching the mock's three separate {@code .filter().length}
      * calls in {@code withCounts} — a tenant with no products or orders yet is the common
      * case for a freshly created store, and three simple counts are cheaper to get right
-     * than one query spanning three unrelated tables.
+     * than one query spanning three unrelated tables. Used by {@link #get}, {@link #create}
+     * and {@link #updateStatus}, each mapping exactly one tenant — {@link #list} batches
+     * all three counts instead (peer-review Phase 1) and goes through the overload below.
      */
     private TenantData toData(Tenant tenant) {
         Long id = tenant.getId();
+        return toData(tenant, appUserDao.countByTenant(id), tenantDao.productCount(id),
+                tenantDao.orderCount(id));
+    }
+
+    /**
+     * The core mapper, taking every count explicitly rather than reading them from the
+     * DAOs itself — {@link #list} batches every tenant's three counts into three
+     * {@code GROUP BY} queries run once for the whole list (peer-review Phase 1's
+     * {@code 3N+1} fix) instead of three per-tenant queries times every row.
+     */
+    private TenantData toData(Tenant tenant, long userCount, long productCount, long orderCount) {
         return new TenantData(
-                id,
+                tenant.getId(),
                 tenant.getName(),
                 tenant.getCode(),
                 tenant.getStatus(),
                 tenant.getCreatedAt(),
-                appUserDao.countByTenant(id),
-                tenantDao.productCount(id),
-                tenantDao.orderCount(id));
+                userCount,
+                productCount,
+                orderCount);
     }
 
     private String trimToNull(String value) {

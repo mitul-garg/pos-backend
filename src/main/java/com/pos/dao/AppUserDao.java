@@ -1,6 +1,8 @@
 package com.pos.dao;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import com.pos.pojo.AppUser;
 import com.pos.pojo.Role;
@@ -229,6 +231,35 @@ public class AppUserDao {
                         "SELECT count(u) FROM AppUser u WHERE u.tenant.id = :tenantId", Long.class)
                 .setParameter("tenantId", tenantId)
                 .getSingleResult();
+    }
+
+    /**
+     * Same as {@link #countByTenant}, batched into one {@code GROUP BY} for the whole
+     * tenant list — the fix for {@code TenantService.list}'s {@code 3N+1} (peer-review
+     * Phase 1): one query for every tenant on the page instead of one call per tenant.
+     *
+     * <p>A tenant with zero users is simply absent from the result — {@code GROUP BY}
+     * has nothing to group for it — so the caller reads this with
+     * {@code getOrDefault(id, 0L)}, the same shape {@code TenantDao.productCountsByTenants}
+     * hands back.
+     */
+    @PlatformOperation
+    public Map<Long, Long> countsByTenants(List<Long> tenantIds) {
+        if (tenantIds.isEmpty()) {
+            return Map.of();
+        }
+        List<Object[]> rows = em.createQuery(
+                        "SELECT u.tenant.id, count(u) FROM AppUser u"
+                                + " WHERE u.tenant.id IN :tenantIds GROUP BY u.tenant.id",
+                        Object[].class)
+                .setParameter("tenantIds", tenantIds)
+                .getResultList();
+
+        Map<Long, Long> byTenant = new LinkedHashMap<>();
+        for (Object[] row : rows) {
+            byTenant.put((Long) row[0], (Long) row[1]);
+        }
+        return byTenant;
     }
 
     /**

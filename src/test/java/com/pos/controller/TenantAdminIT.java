@@ -41,6 +41,7 @@ import org.springframework.web.context.WebApplicationContext;
 
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasItem;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -175,6 +176,30 @@ class TenantAdminIT {
                     .andExpect(jsonPath("$.userCount").value(1))
                     .andExpect(jsonPath("$.productCount").value(0))
                     .andExpect(jsonPath("$.orderCount").value(0));
+        }
+
+        /**
+         * Peer-review Phase 1: {@code list} used to run {@code AppUserDao.countByTenant} /
+         * {@code TenantDao.productCount}/{@code orderCount} once per tenant ({@code 3N+1}
+         * queries for the page). {@code countsByTenants}/{@code productCountsByTenants}/
+         * {@code orderCountsByTenants} batch all three into one {@code GROUP BY} query each,
+         * grouped back onto each tenant by id — the risk that refactor introduces is one
+         * tenant's counts leaking onto another's, which this pins directly against the
+         * <b>list</b> response (unlike the test above, which only reads counts off the
+         * single-tenant {@code GET /{id}}). Airport's zero product/order counts also prove
+         * a tenant absent from a {@code GROUP BY} result — nothing to group for zero rows —
+         * still comes back as {@code 0}, not {@code null} or a missing field.
+         */
+        @Test
+        @DisplayName("the list response's own counts are correct per tenant, not mixed up")
+        void listResponseCountsAreCorrectPerTenant() throws Exception {
+            listTenants(asSuperAdmin())
+                    .andExpect(jsonPath("$[?(@.code=='mg-road')].userCount").value(hasItem(2)))
+                    .andExpect(jsonPath("$[?(@.code=='mg-road')].productCount").value(hasItem(1)))
+                    .andExpect(jsonPath("$[?(@.code=='mg-road')].orderCount").value(hasItem(1)))
+                    .andExpect(jsonPath("$[?(@.code=='airport')].userCount").value(hasItem(1)))
+                    .andExpect(jsonPath("$[?(@.code=='airport')].productCount").value(hasItem(0)))
+                    .andExpect(jsonPath("$[?(@.code=='airport')].orderCount").value(hasItem(0)));
         }
 
         @Test

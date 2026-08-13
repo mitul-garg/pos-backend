@@ -1,7 +1,9 @@
 package com.pos.dao;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import com.pos.pojo.Product;
 import com.pos.pojo.Tenant;
@@ -155,6 +157,69 @@ public class TenantDao {
             session.enableFilter(TenantContext.FILTER_NAME)
                     .setParameter(TenantContext.PARAM_NAME, TenantContext.NO_TENANT);
         }
+    }
+
+    /**
+     * Same as {@link #productCount}, batched into one {@code GROUP BY} for the whole
+     * tenant list — the fix for {@code TenantService.list}'s {@code 3N+1} (peer-review
+     * Phase 1): one query for every tenant on the page instead of one call per tenant.
+     * Still needs the identical disable/re-enable dance {@link #productCount} does —
+     * this reads {@link Product} on behalf of a {@code SUPER_ADMIN} with no tenant of
+     * its own, whether it's counting one tenant or every tenant on the page.
+     *
+     * <p>A tenant with zero products is simply absent from the result — {@code GROUP BY}
+     * has nothing to group for it — so the caller reads this with
+     * {@code getOrDefault(id, 0L)}.
+     */
+    @PlatformOperation
+    public Map<Long, Long> productCountsByTenants(List<Long> tenantIds) {
+        if (tenantIds.isEmpty()) {
+            return Map.of();
+        }
+        Session session = em.unwrap(Session.class);
+        session.disableFilter(TenantContext.FILTER_NAME);
+        try {
+            List<Object[]> rows = em.createQuery(
+                            "SELECT p.tenant.id, count(p) FROM Product p"
+                                    + " WHERE p.tenant.id IN :tenantIds GROUP BY p.tenant.id",
+                            Object[].class)
+                    .setParameter("tenantIds", tenantIds)
+                    .getResultList();
+            return groupCounts(rows);
+        } finally {
+            session.enableFilter(TenantContext.FILTER_NAME)
+                    .setParameter(TenantContext.PARAM_NAME, TenantContext.NO_TENANT);
+        }
+    }
+
+    /** The order-count half of the same story — see {@link #productCountsByTenants}. */
+    @PlatformOperation
+    public Map<Long, Long> orderCountsByTenants(List<Long> tenantIds) {
+        if (tenantIds.isEmpty()) {
+            return Map.of();
+        }
+        Session session = em.unwrap(Session.class);
+        session.disableFilter(TenantContext.FILTER_NAME);
+        try {
+            List<Object[]> rows = em.createQuery(
+                            "SELECT o.tenant.id, count(o) FROM PosOrder o"
+                                    + " WHERE o.tenant.id IN :tenantIds GROUP BY o.tenant.id",
+                            Object[].class)
+                    .setParameter("tenantIds", tenantIds)
+                    .getResultList();
+            return groupCounts(rows);
+        } finally {
+            session.enableFilter(TenantContext.FILTER_NAME)
+                    .setParameter(TenantContext.PARAM_NAME, TenantContext.NO_TENANT);
+        }
+    }
+
+    private Map<Long, Long> groupCounts(List<Object[]> rows) {
+        Map<Long, Long> byTenant = new LinkedHashMap<>();
+        for (Object[] row : rows) {
+            byTenant.put((Long) row[0], (Long) row[1]);
+        }
+        return byTenant;
     }
 
     /**
