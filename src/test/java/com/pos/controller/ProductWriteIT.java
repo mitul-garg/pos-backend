@@ -265,6 +265,62 @@ class ProductWriteIT {
                     .andExpect(jsonPath("$.message").value("This store has reached its product limit"))
                     .andExpect(jsonPath("$.fields").doesNotExist());
         }
+
+        /**
+         * Peer-review Phase 1: the two-tier guardrail's whole point, and the bug this
+         * change fixes — before this, a tenant at the ceiling stayed locked out forever,
+         * even after deactivating a product, because the count included inactive rows.
+         * Manually verified end-to-end against a real running app first (curl, with
+         * pos.tenant.maxProducts/Lifetime overridden low) before writing this.
+         */
+        @Test
+        @DisplayName("reclaims a slot at the same ceiling once a product is deactivated")
+        void reclaimsASlotOnceAProductIsDeactivated() throws Exception {
+            Long lastId = null;
+            for (int i = 0; i < 2000; i++) {
+                lastId = product(mgRoad, "Filler " + i, true);
+            }
+            em.flush();
+            em.clear();
+
+            create(asAdmin(), """
+                    {"name":"Still At The Ceiling","taxRatePercent":5}
+                    """)
+                    .andExpect(status().isBadRequest());
+
+            deleteProduct(asAdmin(), String.valueOf(lastId)).andExpect(status().isOk());
+
+            create(asAdmin(), """
+                    {"name":"Room Again","taxRatePercent":5}
+                    """)
+                    .andExpect(status().isCreated());
+        }
+
+        /**
+         * Peer-review Phase 1: the second tier ({@code pos.tenant.maxProductsLifetime},
+         * 10000) — the pure abuse backstop that exists precisely so a create/deactivate
+         * loop can't spam unlimited rows now that the primary ceiling is reclaimable.
+         * Active count stays comfortably under the 2000 ceiling throughout; only the
+         * lifetime count (active + inactive) reaches its own, separate limit.
+         */
+        @Test
+        @DisplayName("still rejects at the lifetime ceiling, even with headroom on the active count")
+        void rejectsAtTheLifetimeCeilingEvenBelowTheActiveCeiling() throws Exception {
+            for (int i = 0; i < 100; i++) {
+                product(mgRoad, "Active Filler " + i, true);
+            }
+            for (int i = 0; i < 9_900; i++) {
+                product(mgRoad, "Retired Filler " + i, false);
+            }
+            em.flush();
+            em.clear();
+
+            create(asAdmin(), """
+                    {"name":"One More","taxRatePercent":5}
+                    """)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("This store has reached its product limit"));
+        }
     }
 
     @Nested
@@ -541,11 +597,22 @@ class ProductWriteIT {
 
     /** Fast-path fixture for the product-ceiling test — 2000 of these beats 2000 round trips. */
     private void product(Tenant tenant, String name) {
+        product(tenant, name, true);
+    }
+
+    /**
+     * Same, with the active flag exposed — the two-tier guardrail tests (peer-review
+     * Phase 1) need inactive rows that count toward the lifetime ceiling without
+     * counting toward the active one. Returns the id so a test can deactivate a
+     * specific row through the real endpoint afterward.
+     */
+    private Long product(Tenant tenant, String name, boolean active) {
         Product product = new Product();
         product.setTenant(tenant);
         product.setName(name);
         product.setTaxRatePercent(BigDecimal.ZERO);
-        product.setActive(true);
+        product.setActive(active);
         em.persist(product);
+        return product.getId();
     }
 }

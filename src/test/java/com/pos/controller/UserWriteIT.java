@@ -263,6 +263,63 @@ class UserWriteIT {
                     .andExpect(jsonPath("$.message").value("This store has reached its user limit"))
                     .andExpect(jsonPath("$.fields").doesNotExist());
         }
+
+        /**
+         * Peer-review Phase 1: the two-tier guardrail's whole point, and the bug this
+         * change fixes — before this, a tenant at the ceiling stayed locked out forever,
+         * even after deactivating a user who left, because the count included inactive
+         * rows. Manually verified end-to-end against a real running app first (curl,
+         * products case, same code shape) before writing this.
+         */
+        @Test
+        @DisplayName("reclaims a slot at the same ceiling once a user is deactivated")
+        void reclaimsASlotOnceAUserIsDeactivated() throws Exception {
+            Long lastId = null;
+            for (int i = 0; i < 18; i++) {
+                lastId = user(mgRoad, "filler" + i, CASHIER_HASH, Role.CASHIER, true);
+            }
+            em.flush();
+            em.clear();
+
+            create(asAdmin(), """
+                    {"username":"stillatceiling","password":"pass123","role":"CASHIER"}
+                    """)
+                    .andExpect(status().isBadRequest());
+
+            deleteUser(asAdmin(), String.valueOf(lastId)).andExpect(status().isOk());
+
+            create(asAdmin(), """
+                    {"username":"roomagain","password":"pass123","role":"CASHIER"}
+                    """)
+                    .andExpect(status().isCreated());
+        }
+
+        /**
+         * Peer-review Phase 1: the second tier ({@code pos.tenant.maxUsersLifetime}, 100)
+         * — the pure abuse backstop that exists precisely so a create/deactivate loop
+         * can't spam unlimited rows now that the primary ceiling is reclaimable. Active
+         * count stays comfortably under the 20 ceiling throughout; only the lifetime
+         * count (active + inactive, plus the 2 seeded in setUp) reaches its own, separate
+         * limit.
+         */
+        @Test
+        @DisplayName("still rejects at the lifetime ceiling, even with headroom on the active count")
+        void rejectsAtTheLifetimeCeilingEvenBelowTheActiveCeiling() throws Exception {
+            for (int i = 0; i < 10; i++) {
+                user(mgRoad, "activefiller" + i, CASHIER_HASH, Role.CASHIER, true);
+            }
+            for (int i = 0; i < 88; i++) {
+                user(mgRoad, "retiredfiller" + i, CASHIER_HASH, Role.CASHIER, false);
+            }
+            em.flush();
+            em.clear();
+
+            create(asAdmin(), """
+                    {"username":"onemore","password":"pass123","role":"CASHIER"}
+                    """)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("This store has reached its user limit"));
+        }
     }
 
     @Nested
@@ -581,13 +638,24 @@ class UserWriteIT {
     }
 
     private void user(Tenant tenant, String username, String passwordHash, Role role) {
+        user(tenant, username, passwordHash, role, true);
+    }
+
+    /**
+     * Same, with the active flag exposed and the id returned — the two-tier guardrail
+     * tests (peer-review Phase 1) need inactive rows that count toward the lifetime
+     * ceiling without counting toward the active one, and a specific id to deactivate
+     * through the real endpoint afterward.
+     */
+    private Long user(Tenant tenant, String username, String passwordHash, Role role, boolean active) {
         AppUser user = new AppUser();
         user.setTenant(tenant);
         user.setUsername(username);
         user.setPasswordHash(passwordHash);
         user.setDisplayName(username);
         user.setRole(role);
-        user.setActive(true);
+        user.setActive(active);
         em.persist(user);
+        return user.getId();
     }
 }

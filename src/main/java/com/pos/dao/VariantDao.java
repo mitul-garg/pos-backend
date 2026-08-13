@@ -72,8 +72,11 @@ public class VariantDao {
     }
 
     /**
-     * How many variants (active or not) one product has — {@code VariantService.create}'s
-     * resource-creation guardrail (peer-review Phase 0), checked before {@link #insert}.
+     * How many variants (active or not) one product has, <b>ever</b> — the second tier
+     * of {@code VariantService.create}'s resource-creation guardrail (peer-review Phase
+     * 0, made two-tier in Phase 1): a much higher, never-reclaimed ceiling that exists
+     * purely to bound a create/deactivate abuse loop. {@link #countActiveByProduct} is
+     * the primary, reclaimable check.
      *
      * <p>A count, not {@link #findByProduct}: that method fetches full rows with their
      * product joined, wasteful for a number this method exists specifically to avoid
@@ -84,6 +87,22 @@ public class VariantDao {
     public long countByProduct(Long productId) {
         return em.createQuery(
                         "SELECT count(v) FROM Variant v WHERE v.product.id = :productId", Long.class)
+                .setParameter("productId", productId)
+                .getSingleResult();
+    }
+
+    /**
+     * How many <b>active</b> variants one product has right now — the primary half of
+     * {@code VariantService.create}'s resource-creation guardrail as of peer-review
+     * Phase 1 (originally any-status; see {@link #countByProduct}, now the second
+     * tier). Deactivating a discontinued variant frees a slot again, the same
+     * reclaimable shape every other soft-delete in this codebase already has.
+     */
+    public long countActiveByProduct(Long productId) {
+        return em.createQuery(
+                        "SELECT count(v) FROM Variant v WHERE v.product.id = :productId"
+                                + " AND v.active = true",
+                        Long.class)
                 .setParameter("productId", productId)
                 .getSingleResult();
     }

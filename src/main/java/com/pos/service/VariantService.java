@@ -207,7 +207,14 @@ public class VariantService {
         // variants one product can hold, not tied to any one submitted field, so this is a
         // bare ValidationException like ProductService's/UserService's guardrails rather
         // than a field-level one.
-        if (variantDao.countByProduct(productId) >= appProperties.getProductMaxVariants()) {
+        //
+        // Two-tier as of Phase 1: the ACTIVE count is the real, reclaimable ceiling --
+        // deactivating a discontinued variant frees a slot again. The lifetime count (any
+        // status, ever) is a much higher pure abuse backstop that never resets -- the
+        // entire reason a durable ceiling was chosen here over a time-windowed one, so a
+        // create/deactivate loop must still hit a wall eventually.
+        if (variantDao.countActiveByProduct(productId) >= appProperties.getProductMaxVariants()
+                || variantDao.countByProduct(productId) >= appProperties.getProductMaxVariantsLifetime()) {
             throw new ValidationException(TOO_MANY_VARIANTS);
         }
 

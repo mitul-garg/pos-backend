@@ -166,9 +166,15 @@ public class ProductService {
         // Peer-review Phase 0 resource-creation guardrail -- a durable ceiling on tenant
         // catalogue size, not tied to any one submitted field, so this is a bare
         // ValidationException like UserService.LAST_ADMIN rather than a field-level one.
-        // includeInactive=true, matching the guardrail's intent: soft-deleting a product
-        // must not reopen headroom for the same tenant.
-        if (productDao.count(null, null, true) >= appProperties.getTenantMaxProducts()) {
+        //
+        // Two-tier as of Phase 1: the ACTIVE count is the real, reclaimable ceiling --
+        // deactivating a discontinued product frees a slot again, matching what
+        // soft-delete means everywhere else. The lifetime count (includeInactive=true,
+        // any status, ever) is a much higher pure abuse backstop that never resets --
+        // the entire reason a durable ceiling was chosen here over a time-windowed one,
+        // so a create/deactivate loop must still hit a wall eventually.
+        if (productDao.count(null, null, false) >= appProperties.getTenantMaxProducts()
+                || productDao.count(null, null, true) >= appProperties.getTenantMaxProductsLifetime()) {
             throw new ValidationException(TOO_MANY_PRODUCTS);
         }
 

@@ -267,6 +267,54 @@ class VariantIT {
                     .andExpect(jsonPath("$.message").value("This product has reached its variant limit"))
                     .andExpect(jsonPath("$.fields").doesNotExist());
         }
+
+        /**
+         * Peer-review Phase 1: the two-tier guardrail's whole point, and the bug this
+         * change fixes — before this, a product at the ceiling stayed locked out forever,
+         * even after deactivating a variant, because the count included inactive rows.
+         * Manually verified end-to-end against a real running app first (curl, products
+         * case, same code shape) before writing this.
+         */
+        @Test
+        @DisplayName("reclaims a slot at the same ceiling once a variant is deactivated")
+        void reclaimsASlotOnceAVariantIsDeactivated() throws Exception {
+            Long lastId = null;
+            for (int i = 0; i < 50; i++) {
+                lastId = variant(mgRoad, milk, "FILLER-" + i, true);
+            }
+            em.flush();
+            em.clear();
+
+            create(asAdmin(), milk, MILK_500).andExpect(status().isBadRequest());
+
+            deleteVariant(asAdmin(), String.valueOf(lastId)).andExpect(status().isOk());
+
+            create(asAdmin(), milk, MILK_500).andExpect(status().isCreated());
+        }
+
+        /**
+         * Peer-review Phase 1: the second tier ({@code pos.product.maxVariantsLifetime},
+         * 250) — the pure abuse backstop that exists precisely so a create/deactivate
+         * loop can't spam unlimited rows now that the primary ceiling is reclaimable.
+         * Active count stays comfortably under the 50 ceiling throughout; only the
+         * lifetime count (active + inactive) reaches its own, separate limit.
+         */
+        @Test
+        @DisplayName("still rejects at the lifetime ceiling, even with headroom on the active count")
+        void rejectsAtTheLifetimeCeilingEvenBelowTheActiveCeiling() throws Exception {
+            for (int i = 0; i < 10; i++) {
+                variant(mgRoad, milk, "ACTIVE-FILLER-" + i, true);
+            }
+            for (int i = 0; i < 240; i++) {
+                variant(mgRoad, milk, "RETIRED-FILLER-" + i, false);
+            }
+            em.flush();
+            em.clear();
+
+            create(asAdmin(), milk, MILK_500)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("This product has reached its variant limit"));
+        }
     }
 
     @Nested
@@ -669,6 +717,16 @@ class VariantIT {
 
     /** Fast-path fixture for the variant-ceiling test — 50 of these beats 50 round trips. */
     private void variant(Tenant tenant, Long productId, String sku) {
+        variant(tenant, productId, sku, true);
+    }
+
+    /**
+     * Same, with the active flag exposed and the id returned — the two-tier guardrail
+     * tests (peer-review Phase 1) need inactive rows that count toward the lifetime
+     * ceiling without counting toward the active one, and a specific id to deactivate
+     * through the real endpoint afterward.
+     */
+    private Long variant(Tenant tenant, Long productId, String sku, boolean active) {
         Variant variant = new Variant();
         variant.setTenant(tenant);
         variant.setProduct(em.getReference(Product.class, productId));
@@ -679,7 +737,8 @@ class VariantIT {
         variant.setSellingPrice(new BigDecimal("9.00"));
         variant.setStockQuantity(0);
         variant.setUnitOfMeasure(UnitOfMeasure.EACH);
-        variant.setActive(true);
+        variant.setActive(active);
         em.persist(variant);
+        return variant.getId();
     }
 }

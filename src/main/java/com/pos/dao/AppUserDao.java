@@ -232,9 +232,11 @@ public class AppUserDao {
     }
 
     /**
-     * How many users (any role, active or not) the <b>caller's own</b> tenant has —
-     * {@code UserService.create}'s resource-creation guardrail (peer-review Phase 0),
-     * checked before {@link #insert}.
+     * How many users (any role, active or not) the <b>caller's own</b> tenant has,
+     * <b>ever</b> — the second tier of {@code UserService.create}'s resource-creation
+     * guardrail (peer-review Phase 0, made two-tier in Phase 1): a much higher, never-
+     * reclaimed ceiling that exists purely to bound a create/deactivate abuse loop.
+     * {@link #countActiveByOwnTenant} is the primary, reclaimable check.
      *
      * <p>The identical query to {@link #countByTenant}, deliberately not reused: that
      * method carries {@link PlatformOperation} because its only caller today is
@@ -248,6 +250,26 @@ public class AppUserDao {
     public long countByOwnTenant(Long tenantId) {
         return em.createQuery(
                         "SELECT count(u) FROM AppUser u WHERE u.tenant.id = :tenantId", Long.class)
+                .setParameter("tenantId", tenantId)
+                .getSingleResult();
+    }
+
+    /**
+     * How many <b>active</b> users the caller's own tenant has right now — the primary
+     * half of {@code UserService.create}'s resource-creation guardrail as of peer-review
+     * Phase 1 (originally any-status; see {@link #countByOwnTenant}, now the second
+     * tier). Deactivating a user who left frees a slot again, the same reclaimable shape
+     * every other soft-delete in this codebase already has.
+     *
+     * <p>Not {@link #countActiveAdmins}: that counts one role for the last-admin guard,
+     * this counts every role for the roster-size guardrail. Different questions that
+     * happen to share a shape.
+     */
+    public long countActiveByOwnTenant(Long tenantId) {
+        return em.createQuery(
+                        "SELECT count(u) FROM AppUser u WHERE u.tenant.id = :tenantId"
+                                + " AND u.active = true",
+                        Long.class)
                 .setParameter("tenantId", tenantId)
                 .getSingleResult();
     }

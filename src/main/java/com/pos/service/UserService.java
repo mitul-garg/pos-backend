@@ -122,7 +122,14 @@ public class UserService {
         // size, not tied to any one submitted field (the request is otherwise perfectly
         // valid), so this is a bare ValidationException like LAST_ADMIN below rather than
         // a field-level one.
-        if (appUserDao.countByOwnTenant(tenantId) >= appProperties.getTenantMaxUsers()) {
+        //
+        // Two-tier as of Phase 1: the ACTIVE count is the real, reclaimable ceiling --
+        // deactivating a user who left frees a slot again. The lifetime count (any
+        // status, ever) is a much higher pure abuse backstop that never resets -- the
+        // entire reason a durable ceiling was chosen here over a time-windowed one, so a
+        // create/deactivate loop must still hit a wall eventually.
+        if (appUserDao.countActiveByOwnTenant(tenantId) >= appProperties.getTenantMaxUsers()
+                || appUserDao.countByOwnTenant(tenantId) >= appProperties.getTenantMaxUsersLifetime()) {
             throw new ValidationException(TOO_MANY_USERS);
         }
 

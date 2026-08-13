@@ -115,6 +115,24 @@ public class AppProperties {
     @Value("${pos.tenant.maxPerEmail}")
     private int tenantMaxPerEmail;
 
+    // --- Two-tier guardrail backstops (peer-review Phase 1) ------------------------
+    // pos.tenant.maxProducts/maxUsers/pos.product.maxVariants above are now checked
+    // against ACTIVE rows only -- deactivating one frees a slot again. These three are
+    // the second tier: a much higher, never-reclaimed ceiling on the SAME count
+    // regardless of active status, the pure abuse backstop that was the entire reason
+    // Phase 0 picked a durable ceiling over a reclaimable one in the first place. See
+    // each check site. No lifetime backstop for pos.tenant.maxPerEmail -- deliberately
+    // left a single tier; see requirements.md section 12.
+
+    @Value("${pos.tenant.maxProductsLifetime}")
+    private int tenantMaxProductsLifetime;
+
+    @Value("${pos.tenant.maxUsersLifetime}")
+    private int tenantMaxUsersLifetime;
+
+    @Value("${pos.product.maxVariantsLifetime}")
+    private int productMaxVariantsLifetime;
+
     // --- Abandoned self-registration cleanup (peer-review Phase 1) ----------------
 
     @Value("${pos.job.abandonedTenant.enabled}")
@@ -229,6 +247,18 @@ public class AppProperties {
 
     public int getTenantMaxPerEmail() {
         return tenantMaxPerEmail;
+    }
+
+    public int getTenantMaxProductsLifetime() {
+        return tenantMaxProductsLifetime;
+    }
+
+    public int getTenantMaxUsersLifetime() {
+        return tenantMaxUsersLifetime;
+    }
+
+    public int getProductMaxVariantsLifetime() {
+        return productMaxVariantsLifetime;
     }
 
     public boolean isAbandonedTenantCleanupEnabled() {
