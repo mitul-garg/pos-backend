@@ -100,7 +100,7 @@ never on the product** (`requirements.md` §2).
 | `tenant_id` | `BIGINT` | no | FK → `tenant` |
 | `product_id` | `BIGINT` | no | FK → `product` |
 | `variant_label` | `VARCHAR(120)` | no | "500 ml", "Large / Red" |
-| `attributes` | `JSON` | yes | Flexible key/values, e.g. `{"size":"500ml"}` |
+| `attributes` | `JSON` | yes | Flexible key/values, e.g. `{"size":"500ml"}`. **No shape or size cap** (peer-review, net-new) — neither `VariantForm` nor the column itself bounds it; MySQL will store whatever fits under `max_allowed_packet`. Distinct from the plain-string `maxLength` gap tracked elsewhere, since a length annotation on a DTO field wouldn't touch a JSON blob. Revisit if this ever becomes reachable by anyone other than an `ADMIN` |
 | `sku` | `VARCHAR(64)` | no | Unique **per tenant** |
 | `qr_code` | `VARCHAR(64)` | no | `POS-QR-{tenantId}-{seq}`. Unique **per tenant**; the tenant segment makes printed labels globally distinct |
 | `mrp` | `DECIMAL(12,2)` | no | Tax-inclusive ceiling |
@@ -111,6 +111,16 @@ never on the product** (`requirements.md` §2).
 
 The `CHECK` needs MySQL 8.0.16+; below that it parses and is ignored, so the
 application-level validation is not redundant.
+
+**`unit_of_measure` is selectable today; fractional selling is not (peer-review,
+net-new).** `AddVariantForm.jsx` already offers `KG`/`LITRE` as live choices, and
+both are accepted here — but `order_line.quantity` / `return_line.quantity` below
+are plain `INT`. A variant labeled `KG` can only ever be sold in whole-unit
+quantities; the unit is decorative until those two columns (and the checkout
+quantity input) support a decimal. `requirements.md`'s "still open" list already
+names weight-based selling as future scope at the feature level — this is the
+concrete column-level reason it doesn't work yet, worth knowing before anyone
+assumes flipping the dropdown is enough.
 
 **Stock is authoritative here and nowhere else.** The client only warns; the
 backend rejects — via an atomic conditional update, not read-check-write.
