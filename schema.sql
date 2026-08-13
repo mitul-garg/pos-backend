@@ -168,6 +168,9 @@
     create index idx_return_order 
        on sales_return (original_order_id);
 
+    create index idx_return_tenant_created 
+       on sales_return (tenant_id, created_at);
+
     alter table sales_return 
        add constraint uk_return_tenant_number unique (tenant_id, return_number);
 

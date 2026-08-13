@@ -72,6 +72,7 @@ self-registration, before any tenant exists to filter by.
 | `idx_orderline_order` | `order_line` | `order_id` | Loading an order's lines |
 | `idx_return_tenant_processor` | `sales_return` | `tenant_id, processed_by` | Cashier-scoped return history |
 | `idx_return_order` | `sales_return` | `original_order_id` | Already-returned quantities per order — read on every return lookup |
+| `idx_return_tenant_created` | `sales_return` | `tenant_id, created_at` | Return history is newest-first (peer-review Phase 1) — the `sales_return` equivalent of `idx_order_tenant_created`. `ReturnDao.list()` sorts `ORDER BY created_at DESC` for every `GET /api/returns` call; `idx_return_tenant_processor`'s leftmost prefix only covers a `processedBy`-scoped read, not the ADMIN "all returns" case, which fell back to a `tenant_id`-only index scan plus a filesort |
 | `idx_returnline_return` | `return_line` | `return_id` | Loading a return's lines |
 
 Composite indexes lead with `tenant_id` because that predicate is always present —
@@ -95,6 +96,57 @@ That's why there's no separate `idx_order_tenant`.
 
 The unique keys above double as indexes: `uk_variant_tenant_qrcode` is what makes
 `lookupByQrCode` — the POS hot path, hit on every scan — an index seek.
+
+### Catalogue search indexing strategy (peer-review Phase 1, not yet implemented)
+
+**Neither catalogue search path can use a B-tree index today, and that's fine at
+today's scale.** `ProductDao.where()` (the products screen) and `VariantDao.search()`
+(the checkout manual-add search) both build `lower(col) LIKE :term` with `term` wrapped
+in a leading **and** trailing `%` — a leading wildcard is exactly the shape no B-tree
+index, including `idx_product_tenant_category` and `uk_variant_tenant_sku`, can serve;
+MySQL falls back to scanning every row the `tenant_id` predicate leaves (already bounded
+to one tenant's catalogue by the filter, not a cross-tenant scan) and testing each one.
+Acceptable today given the project's own no-pager, `pageSize: 200`-scale ground rule —
+the scan is over the underlying table, before any `LIMIT`, so it isn't bounded by that
+200 the way a paged result is. It will be the first thing to slow down as a single
+tenant's catalogue grows past a few thousand SKUs, which a real store selling
+ambient/FMCG goods can plausibly reach.
+
+**The strategy, when it's needed:** a MySQL `FULLTEXT` index on `product(name, brand)`
+for the products screen, and a second on `variant(sku, variant_label)` for the
+checkout search — two indexes because the two searches span two different tables (the
+product-name/brand half of `VariantDao.search()`'s `OR` would run against the first,
+the sku/label half against the second). Boolean mode with a trailing wildcard
+(`MATCH(...) AGAINST('term*' IN BOOLEAN MODE)`) is the closest match to today's UX.
+
+**Two real costs, not just "add an index" — the reason this is a strategy note and not
+a change:**
+
+1. **The match semantics change, not just the plan.** `LIKE '%term%'` is a true
+   substring match anywhere in the field; `FULLTEXT` is word/token-based — MySQL's
+   built-in InnoDB parser splits on non-alphanumeric boundaries and enforces a minimum
+   token length (`innodb_ft_min_token_size`, default 3), so a boolean-mode prefix search
+   matches from the *start* of a word, not an arbitrary infix. Typing "isc" would no
+   longer find "Biscuit" the way `LIKE` does today — a real, user-visible UX change to
+   sign off on, not a transparent performance swap. A hyphenated SKU like
+   `BISLERI-1L` tokenizes into `BISLERI` and `1L` under the default parser, which is
+   arguably *better* for search than today's pure substring match, but is still a
+   behavior change worth naming rather than discovering after the fact.
+2. **`FULLTEXT` doesn't fit this project's schema pipeline as it stands.** "The schema
+   is generated from entities" (`CONVENTIONS.md`) — every index here is a plain JPA
+   `@Index` in `@Table`, which Hibernate emits as an ordinary `BTREE` index; there is no
+   portable annotation for a MySQL `FULLTEXT` index, so adding one would mean either a
+   one-off `ALTER TABLE ... ADD FULLTEXT` run outside the `mvn test -Dpos.schema.write=true`
+   regeneration this project relies on for every other index (immediately a schema-drift
+   risk `SchemaSqlTest` can't catch), or introducing a migration tool for the first
+   time. That is a bigger decision than the index itself, and belongs in its own
+   discussion when the scale actually calls for this.
+
+**Revisit trigger:** a tenant's live catalogue growing into the thousands of SKUs, or a
+real, measured search-latency complaint — not a date or a row-count guess. Until then,
+`idx_product_tenant_category` and `uk_variant_tenant_sku` continue to serve every
+*exact* lookup (category filter, SKU uniqueness, `findBySku`) — only the free-text
+`LIKE` paths are affected.
 
 ## Check constraints
 

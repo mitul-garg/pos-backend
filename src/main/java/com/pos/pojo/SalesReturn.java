@@ -48,7 +48,13 @@ import org.hibernate.type.SqlTypes;
         ),
         indexes = {
                 @Index(name = "idx_return_tenant_processor", columnList = "tenant_id, processed_by"),
-                @Index(name = "idx_return_order", columnList = "original_order_id")
+                @Index(name = "idx_return_order", columnList = "original_order_id"),
+                // Peer-review Phase 1: ReturnDao.list() sorts ORDER BY created_at DESC for
+                // every GET /api/returns call, the identical query shape idx_order_tenant_created
+                // exists on PosOrder for. idx_return_tenant_processor's leftmost prefix covers a
+                // processedBy-scoped read but not the ADMIN "all returns" case, which fell back to
+                // a filesort on created_at.
+                @Index(name = "idx_return_tenant_created", columnList = "tenant_id, created_at")
         }
 )
 public class SalesReturn {
