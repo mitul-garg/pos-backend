@@ -297,6 +297,33 @@ class TenantAdminIT {
                     .andExpect(jsonPath("$.fields.adminUsername").exists())
                     .andExpect(jsonPath("$.fields.adminPassword").exists());
         }
+
+        /**
+         * Peer-review Phase 1: length bounds the mock had no schema to answer to. One
+         * request covering all four bounded fields on this form, the multi-error
+         * shape {@code reportsEveryBrokenFieldTogether} already exercises above --
+         * {@code code} needs a valid-format 70-char value to reach its length check at
+         * all, since {@code CODE_PATTERN} would otherwise reject it first.
+         */
+        @Test
+        @DisplayName("rejects overlong fields with a clean 400, not an unmapped 500")
+        void rejectsOverlongFields() throws Exception {
+            String longName = "N".repeat(121);
+            String longCode = "c".repeat(70);
+            String longUsername = "u".repeat(65);
+            String longPassword = "p".repeat(73);
+
+            createTenant(asSuperAdmin(), """
+                    {"name":"%s","code":"%s","adminUsername":"%s","adminPassword":"%s"}
+                    """.formatted(longName, longCode, longUsername, longPassword))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.fields.name").value("Tenant name must be 120 characters or fewer"))
+                    .andExpect(jsonPath("$.fields.code").value("Tenant code must be 64 characters or fewer"))
+                    .andExpect(jsonPath("$.fields.adminUsername")
+                            .value("The first admin's username must be 64 characters or fewer"))
+                    .andExpect(jsonPath("$.fields.adminPassword")
+                            .value("The first admin's password must be 72 characters or fewer"));
+        }
     }
 
     @Nested

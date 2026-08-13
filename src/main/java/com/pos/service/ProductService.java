@@ -15,6 +15,7 @@ import com.pos.model.PageData;
 import com.pos.model.ProductData;
 import com.pos.model.ProductForm;
 import com.pos.pojo.Product;
+import com.pos.util.MaxLength;
 import com.pos.util.TenantContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -149,15 +150,19 @@ public class ProductService {
 
         String name = trimToNull(form.getName());
         BigDecimal taxRatePercent = form.getTaxRatePercent();
-        validate(name, taxRatePercent);
+        String brand = trimToEmpty(form.getBrand());
+        String category = trimToEmpty(form.getCategory());
+        String description = trimToEmpty(form.getDescription());
+        String hsnCode = trimToEmpty(form.getHsnCode());
+        validate(name, taxRatePercent, brand, category, description, hsnCode);
 
         Product product = new Product();
         product.setTenant(tenantDao.reference(authService.currentSession().getTenantId()));
         product.setName(name);
-        product.setBrand(trimToEmpty(form.getBrand()));
-        product.setCategory(trimToEmpty(form.getCategory()));
-        product.setDescription(trimToEmpty(form.getDescription()));
-        product.setHsnCode(trimToEmpty(form.getHsnCode()));
+        product.setBrand(brand);
+        product.setCategory(category);
+        product.setDescription(description);
+        product.setHsnCode(hsnCode);
         product.setTaxRatePercent(taxRatePercent);
         // Never from the form: a product is created active, and a caller asking for
         // isActive:false would be creating a row that no screen can reach.
@@ -205,22 +210,20 @@ public class ProductService {
         BigDecimal taxRatePercent = form.getTaxRatePercent() == null
                 ? product.getTaxRatePercent()
                 : form.getTaxRatePercent();
-        validate(name, taxRatePercent);
+        String brand = form.getBrand() == null ? product.getBrand() : trimToEmpty(form.getBrand());
+        String category = form.getCategory() == null ? product.getCategory() : trimToEmpty(form.getCategory());
+        String description = form.getDescription() == null
+                ? product.getDescription()
+                : trimToEmpty(form.getDescription());
+        String hsnCode = form.getHsnCode() == null ? product.getHsnCode() : trimToEmpty(form.getHsnCode());
+        validate(name, taxRatePercent, brand, category, description, hsnCode);
 
         product.setName(name);
         product.setTaxRatePercent(taxRatePercent);
-        if (form.getBrand() != null) {
-            product.setBrand(trimToEmpty(form.getBrand()));
-        }
-        if (form.getCategory() != null) {
-            product.setCategory(trimToEmpty(form.getCategory()));
-        }
-        if (form.getDescription() != null) {
-            product.setDescription(trimToEmpty(form.getDescription()));
-        }
-        if (form.getHsnCode() != null) {
-            product.setHsnCode(trimToEmpty(form.getHsnCode()));
-        }
+        product.setBrand(brand);
+        product.setCategory(category);
+        product.setDescription(description);
+        product.setHsnCode(hsnCode);
         if (form.getActive() != null) {
             product.setActive(form.getActive());
         }
@@ -251,14 +254,19 @@ public class ProductService {
 
     /**
      * The port of {@code validateProduct()} in {@code domain/validators.js}, field for
-     * field and message for message.
+     * field and message for message — plus the length bounds the mock had no schema to
+     * answer to (peer-review Phase 1). Every bound matches the column it's headed for
+     * ({@code prompts/database/schema.md}); without it, an overlong field reaches
+     * MySQL's data-too-long error unmapped, which is an unhandled 500 rather than a
+     * clean 400 like every other broken field here.
      *
      * <p>Reports <b>every</b> broken field rather than the first, since the response
      * carries a field map and the form highlights each input. The top-level
      * {@code message} is the first of them, which is what the mock throws and what a
      * client with no field-level rendering shows.
      */
-    private void validate(String name, BigDecimal taxRatePercent) {
+    private void validate(String name, BigDecimal taxRatePercent, String brand, String category,
+                          String description, String hsnCode) {
         Map<String, String> errors = new LinkedHashMap<>();
         if (name == null) {
             errors.put("name", NAME_REQUIRED);
@@ -267,6 +275,11 @@ public class ProductService {
                 || TAX_RATES.stream().noneMatch(rate -> rate.compareTo(taxRatePercent) == 0)) {
             errors.put("taxRatePercent", TAX_RATE_INVALID);
         }
+        MaxLength.check(errors, "name", "Name", name, 200);
+        MaxLength.check(errors, "brand", "Brand", brand, 120);
+        MaxLength.check(errors, "category", "Category", category, 80);
+        MaxLength.check(errors, "description", "Description", description, 500);
+        MaxLength.check(errors, "hsnCode", "HSN code", hsnCode, 16);
         if (!errors.isEmpty()) {
             throw new ValidationException(errors.values().iterator().next(), errors);
         }

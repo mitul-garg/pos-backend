@@ -218,6 +218,28 @@ class ProductWriteIT {
         }
 
         /**
+         * Peer-review Phase 1: length bounds the mock had no schema to answer to. One
+         * request covering all five bounded fields on this form, the multi-error shape
+         * {@code rejectsABlankNameAndAnUnknownSlab} already exercises above.
+         */
+        @Test
+        @DisplayName("rejects overlong fields with a clean 400, not an unmapped 500")
+        void rejectsOverlongFields() throws Exception {
+            create(asAdmin(), """
+                    {"name":"%s","brand":"%s","category":"%s","description":"%s","hsnCode":"%s",
+                     "taxRatePercent":5}
+                    """.formatted("N".repeat(201), "B".repeat(121), "C".repeat(81),
+                            "D".repeat(501), "H".repeat(17)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.fields.name").value("Name must be 200 characters or fewer"))
+                    .andExpect(jsonPath("$.fields.brand").value("Brand must be 120 characters or fewer"))
+                    .andExpect(jsonPath("$.fields.category").value("Category must be 80 characters or fewer"))
+                    .andExpect(jsonPath("$.fields.description")
+                            .value("Description must be 500 characters or fewer"))
+                    .andExpect(jsonPath("$.fields.hsnCode").value("HSN code must be 16 characters or fewer"));
+        }
+
+        /**
          * {@code 5} and {@code 5.00} are the same slab and unequal {@code BigDecimal}s —
          * which is why {@code ProductService} compares with {@code compareTo}. A client
          * sending either has sent a valid rate.

@@ -12,6 +12,7 @@ import com.pos.model.UserData;
 import com.pos.model.UserForm;
 import com.pos.pojo.AppUser;
 import com.pos.pojo.Role;
+import com.pos.util.MaxLength;
 import com.pos.util.TenantContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -118,6 +119,15 @@ public class UserService {
         if (appUserDao.findByTenantAndUsername(tenantId, username.toLowerCase(Locale.ROOT)) != null) {
             throw ValidationException.field("username", USERNAME_TAKEN);
         }
+        // Peer-review Phase 1: length bounds the mock had no schema to answer to.
+        // username/displayName match app_user's column widths; password's 72 is
+        // BCrypt's own input ceiling (jBCrypt truncates/rejects past it depending on
+        // version) -- bytes, approximated here as characters, a conservative match for
+        // the overwhelmingly-ASCII case and never looser than the real limit for one
+        // that isn't.
+        MaxLength.require("username", "Username", username, 64);
+        MaxLength.require("password", "Password", form.getPassword(), 72);
+        MaxLength.require("displayName", "Display name", trimToNull(form.getDisplayName()), 120);
         // Peer-review Phase 0 resource-creation guardrail -- a durable ceiling on tenant
         // size, not tied to any one submitted field (the request is otherwise perfectly
         // valid), so this is a bare ValidationException like LAST_ADMIN below rather than
@@ -171,9 +181,11 @@ public class UserService {
             user.setRole(form.getRole());
         }
         if (form.getDisplayName() != null) {
+            MaxLength.require("displayName", "Display name", form.getDisplayName(), 120);
             user.setDisplayName(form.getDisplayName());
         }
         if (form.getPassword() != null && !form.getPassword().isEmpty()) {
+            MaxLength.require("password", "Password", form.getPassword(), 72);
             user.setPasswordHash(passwordEncoder.encode(form.getPassword()));
         }
         if (form.getActive() != null) {

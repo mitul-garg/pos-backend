@@ -31,6 +31,7 @@ import com.pos.pojo.Role;
 import com.pos.pojo.SalesReturn;
 import com.pos.pojo.SequenceKind;
 import com.pos.pojo.Tenant;
+import com.pos.util.MaxLength;
 import com.pos.util.Pricing;
 import com.pos.util.TenantContext;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -178,6 +179,9 @@ public class ReturnService {
         if (form.getOriginalOrderId() == null) {
             throw ValidationException.field("originalOrderId", ORIGINAL_ORDER_REQUIRED);
         }
+        // Peer-review Phase 1: sales_return.reason is VARCHAR(500); the mock had no
+        // schema to bound it against.
+        MaxLength.require("reason", "Reason", form.getReason(), 500);
 
         PosOrder order = orderDao.findForUpdate(form.getOriginalOrderId());
         if (order == null) {

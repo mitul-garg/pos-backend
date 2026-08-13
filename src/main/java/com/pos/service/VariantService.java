@@ -20,6 +20,7 @@ import com.pos.pojo.SequenceKind;
 import com.pos.pojo.Tenant;
 import com.pos.pojo.UnitOfMeasure;
 import com.pos.pojo.Variant;
+import com.pos.util.MaxLength;
 import com.pos.util.QrCodes;
 import com.pos.util.TenantContext;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -183,7 +184,8 @@ public class VariantService {
         BigDecimal mrp = form.getMrp();
         BigDecimal sellingPrice = form.getSellingPrice();
         int stockQuantity = form.getStockQuantity() == null ? 0 : form.getStockQuantity();
-        validate(mrp, sellingPrice, stockQuantity, sku, null);
+        String variantLabel = trimToEmpty(form.getVariantLabel());
+        validate(mrp, sellingPrice, stockQuantity, sku, null, variantLabel);
 
         Tenant tenant = product.getTenant();
         long sequence = tenantSequenceDao.next(SequenceKind.QR, tenant);
@@ -191,7 +193,7 @@ public class VariantService {
         Variant variant = new Variant();
         variant.setTenant(tenant);
         variant.setProduct(product);
-        variant.setVariantLabel(trimToEmpty(form.getVariantLabel()));
+        variant.setVariantLabel(variantLabel);
         variant.setAttributes(form.getAttributes());
         variant.setSku(sku == null ? QrCodes.fallbackSku(sequence) : sku);
         variant.setQrCode(QrCodes.payload(tenant.getId(), sequence));
@@ -247,7 +249,10 @@ public class VariantService {
                 ? variant.getStockQuantity()
                 : form.getStockQuantity();
         String sku = form.getSku() == null ? variant.getSku() : trimToNull(form.getSku());
-        validate(mrp, sellingPrice, stockQuantity, sku, id);
+        String variantLabel = form.getVariantLabel() == null
+                ? variant.getVariantLabel()
+                : trimToEmpty(form.getVariantLabel());
+        validate(mrp, sellingPrice, stockQuantity, sku, id, variantLabel);
 
         variant.setMrp(mrp);
         variant.setSellingPrice(sellingPrice);
@@ -255,9 +260,7 @@ public class VariantService {
         if (sku != null) {
             variant.setSku(sku);
         }
-        if (form.getVariantLabel() != null) {
-            variant.setVariantLabel(trimToEmpty(form.getVariantLabel()));
-        }
+        variant.setVariantLabel(variantLabel);
         if (form.getAttributes() != null) {
             variant.setAttributes(form.getAttributes());
         }
@@ -319,14 +322,16 @@ public class VariantService {
 
     /**
      * The port of {@code validateVariant()}, plus the stock rule the mock had no schema to
-     * answer to.
+     * answer to, plus the length bounds it had no schema to answer to either (peer-review
+     * Phase 1) — {@code variantLabel}/{@code sku} against {@code variant_label}/{@code sku}
+     * (`prompts/database/schema.md`).
      *
      * <p>The price rules are ordered as the frontend orders them: a selling price of zero
      * is reported as "must be greater than 0" rather than as "cannot exceed MRP", because
      * one of those is the actual mistake.
      */
     private void validate(BigDecimal mrp, BigDecimal sellingPrice, int stockQuantity,
-                          String sku, Long excludeId) {
+                          String sku, Long excludeId, String variantLabel) {
         Map<String, String> errors = new LinkedHashMap<>();
 
         boolean mrpPositive = isPositive(mrp);
@@ -347,6 +352,8 @@ public class VariantService {
         if (sku != null && variantDao.skuExists(sku, excludeId)) {
             errors.put("sku", SKU_TAKEN);
         }
+        MaxLength.check(errors, "variantLabel", "Variant label", variantLabel, 120);
+        MaxLength.check(errors, "sku", "SKU", sku, 64);
 
         if (!errors.isEmpty()) {
             throw new ValidationException(errors.values().iterator().next(), errors);

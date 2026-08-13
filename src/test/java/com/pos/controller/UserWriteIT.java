@@ -198,6 +198,49 @@ class UserWriteIT {
         }
 
         /**
+         * Peer-review Phase 1: app_user.username is VARCHAR(64); the mock had no schema
+         * to bound it against.
+         */
+        @Test
+        @DisplayName("rejects an overlong username with a clean 400, not an unmapped 500")
+        void rejectsAnOverlongUsername() throws Exception {
+            create(asAdmin(), """
+                    {"username":"%s","password":"x","role":"CASHIER"}
+                    """.formatted("u".repeat(65)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.fields.username").value("Username must be 64 characters or fewer"));
+        }
+
+        /**
+         * Peer-review Phase 1: 72 is BCrypt's own input ceiling, not a column width --
+         * see {@code UserService.create}'s comment.
+         */
+        @Test
+        @DisplayName("rejects an overlong password with a clean 400, not a BCrypt surprise")
+        void rejectsAnOverlongPassword() throws Exception {
+            create(asAdmin(), """
+                    {"username":"probe","password":"%s","role":"CASHIER"}
+                    """.formatted("p".repeat(73)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.fields.password").value("Password must be 72 characters or fewer"));
+        }
+
+        /**
+         * Peer-review Phase 1: app_user.display_name is VARCHAR(120); the mock had no
+         * schema to bound it against.
+         */
+        @Test
+        @DisplayName("rejects an overlong displayName with a clean 400, not an unmapped 500")
+        void rejectsAnOverlongDisplayName() throws Exception {
+            create(asAdmin(), """
+                    {"username":"probe","password":"x","role":"CASHIER","displayName":"%s"}
+                    """.formatted("D".repeat(121)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.fields.displayName")
+                            .value("Display name must be 120 characters or fewer"));
+        }
+
+        /**
          * The exact hole BUGS.md logs opening on the frontend when {@code SUPER_ADMIN}
          * joined the shared role list (Phase 8/B4) — a tenant {@code ADMIN} minting one
          * would be privilege escalation out of its own tenant.
@@ -340,6 +383,33 @@ class UserWriteIT {
                     .andExpect(jsonPath("$.username").value("newcashier"))
                     .andExpect(jsonPath("$.role").value("CASHIER"))
                     .andExpect(jsonPath("$.isActive").value(true));
+        }
+
+        /** Peer-review Phase 1: same bound as create, on the merge-patch path. */
+        @Test
+        @DisplayName("rejects an overlong displayName patch with a clean 400")
+        void rejectsAnOverlongDisplayNamePatch() throws Exception {
+            String userId = createNewCashier();
+
+            update(asAdmin(), userId, """
+                    {"displayName":"%s"}
+                    """.formatted("D".repeat(121)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.fields.displayName")
+                            .value("Display name must be 120 characters or fewer"));
+        }
+
+        /** Peer-review Phase 1: same bound as create, on the merge-patch path. */
+        @Test
+        @DisplayName("rejects an overlong password patch with a clean 400")
+        void rejectsAnOverlongPasswordPatch() throws Exception {
+            String userId = createNewCashier();
+
+            update(asAdmin(), userId, """
+                    {"password":"%s"}
+                    """.formatted("p".repeat(73)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.fields.password").value("Password must be 72 characters or fewer"));
         }
 
         /**

@@ -6,6 +6,7 @@ import java.util.regex.Pattern;
 
 import com.pos.dao.TenantDao;
 import com.pos.pojo.Tenant;
+import com.pos.util.MaxLength;
 
 /**
  * The tenant-code rule (required / format / reserved / duplicate) — shared between
@@ -54,6 +55,12 @@ final class TenantCodeRule {
         } else if (tenantDao.findByCode(value) != null) {
             errors.put(fieldKey, CODE_TAKEN);
         }
+        // Peer-review Phase 1: CODE_PATTERN bounds the character set but not the length,
+        // and tenant.code is VARCHAR(64) -- without this, an overlong-but-otherwise-legal
+        // code reached MySQL's data-too-long error unmapped. Checked last and
+        // unconditionally (not another `else if` above) so it still reports even when
+        // the same value also failed an earlier check.
+        MaxLength.check(errors, fieldKey, "Tenant code", value, 64);
         return value;
     }
 }

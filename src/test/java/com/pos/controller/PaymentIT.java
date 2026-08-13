@@ -265,6 +265,22 @@ class PaymentIT {
                     .andExpect(jsonPath("$.fields.method").value("Choose a payment method"));
         }
 
+        /**
+         * Peer-review Phase 1: pos_order.payment_reference is VARCHAR(64); the mock had
+         * no schema to bound it against.
+         */
+        @Test
+        @DisplayName("an overlong reference is a clean 400, not an unmapped 500")
+        void anOverlongReferenceIs400() throws Exception {
+            String orderId = createOrder(milk500, 1);
+
+            pay(orderId, """
+                    {"method":"UPI","reference":"%s"}
+                    """.formatted("R".repeat(65)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.fields.reference").value("Reference must be 64 characters or fewer"));
+        }
+
         @Test
         @DisplayName("paying twice is 400 'Order is already paid', and doesn't double-decrement")
         void payingTwiceIsRejected() throws Exception {

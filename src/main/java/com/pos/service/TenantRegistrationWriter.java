@@ -16,6 +16,7 @@ import com.pos.pojo.Role;
 import com.pos.pojo.Tenant;
 import com.pos.pojo.TenantStatus;
 import com.pos.util.EmailFormat;
+import com.pos.util.MaxLength;
 import com.pos.util.VerificationTokens;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -129,6 +130,22 @@ public class TenantRegistrationWriter {
         if (form.getAdminPassword() == null || form.getAdminPassword().isEmpty()) {
             errors.put("adminPassword", ADMIN_PASSWORD_REQUIRED);
         }
+        // Computed here rather than after the throw below, even though it's only needed
+        // past this point -- its DEFAULT (storeName + " Admin") has to be validated for
+        // length too, and validating a value that was never checked would let an
+        // unvalidated storeName smuggle an overlong display_name in behind it.
+        String adminDisplayName = trimToNull(form.getAdminDisplayName());
+        if (adminDisplayName == null && storeName != null) {
+            adminDisplayName = storeName + " Admin";
+        }
+        // Peer-review Phase 1: length bounds the mock had no schema to answer to -- see
+        // ProductService.validate's Javadoc for the general reasoning, and
+        // UserService.create for why password's bound is 72 rather than a column width.
+        MaxLength.check(errors, "storeName", "Store name", storeName, 120);
+        MaxLength.check(errors, "adminUsername", "The admin's username", adminUsername, 64);
+        MaxLength.check(errors, "adminEmail", "Email", adminEmail, 254);
+        MaxLength.check(errors, "adminPassword", "The admin's password", form.getAdminPassword(), 72);
+        MaxLength.check(errors, "adminDisplayName", "The admin's display name", adminDisplayName, 120);
         if (!errors.isEmpty()) {
             throw new ValidationException(errors.values().iterator().next(), errors);
         }
@@ -139,11 +156,6 @@ public class TenantRegistrationWriter {
         if (appUserDao.countByEmail(adminEmail.toLowerCase(Locale.ROOT))
                 >= appProperties.getTenantMaxPerEmail()) {
             throw ValidationException.field("adminEmail", TOO_MANY_TENANTS_FOR_EMAIL);
-        }
-
-        String adminDisplayName = trimToNull(form.getAdminDisplayName());
-        if (adminDisplayName == null) {
-            adminDisplayName = storeName + " Admin";
         }
 
         Tenant tenant = new Tenant();

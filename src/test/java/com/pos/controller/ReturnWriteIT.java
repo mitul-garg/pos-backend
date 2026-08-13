@@ -222,6 +222,26 @@ class ReturnWriteIT {
                     .andExpect(jsonPath("$.refundMethod").value("UPI"));
         }
 
+        /**
+         * Peer-review Phase 1: sales_return.reason is VARCHAR(500); the mock had no
+         * schema to bound it against.
+         */
+        @Test
+        @DisplayName("rejects an overlong reason with a clean 400, not an unmapped 500")
+        void rejectsAnOverlongReason() throws Exception {
+            String orderId = createAndPayOrderId(milk500, 1);
+
+            mvc.perform(post("/api/returns")
+                            .header(AUTH, bearer(asCashier()))
+                            .contentType(APPLICATION_JSON)
+                            .content("""
+                                    {"originalOrderId":"%s","items":[{"variantId":"%s","quantity":1}],
+                                     "reason":"%s"}
+                                    """.formatted(orderId, milk500, "R".repeat(501))))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.fields.reason").value("Reason must be 500 characters or fewer"));
+        }
+
         @Test
         @DisplayName("mints this store's next return number and stamps processedBy from the token")
         void mintsAReturnNumberAndStampsTheActor() throws Exception {

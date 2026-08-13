@@ -15,6 +15,7 @@ import com.pos.pojo.AppUser;
 import com.pos.pojo.Role;
 import com.pos.pojo.Tenant;
 import com.pos.pojo.TenantStatus;
+import com.pos.util.MaxLength;
 import com.pos.util.PlatformOperation;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -108,6 +109,13 @@ public class TenantService {
         if (form.getAdminPassword() == null || form.getAdminPassword().isEmpty()) {
             errors.put("adminPassword", ADMIN_PASSWORD_REQUIRED);
         }
+        // Peer-review Phase 1: length bounds the mock had no schema to answer to --
+        // see ProductService.validate's Javadoc for the general reasoning, and
+        // UserService.create for why password's bound is 72 rather than a column width.
+        MaxLength.check(errors, "name", "Tenant name", name, 120);
+        MaxLength.check(errors, "adminUsername", "The first admin's username", adminUsername, 64);
+        MaxLength.check(errors, "adminPassword", "The first admin's password",
+                form.getAdminPassword(), 72);
         if (!errors.isEmpty()) {
             throw new ValidationException(errors.values().iterator().next(), errors);
         }

@@ -226,6 +226,22 @@ class VariantIT {
                             .value("Stock quantity cannot be negative"));
         }
 
+        /**
+         * Peer-review Phase 1: length bounds the mock had no schema to answer to. One
+         * request covering both bounded fields on this form.
+         */
+        @Test
+        @DisplayName("rejects overlong fields with a clean 400, not an unmapped 500")
+        void rejectsOverlongFields() throws Exception {
+            create(asAdmin(), milk, """
+                    {"variantLabel":"%s","sku":"%s","mrp":30,"sellingPrice":29}
+                    """.formatted("L".repeat(121), "S".repeat(65)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.fields.variantLabel")
+                            .value("Variant label must be 120 characters or fewer"))
+                    .andExpect(jsonPath("$.fields.sku").value("SKU must be 64 characters or fewer"));
+        }
+
         @Test
         @DisplayName("a SKU already used in this store is rejected on the sku field")
         void rejectsADuplicateSku() throws Exception {

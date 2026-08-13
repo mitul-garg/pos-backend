@@ -12,6 +12,7 @@ import com.pos.pojo.OrderLine;
 import com.pos.pojo.OrderStatus;
 import com.pos.pojo.PaymentMethod;
 import com.pos.pojo.PosOrder;
+import com.pos.util.MaxLength;
 import com.pos.util.Pricing;
 import com.pos.util.TenantContext;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -70,6 +71,9 @@ public class PaymentService {
         if (form.getMethod() == null) {
             throw ValidationException.field("method", METHOD_REQUIRED);
         }
+        // Peer-review Phase 1: pos_order.payment_reference is VARCHAR(64); the mock had
+        // no schema to bound it against.
+        MaxLength.require("reference", "Reference", form.getReference(), 64);
 
         boolean isCash = form.getMethod() == PaymentMethod.CASH;
         BigDecimal grandTotal = order.getGrandTotal();

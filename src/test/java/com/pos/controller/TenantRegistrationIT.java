@@ -284,6 +284,41 @@ class TenantRegistrationIT {
                     .andExpect(jsonPath("$.fields.adminPassword").exists());
         }
 
+        /**
+         * Peer-review Phase 1: length bounds the mock had no schema to answer to. One
+         * request covering every bounded field on this form -- {@code tenantCode} needs
+         * a valid-format 70-char value to reach its length check at all, since {@code
+         * CODE_PATTERN} would otherwise reject it first; {@code adminDisplayName} is
+         * supplied explicitly here rather than left to default from {@code storeName},
+         * so this proves the field's own bound independent of that default's.
+         */
+        @Test
+        @DisplayName("rejects overlong fields with a clean 400, not an unmapped 500")
+        void rejectsOverlongFields() throws Exception {
+            String longStoreName = "S".repeat(121);
+            String longCode = "c".repeat(70);
+            String longUsername = "u".repeat(65);
+            String longEmail = "e".repeat(250) + "@x.com";
+            String longPassword = "p".repeat(73);
+            String longDisplayName = "D".repeat(121);
+
+            register("""
+                    {"storeName":"%s","tenantCode":"%s","adminUsername":"%s","adminEmail":"%s",
+                     "adminPassword":"%s","adminDisplayName":"%s","website":""}
+                    """.formatted(longStoreName, longCode, longUsername, longEmail,
+                            longPassword, longDisplayName))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.fields.storeName").value("Store name must be 120 characters or fewer"))
+                    .andExpect(jsonPath("$.fields.tenantCode").value("Tenant code must be 64 characters or fewer"))
+                    .andExpect(jsonPath("$.fields.adminUsername")
+                            .value("The admin's username must be 64 characters or fewer"))
+                    .andExpect(jsonPath("$.fields.adminEmail").value("Email must be 254 characters or fewer"))
+                    .andExpect(jsonPath("$.fields.adminPassword")
+                            .value("The admin's password must be 72 characters or fewer"))
+                    .andExpect(jsonPath("$.fields.adminDisplayName")
+                            .value("The admin's display name must be 120 characters or fewer"));
+        }
+
         @Test
         @DisplayName("a tripped honeypot resolves like success but creates nothing")
         void honeypotTripCreatesNothing() throws Exception {
