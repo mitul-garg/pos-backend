@@ -184,7 +184,7 @@ public class OrderService {
         order.setTenant(tenant);
         order.setCashier(appUserDao.reference(session.getId()));
         order.setStatus(status);
-        order.setOrderNumber(nextOrderNumber(tenant));
+        order.setOrderNumber(nextOrderNumber(tenant.getId()));
 
         List<OrderLineForm> items = form.getItems() == null ? List.of() : form.getItems();
         BigDecimal orderDiscount = form.getOrderDiscount() == null
@@ -243,8 +243,8 @@ public class OrderService {
      * the identical transaction shape (it does not — returns take {@code SequenceKind.RETURN}
      * from the same {@code TenantSequenceDao}, in C7).
      */
-    private String nextOrderNumber(TenantPojo tenant) {
-        long sequence = tenantSequenceDao.next(SequenceKind.ORDER, tenant);
+    private String nextOrderNumber(Long tenantId) {
+        long sequence = tenantSequenceDao.next(SequenceKind.ORDER, tenantId);
         return String.format("ORD-%d-%04d", Year.now().getValue(), sequence);
     }
 

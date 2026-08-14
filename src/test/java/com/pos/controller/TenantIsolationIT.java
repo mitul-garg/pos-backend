@@ -1161,7 +1161,7 @@ class TenantIsolationIT {
 
     /** Where {@code TenantSequenceDao} would have left this store's QR counter. */
     private void qrSequence(TenantPojo tenant, long nextValue) {
-        TenantSequencePojo sequence = new TenantSequencePojo(tenant, SequenceKind.QR);
+        TenantSequencePojo sequence = new TenantSequencePojo(tenant.getId(), SequenceKind.QR);
         sequence.setNextValue(nextValue);
         em.persist(sequence);
     }

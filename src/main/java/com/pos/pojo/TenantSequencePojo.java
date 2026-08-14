@@ -9,7 +9,6 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.ForeignKey;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
-import jakarta.persistence.MapsId;
 import jakarta.persistence.Table;
 import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.Filter;
@@ -46,18 +45,31 @@ public class TenantSequencePojo {
     private TenantSequenceIdPojo id;
 
     /**
-     * {@code @MapsId} ties this association to the {@code tenantId} half of the key, so
-     * one {@code tenant_id} column serves as both primary-key component and foreign key
-     * rather than being mapped twice.
+     * <b>DDL-only shadow association — never navigate this.</b> Exists purely so
+     * Hibernate's schema generation still emits {@code fk_tenant_sequence_tenant}, the
+     * real database-enforced constraint this project keeps even though the Java-level
+     * relationship is gone — peer-review Phase 2 decision: minimize {@code @ManyToOne}
+     * navigation, keep the DB-level FK constraint. Call
+     * {@code TenantDao.find(getId().getTenantId())} on the rare occasion a caller
+     * actually needs the related row rather than just its id.
+     *
+     * <p>Mapped to the same {@code tenant_id} column {@link TenantSequenceIdPojo#tenantId}
+     * already claims as part of the embedded id — {@code insertable = false, updatable =
+     * false} means it never participates in a write, so there is only one owner of that
+     * column's value: the embedded id. Every entity in this codebase uses field access
+     * (the {@code @Id}/{@code @EmbeddedId} is placed on the field), so Hibernate never
+     * needs an accessor either; with none exposed, nothing outside this file can reach it.
      */
-    @MapsId("tenantId")
+    @SuppressWarnings("unused")
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(
             name = "tenant_id",
+            insertable = false,
+            updatable = false,
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_tenant_sequence_tenant")
     )
-    private TenantPojo tenant;
+    private TenantPojo tenantFk;
 
     /** The next value to hand out — so a fresh counter starts at 1, not 0. */
     @Column(name = "next_value", nullable = false)
@@ -68,9 +80,8 @@ public class TenantSequencePojo {
         // Required by JPA.
     }
 
-    public TenantSequencePojo(TenantPojo tenant, SequenceKind kind) {
-        this.tenant = tenant;
-        this.id = new TenantSequenceIdPojo(tenant.getId(), kind);
+    public TenantSequencePojo(Long tenantId, SequenceKind kind) {
+        this.id = new TenantSequenceIdPojo(tenantId, kind);
     }
 
     public TenantSequenceIdPojo getId() {
@@ -79,14 +90,6 @@ public class TenantSequencePojo {
 
     public void setId(TenantSequenceIdPojo id) {
         this.id = id;
-    }
-
-    public TenantPojo getTenant() {
-        return tenant;
-    }
-
-    public void setTenant(TenantPojo tenant) {
-        this.tenant = tenant;
     }
 
     public long getNextValue() {

@@ -106,8 +106,8 @@
 
     create table tenant_sequence (
         kind varchar(16) not null check (kind in ('ORDER','RETURN','QR')),
-        next_value bigint default 1 not null,
         tenant_id bigint not null,
+        next_value bigint default 1 not null,
         primary key (kind, tenant_id)
     ) engine=InnoDB;
 

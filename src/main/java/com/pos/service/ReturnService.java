@@ -30,7 +30,6 @@ import com.pos.pojo.ReturnLinePojo;
 import com.pos.pojo.enums.Role;
 import com.pos.pojo.SalesReturnPojo;
 import com.pos.pojo.enums.SequenceKind;
-import com.pos.pojo.TenantPojo;
 import com.pos.util.MaxLength;
 import com.pos.util.Pricing;
 import com.pos.util.tenancy.TenantContext;
@@ -240,7 +239,7 @@ public class ReturnService {
 
         SalesReturnPojo salesReturn = new SalesReturnPojo();
         salesReturn.setTenant(order.getTenant());
-        salesReturn.setReturnNumber(nextReturnNumber(order.getTenant()));
+        salesReturn.setReturnNumber(nextReturnNumber(order.getTenant().getId()));
         salesReturn.setOriginalOrder(order);
         salesReturn.setOriginalOrderNumber(order.getOrderNumber());
         salesReturn.setRefundSubtotal(totals.subtotal);
@@ -277,8 +276,8 @@ public class ReturnService {
     }
 
     /** This store's next return number, identical shape to {@code OrderService}'s. */
-    private String nextReturnNumber(TenantPojo tenant) {
-        long sequence = tenantSequenceDao.next(SequenceKind.RETURN, tenant);
+    private String nextReturnNumber(Long tenantId) {
+        long sequence = tenantSequenceDao.next(SequenceKind.RETURN, tenantId);
         return String.format("RET-%d-%04d", Year.now().getValue(), sequence);
     }
 

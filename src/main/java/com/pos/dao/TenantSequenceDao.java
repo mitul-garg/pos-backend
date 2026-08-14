@@ -38,11 +38,11 @@ public class TenantSequenceDao {
      *
      * <p><b>Note the sequence query names no tenant.</b> The {@code tenantFilter} on
      * {@link TenantSequencePojo} scopes it, exactly as it scopes every other query — so this
-     * can only ever advance the caller's own counter, whatever the {@code tenant} argument
+     * can only ever advance the caller's own counter, whatever the {@code tenantId} argument
      * says. That argument exists for the two things the filter cannot do: lock the tenant
-     * row, and point a foreign key at it the first time a store asks for a number. Its
-     * caller takes it from the parent entity of the row being numbered, which was itself
-     * loaded through a filtered read — never from a request.
+     * row, and set the foreign-key column the first time a store asks for a number. Its
+     * caller takes it from the id of the parent row (or session) being numbered, which was
+     * itself resolved through a filtered read — never straight from a request.
      *
      * <p><b>JPQL rather than {@code em.find(..., PESSIMISTIC_WRITE)}</b> for the sequence
      * row, and not for style: {@code find} would need the composite key, which means
@@ -79,12 +79,12 @@ public class TenantSequenceDao {
      * {@code SELECT} a snapshot read, so two transactions seeing the same value is defined
      * behaviour rather than misconfiguration.
      */
-    public long next(SequenceKind kind, TenantPojo tenant) {
+    public long next(SequenceKind kind, Long tenantId) {
         // The whole of the deadlock fix. Not a read -- the row is already in hand -- but a
         // lock upgrade on a row that is guaranteed to exist, so every caller queues here
         // rather than in the section below where two of them could hold incompatible
         // locks. TenantPojo is unfiltered, so this is unaffected by the tenant filter.
-        em.find(TenantPojo.class, tenant.getId(), LockModeType.PESSIMISTIC_WRITE);
+        em.find(TenantPojo.class, tenantId, LockModeType.PESSIMISTIC_WRITE);
 
         TenantSequencePojo sequence = em.createQuery(
                         "SELECT s FROM TenantSequencePojo s WHERE s.id.kind = :kind",
@@ -100,7 +100,7 @@ public class TenantSequenceDao {
             // anyone, because the tenant lock above is held. The primary key
             // (tenant_id, kind) is the backstop if that ever stops being true, and the
             // flush is what makes it fail here rather than at commit.
-            sequence = new TenantSequencePojo(tenant, kind);
+            sequence = new TenantSequencePojo(tenantId, kind);
             em.persist(sequence);
             em.flush();
         }

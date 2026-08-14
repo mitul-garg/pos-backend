@@ -8,7 +8,6 @@ import java.util.Map;
 
 import com.pos.config.AppProperties;
 import com.pos.dao.ProductDao;
-import com.pos.dao.TenantDao;
 import com.pos.dao.TenantSequenceDao;
 import com.pos.dao.VariantDao;
 import com.pos.exception.NotFoundException;
@@ -18,7 +17,6 @@ import com.pos.model.VariantData;
 import com.pos.model.VariantForm;
 import com.pos.pojo.ProductPojo;
 import com.pos.pojo.enums.SequenceKind;
-import com.pos.pojo.TenantPojo;
 import com.pos.pojo.enums.UnitOfMeasure;
 import com.pos.pojo.VariantPojo;
 import com.pos.util.MaxLength;
@@ -80,16 +78,14 @@ public class VariantService {
 
     private final VariantDao variantDao;
     private final ProductDao productDao;
-    private final TenantDao tenantDao;
     private final TenantSequenceDao tenantSequenceDao;
     private final AppProperties appProperties;
 
     @Autowired
-    public VariantService(VariantDao variantDao, ProductDao productDao, TenantDao tenantDao,
+    public VariantService(VariantDao variantDao, ProductDao productDao,
                           TenantSequenceDao tenantSequenceDao, AppProperties appProperties) {
         this.variantDao = variantDao;
         this.productDao = productDao;
-        this.tenantDao = tenantDao;
         this.tenantSequenceDao = tenantSequenceDao;
         this.appProperties = appProperties;
     }
@@ -194,16 +190,16 @@ public class VariantService {
         String variantLabel = trimToEmpty(form.getVariantLabel());
         validate(mrp, sellingPrice, stockQuantity, sku, null, variantLabel);
 
-        TenantPojo tenant = tenantDao.reference(product.getTenantId());
-        long sequence = tenantSequenceDao.next(SequenceKind.QR, tenant);
+        Long tenantId = product.getTenantId();
+        long sequence = tenantSequenceDao.next(SequenceKind.QR, tenantId);
 
         VariantPojo variant = new VariantPojo();
-        variant.setTenantId(tenant.getId());
+        variant.setTenantId(tenantId);
         variant.setProductId(product.getId());
         variant.setVariantLabel(variantLabel);
         variant.setAttributes(form.getAttributes());
         variant.setSku(sku == null ? QrCodes.fallbackSku(sequence) : sku);
-        variant.setQrCode(QrCodes.payload(tenant.getId(), sequence));
+        variant.setQrCode(QrCodes.payload(tenantId, sequence));
         variant.setMrp(mrp);
         variant.setSellingPrice(sellingPrice);
         variant.setStockQuantity(stockQuantity);
@@ -321,9 +317,9 @@ public class VariantService {
         if (variant == null) {
             throw new NotFoundException(NOT_FOUND);
         }
-        TenantPojo tenant = tenantDao.reference(variant.getTenantId());
-        long sequence = tenantSequenceDao.next(SequenceKind.QR, tenant);
-        variant.setQrCode(QrCodes.payload(tenant.getId(), sequence));
+        Long tenantId = variant.getTenantId();
+        long sequence = tenantSequenceDao.next(SequenceKind.QR, tenantId);
+        variant.setQrCode(QrCodes.payload(tenantId, sequence));
         return toData(variant, productDao.find(variant.getProductId()));
     }
 
