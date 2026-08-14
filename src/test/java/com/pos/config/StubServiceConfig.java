@@ -56,17 +56,17 @@ public class StubServiceConfig {
 
     @Bean
     public OrderService orderService() {
-        return new OrderService(null, null, null, null, null, null, null);
+        return new OrderService(null, null, null, null, null, null);
     }
 
     @Bean
     public PaymentService paymentService() {
-        return new PaymentService(null, null, null);
+        return new PaymentService(null, null, null, null);
     }
 
     @Bean
     public ReturnService returnService() {
-        return new ReturnService(null, null, null, null, null, null);
+        return new ReturnService(null, null, null, null, null, null, null, null);
     }
 
     @Bean

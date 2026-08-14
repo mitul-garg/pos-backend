@@ -527,8 +527,8 @@ class TenantAdminIT {
     /** The minimum {@link PosOrderPojo} needs, for a count fixture with no cart behind it. */
     private void order(TenantPojo tenant, AppUserPojo cashier, String orderNumber) {
         PosOrderPojo order = new PosOrderPojo();
-        order.setTenant(tenant);
-        order.setCashier(cashier);
+        order.setTenantId(tenant.getId());
+        order.setCashierId(cashier.getId());
         order.setOrderNumber(orderNumber);
         order.setSubtotal(BigDecimal.TEN);
         order.setTotalTax(BigDecimal.ONE);

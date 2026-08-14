@@ -59,6 +59,19 @@ public class VariantDao {
     }
 
     /**
+     * A proxy for the row with this id, for stamping a foreign key without reading it —
+     * same shape as {@code TenantDao.reference}/{@code AppUserDao.reference}. Issues no
+     * SQL: the only thing an {@code INSERT} needs from the parent is its id, and that is
+     * already in hand. {@code ReturnService.create}'s one caller passes an id already
+     * resolved through a filtered read earlier in the same transaction — the matched
+     * order line's own snapshotted {@code variantId}, never one taken straight from a
+     * request.
+     */
+    public VariantPojo reference(Long id) {
+        return em.getReference(VariantPojo.class, id);
+    }
+
+    /**
      * By primary key, product pre-fetched (C6). {@link #find} stays a plain {@code em.find}
      * for the reason on its own Javadoc; this is a second, JPQL, method for the one caller
      * that needs the product loaded up front — {@code OrderService}, building a line

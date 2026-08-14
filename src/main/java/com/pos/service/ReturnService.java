@@ -9,7 +9,9 @@ import java.util.Map;
 
 import com.pos.dao.AppUserDao;
 import com.pos.dao.OrderDao;
+import com.pos.dao.OrderLineDao;
 import com.pos.dao.ReturnDao;
+import com.pos.dao.TenantDao;
 import com.pos.dao.TenantSequenceDao;
 import com.pos.dao.VariantDao;
 import com.pos.exception.NotFoundException;
@@ -30,6 +32,7 @@ import com.pos.pojo.ReturnLinePojo;
 import com.pos.pojo.enums.Role;
 import com.pos.pojo.SalesReturnPojo;
 import com.pos.pojo.enums.SequenceKind;
+import com.pos.pojo.TenantPojo;
 import com.pos.util.MaxLength;
 import com.pos.util.Pricing;
 import com.pos.util.tenancy.TenantContext;
@@ -77,19 +80,23 @@ public class ReturnService {
     static final String ORIGINAL_ORDER_REQUIRED = "Original order is required";
 
     private final OrderDao orderDao;
+    private final OrderLineDao orderLineDao;
     private final ReturnDao returnDao;
     private final VariantDao variantDao;
+    private final TenantDao tenantDao;
     private final AppUserDao appUserDao;
     private final TenantSequenceDao tenantSequenceDao;
     private final AuthService authService;
 
     @Autowired
-    public ReturnService(OrderDao orderDao, ReturnDao returnDao, VariantDao variantDao,
-                         AppUserDao appUserDao, TenantSequenceDao tenantSequenceDao,
-                         AuthService authService) {
+    public ReturnService(OrderDao orderDao, OrderLineDao orderLineDao, ReturnDao returnDao,
+                         VariantDao variantDao, TenantDao tenantDao, AppUserDao appUserDao,
+                         TenantSequenceDao tenantSequenceDao, AuthService authService) {
         this.orderDao = orderDao;
+        this.orderLineDao = orderLineDao;
         this.returnDao = returnDao;
         this.variantDao = variantDao;
+        this.tenantDao = tenantDao;
         this.appUserDao = appUserDao;
         this.tenantSequenceDao = tenantSequenceDao;
         this.authService = authService;
@@ -208,14 +215,18 @@ public class ReturnService {
         // each against the identical baseline and let both through.
         Map<Long, Integer> consumedThisRequest = new HashMap<>();
 
+        // PosOrderPojo.lines is no longer a navigable association (peer-review Phase 2) —
+        // this is the explicit OrderLineDao read that replaced order.getLines().
+        List<OrderLinePojo> orderLines = orderLineDao.findByOrder(order.getId());
+
         List<OrderLinePojo> matchedLines = new ArrayList<>(selected.size());
         List<Pricing.LineInput> inputs = new ArrayList<>(selected.size());
         for (ReturnLineForm itemForm : selected) {
             if (itemForm.getVariantId() == null) {
                 throw ValidationException.field("variantId", VARIANT_REQUIRED);
             }
-            OrderLinePojo line = order.getLines().stream()
-                    .filter(l -> l.getVariant().getId().equals(itemForm.getVariantId()))
+            OrderLinePojo line = orderLines.stream()
+                    .filter(l -> l.getVariantId().equals(itemForm.getVariantId()))
                     .findFirst()
                     .orElseThrow(() -> ValidationException.field("items", ITEM_NOT_ON_ORDER));
 
@@ -230,16 +241,21 @@ public class ReturnService {
             consumedThisRequest.merge(itemForm.getVariantId(), quantity, Integer::sum);
 
             matchedLines.add(line);
-            inputs.add(new Pricing.LineInput(line.getVariant().getId(), line.getName(),
+            inputs.add(new Pricing.LineInput(line.getVariantId(), line.getName(),
                     line.getQrCode(), quantity, line.getUnitPrice(), line.getTaxRatePercent(),
                     BigDecimal.ZERO));
         }
 
         Pricing.OrderTotals totals = Pricing.computeOrderTotals(inputs, BigDecimal.ZERO);
 
+        // order.getTenant() is gone the same way order.getLines() is — tenantDao.reference
+        // is the standard "stamp a foreign key without reading it" proxy (TenantDao.reference's
+        // own Javadoc), resolved once and reused for both the return and every one of its lines.
+        TenantPojo tenant = tenantDao.reference(order.getTenantId());
+
         SalesReturnPojo salesReturn = new SalesReturnPojo();
-        salesReturn.setTenant(order.getTenant());
-        salesReturn.setReturnNumber(nextReturnNumber(order.getTenant().getId()));
+        salesReturn.setTenant(tenant);
+        salesReturn.setReturnNumber(nextReturnNumber(order.getTenantId()));
         salesReturn.setOriginalOrder(order);
         salesReturn.setOriginalOrderNumber(order.getOrderNumber());
         salesReturn.setRefundSubtotal(totals.subtotal);
@@ -256,8 +272,11 @@ public class ReturnService {
             OrderLinePojo sourceLine = matchedLines.get(i);
 
             ReturnLinePojo returnLine = new ReturnLinePojo();
-            returnLine.setTenant(order.getTenant());
-            returnLine.setVariant(sourceLine.getVariant());
+            returnLine.setTenant(tenant);
+            // A proxy, not a read: the id itself already proved safe by matching against
+            // this order's own lines above, the same reasoning restoreStock's call below
+            // relies on.
+            returnLine.setVariant(variantDao.reference(sourceLine.getVariantId()));
             returnLine.setName(computed.input.name);
             returnLine.setQuantity(computed.input.quantity);
             returnLine.setUnitPrice(computed.input.unitPrice);
@@ -268,7 +287,7 @@ public class ReturnService {
             // Each id here was already resolved through a filtered read when the ORIGINAL
             // order was created — see VariantDao.restoreStock's Javadoc for why that
             // makes this bulk statement safe without a tenant check of its own.
-            variantDao.restoreStock(sourceLine.getVariant().getId(), computed.input.quantity);
+            variantDao.restoreStock(sourceLine.getVariantId(), computed.input.quantity);
         }
 
         returnDao.insert(salesReturn);
@@ -283,8 +302,10 @@ public class ReturnService {
 
     private OrderLookupData toLookupData(PosOrderPojo order) {
         Map<Long, Integer> returned = returnDao.returnedQuantitiesByVariant(order.getId());
-        List<OrderLookupLineData> items = order.getLines().stream()
-                .map(line -> toLookupLine(line, returned.getOrDefault(line.getVariant().getId(), 0)))
+        // PosOrderPojo.lines is no longer a navigable association (peer-review Phase 2) —
+        // this is the explicit OrderLineDao read that replaced order.getLines().
+        List<OrderLookupLineData> items = orderLineDao.findByOrder(order.getId()).stream()
+                .map(line -> toLookupLine(line, returned.getOrDefault(line.getVariantId(), 0)))
                 .toList();
 
         PaymentData payment = order.getPaymentMethod() == null ? null : new PaymentData(
@@ -293,7 +314,7 @@ public class ReturnService {
 
         return new OrderLookupData(
                 order.getId(),
-                order.getTenant().getId(),
+                order.getTenantId(),
                 order.getOrderNumber(),
                 items,
                 order.getSubtotal(),
@@ -303,14 +324,14 @@ public class ReturnService {
                 order.getGrandTotal(),
                 order.getStatus(),
                 payment,
-                order.getCashier().getId(),
+                order.getCashierId(),
                 order.getCreatedAt());
     }
 
     private OrderLookupLineData toLookupLine(OrderLinePojo line, int returnedQuantity) {
         int returnable = Math.max(0, line.getQuantity() - returnedQuantity);
         return new OrderLookupLineData(
-                line.getVariant().getId(),
+                line.getVariantId(),
                 line.getName(),
                 line.getQrCode(),
                 line.getQuantity(),

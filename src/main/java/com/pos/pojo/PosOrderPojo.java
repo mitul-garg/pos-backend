@@ -3,7 +3,6 @@ package com.pos.pojo;
 import com.pos.pojo.enums.OrderStatus;
 import com.pos.pojo.enums.PaymentMethod;
 import com.pos.util.tenancy.TenantContext;
-import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -16,13 +15,10 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
-import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
 import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.Filter;
@@ -39,6 +35,14 @@ import org.hibernate.type.SqlTypes;
  *
  * <p>All totals are <b>recomputed server-side</b> — a client-sent amount is never
  * trusted. A {@code COMPLETED} order is immutable.
+ *
+ * <p><b>Its lines are not a navigable collection.</b> Peer-review Phase 2 dropped the old
+ * {@code @OneToMany(mappedBy = "order", cascade = ALL, orphanRemoval = true) lines} field
+ * along with every other {@code @ManyToOne} on this entity — see {@link #tenantFk}'s
+ * Javadoc for the mechanism. {@code OrderLineDao} is now how a caller reads, inserts or
+ * replaces this order's lines; {@code OrderService.rebuildLines}'s
+ * {@code order.getLines().clear()} + {@code order.addLine(line)} became an explicit
+ * {@code orderLineDao.deleteByOrder}/{@code insertAll} pair.
  */
 @Entity
 @Filter(name = TenantContext.FILTER_NAME, condition = TenantContext.CONDITION)
@@ -61,13 +65,36 @@ public class PosOrderPojo {
     @Column(name = "id")
     private Long id;
 
+    /**
+     * The tenant's id, not the entity — peer-review Phase 2 decision: minimize
+     * {@code @ManyToOne} navigation, keep the DB-level FK constraint. Read {@link #tenantFk}'s
+     * Javadoc for the mechanism; call {@code TenantDao.find(getTenantId())} on the rare
+     * occasion a caller actually needs the related row.
+     */
+    @Column(name = "tenant_id", nullable = false)
+    private Long tenantId;
+
+    /**
+     * <b>DDL-only shadow association — never navigate this.</b> Exists purely so Hibernate's
+     * schema generation still emits {@code fk_pos_order_tenant}, the real database-enforced
+     * constraint this project keeps even though the Java-level relationship is gone.
+     * {@code insertable = false, updatable = false} means it never participates in a write —
+     * {@link #tenantId} above is what {@code OrderDao.insert}/queries actually use — and it
+     * has deliberately no getter or setter. Every entity in this codebase uses field access
+     * (the {@code @Id} is placed on the field), so Hibernate never needs an accessor either;
+     * with none exposed, nothing outside this file can reach it. If you find yourself wanting
+     * to add one, that's a sign a `TenantDao` method is missing instead.
+     */
+    @SuppressWarnings("unused")
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(
             name = "tenant_id",
+            insertable = false,
+            updatable = false,
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_pos_order_tenant")
     )
-    private TenantPojo tenant;
+    private TenantPojo tenantFk;
 
     /**
      * {@code ORD-YYYY-NNNN}, unique per tenant — both seeded stores have an
@@ -138,32 +165,28 @@ public class PosOrderPojo {
      * Who rang it up. <b>From the JWT subject, never the request body</b> — the frontend
      * service signature deliberately has no {@code cashierId} parameter, and that
      * absence is part of the contract.
+     *
+     * <p>The user's id, not the entity — same peer-review Phase 2 decision as
+     * {@link #tenantId}. See {@link #cashierFk}'s Javadoc for the mechanism.
      */
+    @Column(name = "cashier_id", nullable = false)
+    private Long cashierId;
+
+    /** <b>DDL-only shadow association — never navigate this.</b> See {@link #tenantFk}. */
+    @SuppressWarnings("unused")
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(
             name = "cashier_id",
+            insertable = false,
+            updatable = false,
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_pos_order_cashier")
     )
-    private AppUserPojo cashier;
+    private AppUserPojo cashierFk;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
-
-    /**
-     * Cascades because lines have no life of their own — they are part of the order, not
-     * an associated record. {@code orphanRemoval} means dropping a line from this list
-     * deletes the row, which is what editing a held order's cart does.
-     */
-    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<OrderLinePojo> lines = new ArrayList<>();
-
-    /** Keeps both sides of the association consistent, which cascading relies on. */
-    public void addLine(OrderLinePojo line) {
-        lines.add(line);
-        line.setOrder(this);
-    }
 
     public Long getId() {
         return id;
@@ -173,12 +196,12 @@ public class PosOrderPojo {
         this.id = id;
     }
 
-    public TenantPojo getTenant() {
-        return tenant;
+    public Long getTenantId() {
+        return tenantId;
     }
 
-    public void setTenant(TenantPojo tenant) {
-        this.tenant = tenant;
+    public void setTenantId(Long tenantId) {
+        this.tenantId = tenantId;
     }
 
     public String getOrderNumber() {
@@ -277,12 +300,12 @@ public class PosOrderPojo {
         this.paymentReference = paymentReference;
     }
 
-    public AppUserPojo getCashier() {
-        return cashier;
+    public Long getCashierId() {
+        return cashierId;
     }
 
-    public void setCashier(AppUserPojo cashier) {
-        this.cashier = cashier;
+    public void setCashierId(Long cashierId) {
+        this.cashierId = cashierId;
     }
 
     public Instant getCreatedAt() {
@@ -291,13 +314,5 @@ public class PosOrderPojo {
 
     public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
-    }
-
-    public List<OrderLinePojo> getLines() {
-        return lines;
-    }
-
-    public void setLines(List<OrderLinePojo> lines) {
-        this.lines = lines;
     }
 }

@@ -7,9 +7,8 @@ import java.util.List;
 import java.util.Map;
 
 import com.pos.config.AppProperties;
-import com.pos.dao.AppUserDao;
 import com.pos.dao.OrderDao;
-import com.pos.dao.TenantDao;
+import com.pos.dao.OrderLineDao;
 import com.pos.dao.TenantSequenceDao;
 import com.pos.dao.VariantDao;
 import com.pos.exception.NotFoundException;
@@ -27,7 +26,6 @@ import com.pos.pojo.PosOrderPojo;
 import com.pos.pojo.ProductPojo;
 import com.pos.pojo.enums.Role;
 import com.pos.pojo.enums.SequenceKind;
-import com.pos.pojo.TenantPojo;
 import com.pos.pojo.VariantPojo;
 import com.pos.util.Pricing;
 import com.pos.util.tenancy.TenantContext;
@@ -42,7 +40,7 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p><b>Every amount is recomputed here, never trusted from the request.</b>
  * {@link OrderLineForm} carries only {@code variantId}, {@code quantity} and
- * {@code lineDiscount} — no price, no tax rate, no name — and {@link #resolveLine}
+ * {@code lineDiscount} — no price, no tax rate, no name — and {@link #resolveVariant}
  * re-derives all three of those from the variant's <i>current</i> row, read through the
  * tenant filter. A client that forges a price in the body has nothing to forge it into.
  *
@@ -65,7 +63,7 @@ public class OrderService {
 
     /**
      * Peer-review Phase 0 resource-creation guardrail: a durable ceiling on cart
-     * size, not a time-windowed rate limit — see {@link #rebuildLines}.
+     * size, not a time-windowed rate limit — see {@link #buildLines}.
      */
     static final String TOO_MANY_LINE_ITEMS = "Order has too many line items";
 
@@ -88,21 +86,19 @@ public class OrderService {
     static final String PATCH_STATUS_INVALID = "Status can only be changed to HELD or CANCELLED";
 
     private final OrderDao orderDao;
+    private final OrderLineDao orderLineDao;
     private final VariantDao variantDao;
-    private final TenantDao tenantDao;
-    private final AppUserDao appUserDao;
     private final TenantSequenceDao tenantSequenceDao;
     private final AuthService authService;
     private final AppProperties appProperties;
 
     @Autowired
-    public OrderService(OrderDao orderDao, VariantDao variantDao, TenantDao tenantDao,
-                        AppUserDao appUserDao, TenantSequenceDao tenantSequenceDao,
-                        AuthService authService, AppProperties appProperties) {
+    public OrderService(OrderDao orderDao, OrderLineDao orderLineDao, VariantDao variantDao,
+                        TenantSequenceDao tenantSequenceDao, AuthService authService,
+                        AppProperties appProperties) {
         this.orderDao = orderDao;
+        this.orderLineDao = orderLineDao;
         this.variantDao = variantDao;
-        this.tenantDao = tenantDao;
-        this.appUserDao = appUserDao;
         this.tenantSequenceDao = tenantSequenceDao;
         this.authService = authService;
         this.appProperties = appProperties;
@@ -134,9 +130,9 @@ public class OrderService {
         List<PosOrderPojo> orders = orderDao.list(
                 status, effectiveCashierId, (safePage - 1) * safePageSize, safePageSize);
         // Peer-review Phase 1: one batched query for the whole page's lines, instead of
-        // each row's lazy `lines` firing its own SELECT (see OrderDao.findLinesByOrderIds).
+        // each row's lazy `lines` firing its own SELECT (see OrderLineDao.findByOrders).
         Map<Long, List<OrderLinePojo>> linesByOrder =
-                orderDao.findLinesByOrderIds(orders.stream().map(PosOrderPojo::getId).toList());
+                orderLineDao.findByOrders(orders.stream().map(PosOrderPojo::getId).toList());
         List<OrderData> items = orders.stream()
                 .map(o -> toData(o, linesByOrder.getOrDefault(o.getId(), List.of())))
                 .toList();
@@ -167,6 +163,11 @@ public class OrderService {
      * <p>The order number is minted from this store's own sequence <b>in the same
      * transaction as the insert</b> — see {@code TenantSequenceDao.next}. Both locks it
      * takes are held until this method returns, which is what reserves the value.
+     *
+     * <p>Lines are priced <i>before</i> the order is inserted, but not persisted until
+     * after — {@link #buildLines} needs no order id, only {@code order.getTenantId()},
+     * and the order has none until {@link OrderDao#insert} assigns one ({@code IDENTITY}
+     * generation). {@link #insertLines} is the second half, once that id exists.
      */
     @Transactional
     public OrderData create(OrderForm form) {
@@ -178,22 +179,23 @@ public class OrderService {
             throw ValidationException.field("status", CREATE_STATUS_INVALID);
         }
 
-        TenantPojo tenant = tenantDao.reference(session.getTenantId());
+        Long tenantId = session.getTenantId();
 
         PosOrderPojo order = new PosOrderPojo();
-        order.setTenant(tenant);
-        order.setCashier(appUserDao.reference(session.getId()));
+        order.setTenantId(tenantId);
+        order.setCashierId(session.getId());
         order.setStatus(status);
-        order.setOrderNumber(nextOrderNumber(tenant.getId()));
+        order.setOrderNumber(nextOrderNumber(tenantId));
 
         List<OrderLineForm> items = form.getItems() == null ? List.of() : form.getItems();
         BigDecimal orderDiscount = form.getOrderDiscount() == null
                 ? BigDecimal.ZERO
                 : form.getOrderDiscount();
-        rebuildLines(order, items, orderDiscount);
+        List<OrderLinePojo> lines = buildLines(order, items, orderDiscount);
 
         orderDao.insert(order);
-        return toData(order);
+        insertLines(order, lines);
+        return toData(order, lines);
     }
 
     /**
@@ -218,13 +220,22 @@ public class OrderService {
             throw new ValidationException(ALREADY_COMPLETED);
         }
 
+        List<OrderLinePojo> lines;
         if (form.getItems() != null) {
             BigDecimal orderDiscount = form.getOrderDiscount() == null
                     ? order.getOrderDiscount()
                     : form.getOrderDiscount();
-            rebuildLines(order, form.getItems(), orderDiscount);
+            lines = buildLines(order, form.getItems(), orderDiscount);
+            // orphanRemoval used to make this a side effect of order.getLines().clear();
+            // now it is the explicit delete-then-reinsert its old Javadoc always
+            // described in JPA terms.
+            orderLineDao.deleteByOrder(order.getId());
+            insertLines(order, lines);
         } else if (form.getOrderDiscount() != null) {
-            retotal(order, form.getOrderDiscount());
+            lines = orderLineDao.findByOrder(order.getId());
+            retotal(order, lines, form.getOrderDiscount());
+        } else {
+            lines = orderLineDao.findByOrder(order.getId());
         }
 
         if (form.getStatus() != null) {
@@ -234,7 +245,7 @@ public class OrderService {
             order.setStatus(form.getStatus());
         }
 
-        return toData(order);
+        return toData(order, lines);
     }
 
     /**
@@ -250,11 +261,14 @@ public class OrderService {
 
     /**
      * Resolves every requested line against the <i>current</i> variant row, prices the
-     * whole set with {@link Pricing}, and replaces {@code order}'s line collection.
-     * {@code orphanRemoval} on {@code PosOrderPojo.lines} is what makes {@code clear()} a
-     * deletion rather than a detachment — editing a held order's cart is exactly this.
+     * whole set with {@link Pricing}, applies the resulting totals to {@code order}, and
+     * returns the freshly-built lines — tenant-stamped but <b>not yet persisted, and
+     * without an {@code orderId}</b>. {@link #create} does not know its order's id until
+     * after {@code OrderDao.insert}; {@link #update} always does. Either way,
+     * {@link #insertLines} is the second step that actually writes them.
      */
-    private void rebuildLines(PosOrderPojo order, List<OrderLineForm> itemForms, BigDecimal orderDiscount) {
+    private List<OrderLinePojo> buildLines(PosOrderPojo order, List<OrderLineForm> itemForms,
+                                           BigDecimal orderDiscount) {
         if (itemForms.size() > appProperties.getOrderMaxLineItems()) {
             throw ValidationException.field("items", TOO_MANY_LINE_ITEMS);
         }
@@ -268,13 +282,14 @@ public class OrderService {
         }
 
         Pricing.OrderTotals totals = Pricing.computeOrderTotals(inputs, orderDiscount);
+        applyTotals(order, totals);
 
-        order.getLines().clear();
+        List<OrderLinePojo> lines = new ArrayList<>(totals.lines.size());
         for (int i = 0; i < totals.lines.size(); i++) {
             Pricing.LineTotals computed = totals.lines.get(i);
             OrderLinePojo line = new OrderLinePojo();
-            line.setTenant(order.getTenant());
-            line.setVariant(variants.get(i));
+            line.setTenantId(order.getTenantId());
+            line.setVariantId(variants.get(i).getId());
             line.setName(computed.input.name);
             line.setQrCode(computed.input.qrCode);
             line.setQuantity(computed.input.quantity);
@@ -282,17 +297,30 @@ public class OrderService {
             line.setTaxRatePercent(computed.input.taxRatePercent);
             line.setLineDiscount(computed.input.lineDiscount);
             line.setLineTotal(computed.lineTotal);
-            order.addLine(line);
+            lines.add(line);
         }
-        applyTotals(order, totals);
+        return lines;
+    }
+
+    /**
+     * Stamps {@code order}'s (by-then-assigned) id onto every line and inserts them —
+     * the second half of {@link #buildLines}, split off because {@link #create} cannot
+     * do this until after {@code OrderDao.insert}, while {@link #update} can do it
+     * immediately.
+     */
+    private void insertLines(PosOrderPojo order, List<OrderLinePojo> lines) {
+        for (OrderLinePojo line : lines) {
+            line.setOrderId(order.getId());
+        }
+        orderLineDao.insertAll(lines);
     }
 
     /**
      * Re-totals against the order's own already-snapshotted lines — no variant lookup,
      * because an order-level discount does not reprice a line.
      */
-    private void retotal(PosOrderPojo order, BigDecimal orderDiscount) {
-        List<Pricing.LineInput> inputs = order.getLines().stream()
+    private void retotal(PosOrderPojo order, List<OrderLinePojo> lines, BigDecimal orderDiscount) {
+        List<Pricing.LineInput> inputs = lines.stream()
                 .map(this::lineInputOfExisting)
                 .toList();
         applyTotals(order, Pricing.computeOrderTotals(inputs, orderDiscount));
@@ -335,31 +363,30 @@ public class OrderService {
 
     /** Rebuilds a {@link Pricing.LineInput} from an already-persisted, snapshotted line. */
     private Pricing.LineInput lineInputOfExisting(OrderLinePojo line) {
-        return new Pricing.LineInput(line.getVariant().getId(), line.getName(), line.getQrCode(),
+        return new Pricing.LineInput(line.getVariantId(), line.getName(), line.getQrCode(),
                 line.getQuantity(), line.getUnitPrice(), line.getTaxRatePercent(),
                 line.getLineDiscount());
     }
 
     /**
-     * Mapped inside the transaction — {@code order.getLines()} and the {@code cashier}
-     * association are both {@code LAZY}, and this is the one read of either. Used by
-     * {@link #get} and {@code PaymentService}, where reading the lazy collection directly
-     * is one extra query for one order, not a per-row problem.
+     * Mapped inside the transaction, fetching this order's lines itself — used by
+     * {@link #get} and {@code PaymentService}, where a second query for one order's
+     * lines is one extra statement, not a per-row problem.
      */
     OrderData toData(PosOrderPojo order) {
-        return toData(order, order.getLines());
+        return toData(order, orderLineDao.findByOrder(order.getId()));
     }
 
     /**
-     * The core mapper, taking {@code lines} explicitly rather than reading
-     * {@code order.getLines()} itself — {@link #list} batches every order's lines on
-     * the page into one query ({@code OrderDao.findLinesByOrderIds}, peer-review
-     * Phase 1) rather than letting each row's lazy association fire its own
-     * {@code SELECT}, and passes the already-loaded lines in here instead.
+     * The core mapper, taking {@code lines} explicitly rather than fetching them itself
+     * — {@link #list} batches every order's lines on the page into one query
+     * ({@code OrderLineDao.findByOrders}, peer-review Phase 1) rather than reading each
+     * row's lines with its own {@code SELECT}, and passes the already-loaded lines in
+     * here instead.
      */
     private OrderData toData(PosOrderPojo order, List<OrderLinePojo> lines) {
         List<OrderLineData> items = lines.stream()
-                .map(l -> new OrderLineData(l.getVariant().getId(), l.getName(), l.getQrCode(),
+                .map(l -> new OrderLineData(l.getVariantId(), l.getName(), l.getQrCode(),
                         l.getQuantity(), l.getUnitPrice(), l.getTaxRatePercent(),
                         l.getLineDiscount(), l.getLineTotal()))
                 .toList();
@@ -370,7 +397,7 @@ public class OrderService {
 
         return new OrderData(
                 order.getId(),
-                order.getTenant().getId(),
+                order.getTenantId(),
                 order.getOrderNumber(),
                 items,
                 order.getSubtotal(),
@@ -380,7 +407,7 @@ public class OrderService {
                 order.getGrandTotal(),
                 order.getStatus(),
                 payment,
-                order.getCashier().getId(),
+                order.getCashierId(),
                 order.getCreatedAt());
     }
 }

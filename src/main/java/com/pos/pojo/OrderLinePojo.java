@@ -27,6 +27,12 @@ import org.hibernate.annotations.OnDeleteAction;
  * cleaned up later. {@code variantId} records <i>what</i> was sold; {@code name},
  * {@code unitPrice} and {@code taxRatePercent} record <i>on what terms</i>. A later
  * price change must not rewrite history, and a refund reads these back verbatim.
+ *
+ * <p><b>Reached only through {@code OrderLineDao}</b>, never through a navigable
+ * association — peer-review Phase 2 dropped every {@code @ManyToOne} here (and the
+ * matching {@code @OneToMany} on {@link PosOrderPojo}) the same way it did across every
+ * other entity. See {@link #tenantFk}'s Javadoc for the shadow-association mechanism
+ * that keeps the FK constraints without the navigation.
  */
 @Entity
 @Filter(name = TenantContext.FILTER_NAME, condition = TenantContext.CONDITION)
@@ -48,34 +54,85 @@ public class OrderLinePojo {
      * column is redundant on paper — but it lets the C4 tenant filter apply uniformly to
      * <b>every</b> entity, so no table depends on a <i>join</i> being scoped correctly
      * in order to stay isolated. Each table is independently safe.
+     *
+     * <p>The tenant's id, not the entity — peer-review Phase 2 decision: minimize
+     * {@code @ManyToOne} navigation, keep the DB-level FK constraint. See
+     * {@link #tenantFk}'s Javadoc for the mechanism.
      */
+    @Column(name = "tenant_id", nullable = false)
+    private Long tenantId;
+
+    /**
+     * <b>DDL-only shadow association — never navigate this.</b> Exists purely so Hibernate's
+     * schema generation still emits {@code fk_order_line_tenant}, the real database-enforced
+     * constraint this project keeps even though the Java-level relationship is gone.
+     * {@code insertable = false, updatable = false} means it never participates in a write —
+     * {@link #tenantId} above is what {@code OrderLineDao}'s queries actually use — and it
+     * has deliberately no getter or setter. Every entity in this codebase uses field access
+     * (the {@code @Id} is placed on the field), so Hibernate never needs an accessor either;
+     * with none exposed, nothing outside this file can reach it. If you find yourself wanting
+     * to add one, that's a sign an {@code OrderLineDao}/{@code TenantDao} method is missing
+     * instead.
+     */
+    @SuppressWarnings("unused")
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(
             name = "tenant_id",
+            insertable = false,
+            updatable = false,
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_order_line_tenant")
     )
-    private TenantPojo tenant;
+    private TenantPojo tenantFk;
 
+    /**
+     * The parent order's id, not the entity — same peer-review Phase 2 decision as
+     * {@link #tenantId}. {@code OrderLineDao.findByOrder}/{@code findByOrders} is how a
+     * caller reads the lines of a given order; there is no reverse navigation from here.
+     */
+    @Column(name = "order_id", nullable = false)
+    private Long orderId;
+
+    /**
+     * <b>DDL-only shadow association — never navigate this.</b> See {@link #tenantFk}.
+     * {@code @OnDelete} still applies to schema generation from this read-only mapping —
+     * lines die with their order, and this is what puts {@code ON DELETE CASCADE} in the
+     * DDL so the database enforces it even though the JPA-level cascade
+     * ({@code PosOrderPojo.lines}' old {@code cascade = ALL, orphanRemoval = true}) is
+     * gone; {@code OrderService}/{@code OrderLineDao} handle the application-level side
+     * explicitly now.
+     */
+    @SuppressWarnings("unused")
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(
             name = "order_id",
+            insertable = false,
+            updatable = false,
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_order_line_pos_order")
     )
-    // Lines die with their order. The JPA cascade on PosOrderPojo handles the ORM side;
-    // this puts ON DELETE CASCADE in the DDL so the database enforces it too.
     @OnDelete(action = OnDeleteAction.CASCADE)
-    private PosOrderPojo order;
+    private PosOrderPojo orderFk;
 
-    /** What was sold. */
+    /**
+     * What was sold — its id, not the entity. Same peer-review Phase 2 decision as
+     * {@link #tenantId}; call {@code VariantDao.find(getVariantId())} on the rare
+     * occasion a caller actually needs the related row.
+     */
+    @Column(name = "variant_id", nullable = false)
+    private Long variantId;
+
+    /** <b>DDL-only shadow association — never navigate this.</b> See {@link #tenantFk}. */
+    @SuppressWarnings("unused")
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(
             name = "variant_id",
+            insertable = false,
+            updatable = false,
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_order_line_variant")
     )
-    private VariantPojo variant;
+    private VariantPojo variantFk;
 
     /** <b>Snapshot</b> — product name plus variant label, as they read at sale time. */
     @Column(name = "name", nullable = false, length = 255)
@@ -111,28 +168,28 @@ public class OrderLinePojo {
         this.id = id;
     }
 
-    public TenantPojo getTenant() {
-        return tenant;
+    public Long getTenantId() {
+        return tenantId;
     }
 
-    public void setTenant(TenantPojo tenant) {
-        this.tenant = tenant;
+    public void setTenantId(Long tenantId) {
+        this.tenantId = tenantId;
     }
 
-    public PosOrderPojo getOrder() {
-        return order;
+    public Long getOrderId() {
+        return orderId;
     }
 
-    public void setOrder(PosOrderPojo order) {
-        this.order = order;
+    public void setOrderId(Long orderId) {
+        this.orderId = orderId;
     }
 
-    public VariantPojo getVariant() {
-        return variant;
+    public Long getVariantId() {
+        return variantId;
     }
 
-    public void setVariant(VariantPojo variant) {
-        this.variant = variant;
+    public void setVariantId(Long variantId) {
+        this.variantId = variantId;
     }
 
     public String getName() {

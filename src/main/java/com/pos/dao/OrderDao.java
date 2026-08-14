@@ -1,11 +1,8 @@
 package com.pos.dao;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
-import com.pos.pojo.OrderLinePojo;
 import com.pos.pojo.enums.OrderStatus;
 import com.pos.pojo.PosOrderPojo;
 import jakarta.persistence.EntityManager;
@@ -22,14 +19,16 @@ import org.springframework.stereotype.Repository;
  * place a query does name an id explicitly is {@link #find}, and that is a primary key —
  * safe only because the {@code @FilterDef} sets {@code applyToLoadByKey}.
  *
- * <p>{@code lines} is left {@code LAZY} on {@link PosOrderPojo} and not {@code JOIN FETCH}ed
- * here, unlike {@code VariantDao}'s join onto its parent product. A to-many collection
- * cannot be fetch-joined under {@code setFirstResult}/{@code setMaxResults} without
- * Hibernate silently paginating in memory — the classic JPA trap — so {@link #list}
- * leaves it lazy. {@code OrderService.list} no longer reads it per row, though
- * ({@link #findLinesByOrderIds} below, peer-review Phase 1) — {@link #get} and
- * {@code PaymentService} still do, which is one extra statement for one order, not a
- * per-row problem.
+ * <p>{@code lines} is not a navigable association on {@link PosOrderPojo} at all —
+ * peer-review Phase 2 dropped it along with every other {@code @ManyToOne}/
+ * {@code @OneToMany} here — so it is never joined in from this DAO either. A to-many
+ * collection could not have been fetch-joined under {@code setFirstResult}/
+ * {@code setMaxResults} anyway without Hibernate silently paginating in memory — the
+ * classic JPA trap — so {@link #list} was always going to need a separate read for
+ * lines. {@code OrderLineDao.findByOrders} is that read for a whole page at once
+ * ({@code OrderService.list}, peer-review Phase 1's N+1 fix); {@link #get} and
+ * {@code PaymentService} call {@code OrderLineDao.findByOrder} for their one row, which
+ * is one extra statement for one order, not a per-row problem.
  */
 @Repository
 public class OrderDao {
@@ -111,44 +110,13 @@ public class OrderDao {
         em.flush();
     }
 
-    /**
-     * Every line for a whole page of orders, batched into one query and grouped by
-     * order id — the fix for {@code OrderService.list}'s N+1 (peer-review Phase 1):
-     * one extra {@code SELECT} for the whole page instead of one per row.
-     * {@code OrderLinePojo} carries its own {@code tenant_id} column (denormalised for
-     * exactly this reason, per its own Javadoc), so this query is scoped on its own
-     * terms rather than through a joined parent.
-     *
-     * <p>Ordered {@code order_id, id} so each order's lines come back in the same order
-     * {@code order.getLines()} would produce — neither side declares an
-     * {@code @OrderBy}, so that order is insertion order, which is also primary-key
-     * order.
-     */
-    public Map<Long, List<OrderLinePojo>> findLinesByOrderIds(List<Long> orderIds) {
-        if (orderIds.isEmpty()) {
-            return Map.of();
-        }
-        List<OrderLinePojo> lines = em.createQuery(
-                        "SELECT l FROM OrderLinePojo l WHERE l.order.id IN :orderIds"
-                                + " ORDER BY l.order.id, l.id",
-                        OrderLinePojo.class)
-                .setParameter("orderIds", orderIds)
-                .getResultList();
-
-        Map<Long, List<OrderLinePojo>> byOrder = new LinkedHashMap<>();
-        for (OrderLinePojo line : lines) {
-            byOrder.computeIfAbsent(line.getOrder().getId(), k -> new ArrayList<>()).add(line);
-        }
-        return byOrder;
-    }
-
     private String where(OrderStatus status, Long cashierId) {
         List<String> conditions = new ArrayList<>();
         if (status != null) {
             conditions.add("o.status = :status");
         }
         if (cashierId != null) {
-            conditions.add("o.cashier.id = :cashierId");
+            conditions.add("o.cashierId = :cashierId");
         }
         return conditions.isEmpty() ? "" : " WHERE " + String.join(" AND ", conditions);
     }

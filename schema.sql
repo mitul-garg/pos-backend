@@ -17,12 +17,12 @@
         line_discount decimal(12,2) default 0 not null,
         line_total decimal(12,2) not null,
         name varchar(255) not null,
+        order_id bigint not null,
         qr_code varchar(64),
         quantity integer not null,
         tax_rate_percent decimal(5,2) not null,
-        unit_price decimal(12,2) not null,
-        order_id bigint not null,
         tenant_id bigint not null,
+        unit_price decimal(12,2) not null,
         variant_id bigint not null,
         primary key (id),
         constraint ck_order_line_quantity_positive check (quantity > 0)
@@ -31,6 +31,7 @@
     create table pos_order (
         id bigint not null auto_increment,
         amount_tendered decimal(12,2),
+        cashier_id bigint not null,
         change_due decimal(12,2),
         created_at datetime(6) not null,
         grand_total decimal(12,2) not null,
@@ -42,9 +43,8 @@
         round_off decimal(12,2) not null,
         status varchar(16) not null check (status in ('DRAFT','HELD','COMPLETED','CANCELLED')),
         subtotal decimal(12,2) not null,
-        total_tax decimal(12,2) not null,
-        cashier_id bigint not null,
         tenant_id bigint not null,
+        total_tax decimal(12,2) not null,
         primary key (id)
     ) engine=InnoDB;
 

@@ -3,6 +3,7 @@ package com.pos.service;
 import java.math.BigDecimal;
 
 import com.pos.dao.OrderDao;
+import com.pos.dao.OrderLineDao;
 import com.pos.dao.VariantDao;
 import com.pos.exception.NotFoundException;
 import com.pos.exception.ValidationException;
@@ -41,12 +42,15 @@ public class PaymentService {
     static final String AMOUNT_TENDERED_SHORT = "Amount tendered is less than the total due";
 
     private final OrderDao orderDao;
+    private final OrderLineDao orderLineDao;
     private final VariantDao variantDao;
     private final OrderService orderService;
 
     @Autowired
-    public PaymentService(OrderDao orderDao, VariantDao variantDao, OrderService orderService) {
+    public PaymentService(OrderDao orderDao, OrderLineDao orderLineDao, VariantDao variantDao,
+                          OrderService orderService) {
         this.orderDao = orderDao;
+        this.orderLineDao = orderLineDao;
         this.variantDao = variantDao;
         this.orderService = orderService;
     }
@@ -111,8 +115,8 @@ public class PaymentService {
      * applied in this call, not just the one that failed.
      */
     private void decrementStock(PosOrderPojo order) {
-        for (OrderLinePojo line : order.getLines()) {
-            boolean ok = variantDao.decrementStock(line.getVariant().getId(), line.getQuantity());
+        for (OrderLinePojo line : orderLineDao.findByOrder(order.getId())) {
+            boolean ok = variantDao.decrementStock(line.getVariantId(), line.getQuantity());
             if (!ok) {
                 throw ValidationException.field("items",
                         "Insufficient stock for " + line.getName());
