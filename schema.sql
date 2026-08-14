@@ -67,10 +67,10 @@
         line_refund decimal(12,2) not null,
         name varchar(255) not null,
         quantity integer not null,
-        tax_rate_percent decimal(5,2) not null,
-        unit_price decimal(12,2) not null,
         return_id bigint not null,
+        tax_rate_percent decimal(5,2) not null,
         tenant_id bigint not null,
+        unit_price decimal(12,2) not null,
         variant_id bigint not null,
         primary key (id)
     ) engine=InnoDB;
@@ -78,7 +78,9 @@
     create table sales_return (
         id bigint not null auto_increment,
         created_at datetime(6) not null,
+        original_order_id bigint not null,
         original_order_number varchar(32) not null,
+        processed_by bigint not null,
         reason varchar(500),
         refund_method varchar(16) not null check (refund_method in ('CASH','CARD','UPI')),
         refund_subtotal decimal(12,2) not null,
@@ -86,8 +88,6 @@
         refund_total decimal(12,2) not null,
         return_number varchar(32) not null,
         round_off decimal(12,2) not null,
-        original_order_id bigint not null,
-        processed_by bigint not null,
         tenant_id bigint not null,
         primary key (id)
     ) engine=InnoDB;

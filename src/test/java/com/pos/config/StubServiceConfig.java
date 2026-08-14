@@ -66,7 +66,7 @@ public class StubServiceConfig {
 
     @Bean
     public ReturnService returnService() {
-        return new ReturnService(null, null, null, null, null, null, null, null);
+        return new ReturnService(null, null, null, null, null, null, null);
     }
 
     @Bean

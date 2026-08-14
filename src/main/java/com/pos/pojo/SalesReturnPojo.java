@@ -2,7 +2,6 @@ package com.pos.pojo;
 
 import com.pos.pojo.enums.PaymentMethod;
 import com.pos.util.tenancy.TenantContext;
-import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -15,13 +14,10 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
-import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.Filter;
 import org.hibernate.annotations.JdbcTypeCode;
@@ -37,6 +33,15 @@ import org.hibernate.type.SqlTypes;
  *
  * <p><b>A return inherits its tenant from the original order</b> rather than re-reading
  * the session — that is the rule, and it is how the frontend expresses it too.
+ *
+ * <p><b>Its lines are not a navigable collection.</b> Peer-review Phase 2 dropped the old
+ * {@code @OneToMany(mappedBy = "salesReturn", cascade = ALL, orphanRemoval = true) lines}
+ * field along with every other {@code @ManyToOne} on this entity — see {@link #tenantFk}'s
+ * Javadoc for the mechanism. {@code ReturnLineDao} is now how a caller reads or inserts
+ * this return's lines. Simpler than {@code PosOrderPojo}'s equivalent change in one
+ * respect: a return is insert-only once created (requirements.md §3/§7), so there is no
+ * rebuild/delete path to replace, only the one-time cascade insert
+ * {@code ReturnService.create} used to do through {@code salesReturn.addLine(line)}.
  */
 @Entity
 @Filter(name = TenantContext.FILTER_NAME, condition = TenantContext.CONDITION)
@@ -64,26 +69,59 @@ public class SalesReturnPojo {
     @Column(name = "id")
     private Long id;
 
-    /** Always equals the original order's tenant. */
+    /**
+     * Always equals the original order's tenant. The tenant's id, not the entity —
+     * peer-review Phase 2 decision: minimize {@code @ManyToOne} navigation, keep the
+     * DB-level FK constraint. Read {@link #tenantFk}'s Javadoc for the mechanism.
+     */
+    @Column(name = "tenant_id", nullable = false)
+    private Long tenantId;
+
+    /**
+     * <b>DDL-only shadow association — never navigate this.</b> Exists purely so Hibernate's
+     * schema generation still emits {@code fk_sales_return_tenant}, the real
+     * database-enforced constraint this project keeps even though the Java-level
+     * relationship is gone. {@code insertable = false, updatable = false} means it never
+     * participates in a write — {@link #tenantId} above is what {@code ReturnDao.insert}/
+     * queries actually use — and it has deliberately no getter or setter. Every entity in
+     * this codebase uses field access (the {@code @Id} is placed on the field), so
+     * Hibernate never needs an accessor either; with none exposed, nothing outside this
+     * file can reach it. If you find yourself wanting to add one, that's a sign a
+     * {@code TenantDao} method is missing instead.
+     */
+    @SuppressWarnings("unused")
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(
             name = "tenant_id",
+            insertable = false,
+            updatable = false,
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_sales_return_tenant")
     )
-    private TenantPojo tenant;
+    private TenantPojo tenantFk;
 
     /** {@code RET-YYYY-NNNN}, unique per tenant, minted from {@link TenantSequencePojo}. */
     @Column(name = "return_number", nullable = false, length = 32)
     private String returnNumber;
 
+    /**
+     * The original order's id, not the entity — same peer-review Phase 2 decision as
+     * {@link #tenantId}. See {@link #originalOrderFk}'s Javadoc for the mechanism.
+     */
+    @Column(name = "original_order_id", nullable = false)
+    private Long originalOrderId;
+
+    /** <b>DDL-only shadow association — never navigate this.</b> See {@link #tenantFk}. */
+    @SuppressWarnings("unused")
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(
             name = "original_order_id",
+            insertable = false,
+            updatable = false,
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_sales_return_pos_order")
     )
-    private PosOrderPojo originalOrder;
+    private PosOrderPojo originalOrderFk;
 
     /** <b>Snapshot</b>, so a credit note prints standalone without loading the order. */
     @Column(name = "original_order_number", nullable = false, length = 32)
@@ -113,27 +151,29 @@ public class SalesReturnPojo {
     @Column(name = "reason", length = 500)
     private String reason;
 
-    /** <b>From the JWT subject, never the request body</b> — as with the cashier. */
+    /**
+     * Who processed it. <b>From the JWT subject, never the request body</b> — as with the
+     * cashier on an order. The user's id, not the entity — same peer-review Phase 2
+     * decision as {@link #tenantId}. See {@link #processedByFk}'s Javadoc for the mechanism.
+     */
+    @Column(name = "processed_by", nullable = false)
+    private Long processedById;
+
+    /** <b>DDL-only shadow association — never navigate this.</b> See {@link #tenantFk}. */
+    @SuppressWarnings("unused")
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(
             name = "processed_by",
+            insertable = false,
+            updatable = false,
             nullable = false,
             foreignKey = @ForeignKey(name = "fk_sales_return_processed_by")
     )
-    private AppUserPojo processedBy;
+    private AppUserPojo processedByFk;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
-
-    @OneToMany(mappedBy = "salesReturn", cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<ReturnLinePojo> lines = new ArrayList<>();
-
-    /** Keeps both sides of the association consistent, which cascading relies on. */
-    public void addLine(ReturnLinePojo line) {
-        lines.add(line);
-        line.setSalesReturn(this);
-    }
 
     public Long getId() {
         return id;
@@ -143,12 +183,12 @@ public class SalesReturnPojo {
         this.id = id;
     }
 
-    public TenantPojo getTenant() {
-        return tenant;
+    public Long getTenantId() {
+        return tenantId;
     }
 
-    public void setTenant(TenantPojo tenant) {
-        this.tenant = tenant;
+    public void setTenantId(Long tenantId) {
+        this.tenantId = tenantId;
     }
 
     public String getReturnNumber() {
@@ -159,12 +199,12 @@ public class SalesReturnPojo {
         this.returnNumber = returnNumber;
     }
 
-    public PosOrderPojo getOriginalOrder() {
-        return originalOrder;
+    public Long getOriginalOrderId() {
+        return originalOrderId;
     }
 
-    public void setOriginalOrder(PosOrderPojo originalOrder) {
-        this.originalOrder = originalOrder;
+    public void setOriginalOrderId(Long originalOrderId) {
+        this.originalOrderId = originalOrderId;
     }
 
     public String getOriginalOrderNumber() {
@@ -223,12 +263,12 @@ public class SalesReturnPojo {
         this.reason = reason;
     }
 
-    public AppUserPojo getProcessedBy() {
-        return processedBy;
+    public Long getProcessedById() {
+        return processedById;
     }
 
-    public void setProcessedBy(AppUserPojo processedBy) {
-        this.processedBy = processedBy;
+    public void setProcessedById(Long processedById) {
+        this.processedById = processedById;
     }
 
     public Instant getCreatedAt() {
@@ -237,13 +277,5 @@ public class SalesReturnPojo {
 
     public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
-    }
-
-    public List<ReturnLinePojo> getLines() {
-        return lines;
-    }
-
-    public void setLines(List<ReturnLinePojo> lines) {
-        this.lines = lines;
     }
 }

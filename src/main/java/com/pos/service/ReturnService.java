@@ -7,11 +7,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import com.pos.dao.AppUserDao;
 import com.pos.dao.OrderDao;
 import com.pos.dao.OrderLineDao;
 import com.pos.dao.ReturnDao;
-import com.pos.dao.TenantDao;
+import com.pos.dao.ReturnLineDao;
 import com.pos.dao.TenantSequenceDao;
 import com.pos.dao.VariantDao;
 import com.pos.exception.NotFoundException;
@@ -32,7 +31,6 @@ import com.pos.pojo.ReturnLinePojo;
 import com.pos.pojo.enums.Role;
 import com.pos.pojo.SalesReturnPojo;
 import com.pos.pojo.enums.SequenceKind;
-import com.pos.pojo.TenantPojo;
 import com.pos.util.MaxLength;
 import com.pos.util.Pricing;
 import com.pos.util.tenancy.TenantContext;
@@ -82,22 +80,20 @@ public class ReturnService {
     private final OrderDao orderDao;
     private final OrderLineDao orderLineDao;
     private final ReturnDao returnDao;
+    private final ReturnLineDao returnLineDao;
     private final VariantDao variantDao;
-    private final TenantDao tenantDao;
-    private final AppUserDao appUserDao;
     private final TenantSequenceDao tenantSequenceDao;
     private final AuthService authService;
 
     @Autowired
     public ReturnService(OrderDao orderDao, OrderLineDao orderLineDao, ReturnDao returnDao,
-                         VariantDao variantDao, TenantDao tenantDao, AppUserDao appUserDao,
+                         ReturnLineDao returnLineDao, VariantDao variantDao,
                          TenantSequenceDao tenantSequenceDao, AuthService authService) {
         this.orderDao = orderDao;
         this.orderLineDao = orderLineDao;
         this.returnDao = returnDao;
+        this.returnLineDao = returnLineDao;
         this.variantDao = variantDao;
-        this.tenantDao = tenantDao;
-        this.appUserDao = appUserDao;
         this.tenantSequenceDao = tenantSequenceDao;
         this.authService = authService;
     }
@@ -158,8 +154,8 @@ public class ReturnService {
         List<SalesReturnPojo> returns =
                 returnDao.list(effectiveProcessedBy, (safePage - 1) * safePageSize, safePageSize);
         // Peer-review Phase 1: one batched query for the whole page's lines, instead of
-        // each row's lazy `lines` firing its own SELECT (see ReturnDao.findLinesByReturnIds).
-        Map<Long, List<ReturnLinePojo>> linesByReturn = returnDao.findLinesByReturnIds(
+        // each row's lazy `lines` firing its own SELECT (see ReturnLineDao.findByReturns).
+        Map<Long, List<ReturnLinePojo>> linesByReturn = returnLineDao.findByReturns(
                 returns.stream().map(SalesReturnPojo::getId).toList());
         List<ReturnData> items = returns.stream()
                 .map(r -> toData(r, linesByReturn.getOrDefault(r.getId(), List.of())))
@@ -209,7 +205,7 @@ public class ReturnService {
             throw ValidationException.field("items", ITEMS_REQUIRED);
         }
 
-        Map<Long, Integer> alreadyReturned = returnDao.returnedQuantitiesByVariant(order.getId());
+        Map<Long, Integer> alreadyReturned = returnLineDao.returnedQuantitiesByVariant(order.getId());
         // Consumed by an earlier line of THIS same request — without it, splitting one
         // returnable quantity across two request lines for the same variant would check
         // each against the identical baseline and let both through.
@@ -248,15 +244,10 @@ public class ReturnService {
 
         Pricing.OrderTotals totals = Pricing.computeOrderTotals(inputs, BigDecimal.ZERO);
 
-        // order.getTenant() is gone the same way order.getLines() is — tenantDao.reference
-        // is the standard "stamp a foreign key without reading it" proxy (TenantDao.reference's
-        // own Javadoc), resolved once and reused for both the return and every one of its lines.
-        TenantPojo tenant = tenantDao.reference(order.getTenantId());
-
         SalesReturnPojo salesReturn = new SalesReturnPojo();
-        salesReturn.setTenant(tenant);
+        salesReturn.setTenantId(order.getTenantId());
         salesReturn.setReturnNumber(nextReturnNumber(order.getTenantId()));
-        salesReturn.setOriginalOrder(order);
+        salesReturn.setOriginalOrderId(order.getId());
         salesReturn.setOriginalOrderNumber(order.getOrderNumber());
         salesReturn.setRefundSubtotal(totals.subtotal);
         salesReturn.setRefundTax(totals.totalTax);
@@ -265,24 +256,26 @@ public class ReturnService {
         salesReturn.setRefundMethod(
                 form.getRefundMethod() == null ? order.getPaymentMethod() : form.getRefundMethod());
         salesReturn.setReason(form.getReason());
-        salesReturn.setProcessedBy(appUserDao.reference(session.getId()));
+        salesReturn.setProcessedById(session.getId());
 
+        // Built here, tenant-stamped but without a returnId yet — same reason
+        // OrderService.buildLines can't set orderId until after the order itself is
+        // inserted: SalesReturnPojo is IDENTITY-generated, so salesReturn.getId() isn't
+        // real until returnDao.insert(salesReturn) below returns.
+        List<ReturnLinePojo> lines = new ArrayList<>(totals.lines.size());
         for (int i = 0; i < totals.lines.size(); i++) {
             Pricing.LineTotals computed = totals.lines.get(i);
             OrderLinePojo sourceLine = matchedLines.get(i);
 
             ReturnLinePojo returnLine = new ReturnLinePojo();
-            returnLine.setTenant(tenant);
-            // A proxy, not a read: the id itself already proved safe by matching against
-            // this order's own lines above, the same reasoning restoreStock's call below
-            // relies on.
-            returnLine.setVariant(variantDao.reference(sourceLine.getVariantId()));
+            returnLine.setTenantId(order.getTenantId());
+            returnLine.setVariantId(sourceLine.getVariantId());
             returnLine.setName(computed.input.name);
             returnLine.setQuantity(computed.input.quantity);
             returnLine.setUnitPrice(computed.input.unitPrice);
             returnLine.setTaxRatePercent(computed.input.taxRatePercent);
             returnLine.setLineRefund(computed.lineTotal);
-            salesReturn.addLine(returnLine);
+            lines.add(returnLine);
 
             // Each id here was already resolved through a filtered read when the ORIGINAL
             // order was created — see VariantDao.restoreStock's Javadoc for why that
@@ -291,7 +284,11 @@ public class ReturnService {
         }
 
         returnDao.insert(salesReturn);
-        return toData(salesReturn);
+        for (ReturnLinePojo line : lines) {
+            line.setReturnId(salesReturn.getId());
+        }
+        returnLineDao.insertAll(lines);
+        return toData(salesReturn, lines);
     }
 
     /** This store's next return number, identical shape to {@code OrderService}'s. */
@@ -301,7 +298,7 @@ public class ReturnService {
     }
 
     private OrderLookupData toLookupData(PosOrderPojo order) {
-        Map<Long, Integer> returned = returnDao.returnedQuantitiesByVariant(order.getId());
+        Map<Long, Integer> returned = returnLineDao.returnedQuantitiesByVariant(order.getId());
         // PosOrderPojo.lines is no longer a navigable association (peer-review Phase 2) —
         // this is the explicit OrderLineDao read that replaced order.getLines().
         List<OrderLookupLineData> items = orderLineDao.findByOrder(order.getId()).stream()
@@ -344,32 +341,33 @@ public class ReturnService {
     }
 
     /**
-     * Mapped inside the transaction — {@code getLines()} and {@code processedBy} are LAZY.
-     * Used by {@link #get} and {@link #create}, where reading the lazy collection directly
-     * is one extra query for one return, not a per-row problem.
+     * Mapped inside the transaction, fetching this return's lines itself — used by
+     * {@link #get}, where a second query for one return's lines is one extra statement,
+     * not a per-row problem. {@link #create} already has its own freshly-built lines in
+     * hand and calls the two-arg {@link #toData(SalesReturnPojo, List)} directly instead.
      */
     private ReturnData toData(SalesReturnPojo salesReturn) {
-        return toData(salesReturn, salesReturn.getLines());
+        return toData(salesReturn, returnLineDao.findByReturn(salesReturn.getId()));
     }
 
     /**
-     * The core mapper, taking {@code lines} explicitly rather than reading
-     * {@code salesReturn.getLines()} itself — {@link #list} batches every return's
-     * lines on the page into one query ({@code ReturnDao.findLinesByReturnIds},
-     * peer-review Phase 1) rather than letting each row's lazy association fire its own
-     * {@code SELECT}, and passes the already-loaded lines in here instead.
+     * The core mapper, taking {@code lines} explicitly rather than fetching them itself
+     * — {@link #list} batches every return's lines on the page into one query
+     * ({@code ReturnLineDao.findByReturns}, peer-review Phase 1) rather than reading each
+     * row's lines with its own {@code SELECT}, and passes the already-loaded lines in
+     * here instead.
      */
     private ReturnData toData(SalesReturnPojo salesReturn, List<ReturnLinePojo> lines) {
         List<ReturnLineData> items = lines.stream()
-                .map(l -> new ReturnLineData(l.getVariant().getId(), l.getName(), l.getQuantity(),
+                .map(l -> new ReturnLineData(l.getVariantId(), l.getName(), l.getQuantity(),
                         l.getUnitPrice(), l.getTaxRatePercent(), l.getLineRefund()))
                 .toList();
 
         return new ReturnData(
                 salesReturn.getId(),
-                salesReturn.getTenant().getId(),
+                salesReturn.getTenantId(),
                 salesReturn.getReturnNumber(),
-                salesReturn.getOriginalOrder().getId(),
+                salesReturn.getOriginalOrderId(),
                 salesReturn.getOriginalOrderNumber(),
                 items,
                 salesReturn.getRefundSubtotal(),
@@ -378,7 +376,7 @@ public class ReturnService {
                 salesReturn.getRefundTotal(),
                 salesReturn.getRefundMethod(),
                 salesReturn.getReason(),
-                salesReturn.getProcessedBy().getId(),
+                salesReturn.getProcessedById(),
                 salesReturn.getCreatedAt());
     }
 }

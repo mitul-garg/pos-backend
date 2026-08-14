@@ -1,12 +1,7 @@
 package com.pos.dao;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
-import com.pos.pojo.ReturnLinePojo;
 import com.pos.pojo.SalesReturnPojo;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -17,10 +12,10 @@ import org.springframework.stereotype.Repository;
  * Persistence for {@code sales_return} (C7).
  *
  * <p>No method here takes a tenant, for the reason on {@code OrderDao}: the
- * {@code tenantFilter} appends {@code tenant_id = ?} to every statement below, including
- * {@link #returnedQuantitiesByVariant} — which is filtered on {@code ReturnLinePojo}'s own
- * {@code tenant_id} directly rather than through a joined parent. See that method's
- * Javadoc for why the distinction matters.
+ * {@code tenantFilter} appends {@code tenant_id = ?} to every statement below.
+ * {@code ReturnLinePojo}'s own persistence — including the batched N+1 fix and the
+ * already-returned-quantities lookup — lives in {@code ReturnLineDao}, split out by
+ * peer-review Phase 2 the same way {@code OrderLineDao} split out of {@code OrderDao}.
  */
 @Repository
 public class ReturnDao {
@@ -56,7 +51,7 @@ public class ReturnDao {
     }
 
     private String where(Long processedById) {
-        return processedById == null ? "" : " WHERE r.processedBy.id = :processedById";
+        return processedById == null ? "" : " WHERE r.processedById = :processedById";
     }
 
     private void bind(TypedQuery<?> query, Long processedById) {
@@ -75,62 +70,5 @@ public class ReturnDao {
     public void insert(SalesReturnPojo salesReturn) {
         em.persist(salesReturn);
         em.flush();
-    }
-
-    /**
-     * How much of each line of one order has already been returned, keyed by
-     * {@code variantId} — the number both {@code ReturnService.lookupOrder} and
-     * {@code ReturnService.create} subtract from the purchased quantity to get what
-     * remains returnable.
-     *
-     * <p><b>Filtered directly, not through a join.</b> The {@code SELECT} reads only
-     * {@code ReturnLinePojo}'s own columns, so its {@code @Filter} applies to the table this
-     * query actually touches. That is the opposite shape from {@code VariantDao}'s
-     * reads, which lean on a {@code JOIN FETCH}ed, separately-filtered parent — this
-     * query has nothing else behind it if {@code ReturnLinePojo}'s own annotation were ever
-     * dropped, which is exactly the case CONVENTIONS.md flags as the one a green
-     * isolation case can't vouch for by itself. {@code TenantFilterCoverageTest} is what
-     * actually holds this line, not this query's own test.
-     */
-    public Map<Long, Integer> returnedQuantitiesByVariant(Long orderId) {
-        List<Object[]> rows = em.createQuery(
-                        "SELECT rl.variant.id, SUM(rl.quantity) FROM ReturnLinePojo rl "
-                                + "WHERE rl.salesReturn.originalOrder.id = :orderId "
-                                + "GROUP BY rl.variant.id",
-                        Object[].class)
-                .setParameter("orderId", orderId)
-                .getResultList();
-
-        Map<Long, Integer> byVariant = new HashMap<>();
-        for (Object[] row : rows) {
-            byVariant.put((Long) row[0], ((Number) row[1]).intValue());
-        }
-        return byVariant;
-    }
-
-    /**
-     * Every line for a whole page of returns, batched into one query and grouped by
-     * return id — the return-history half of {@code OrderDao.findLinesByOrderIds}'s N+1
-     * fix (peer-review Phase 1), same shape for the identical reason.
-     *
-     * <p>Ordered {@code return_id, id} so each return's lines come back in the same
-     * order {@code salesReturn.getLines()} would produce.
-     */
-    public Map<Long, List<ReturnLinePojo>> findLinesByReturnIds(List<Long> returnIds) {
-        if (returnIds.isEmpty()) {
-            return Map.of();
-        }
-        List<ReturnLinePojo> lines = em.createQuery(
-                        "SELECT l FROM ReturnLinePojo l WHERE l.salesReturn.id IN :returnIds"
-                                + " ORDER BY l.salesReturn.id, l.id",
-                        ReturnLinePojo.class)
-                .setParameter("returnIds", returnIds)
-                .getResultList();
-
-        Map<Long, List<ReturnLinePojo>> byReturn = new LinkedHashMap<>();
-        for (ReturnLinePojo line : lines) {
-            byReturn.computeIfAbsent(line.getSalesReturn().getId(), k -> new ArrayList<>()).add(line);
-        }
-        return byReturn;
     }
 }
