@@ -8,6 +8,15 @@ that carry meaning — see [schema.md](./schema.md) for the full definitions.
 > tables like `order_line` is deliberate denormalisation so the Hibernate filter
 > applies uniformly — see [README.md](./README.md).
 
+> **These arrows are database foreign keys, not Java object references.**
+> Peer-review Phase 2 removed every `@ManyToOne`/`@OneToMany` from `com.pos.pojo`
+> — a full retroactive sweep across all 9 mapped entities, not just new code. Every
+> relationship below is still a real, database-enforced FK, same name and
+> `ON DELETE` behavior as always (see
+> [constraints-and-indexes.md](./constraints-and-indexes.md#foreign-keys) for the
+> shadow-association mechanism that keeps it that way); reading the "far side" of
+> one now goes through an explicit DAO call, never a lazy-loaded getter.
+
 ```mermaid
 erDiagram
     TENANT ||--o{ APP_USER : "employs"

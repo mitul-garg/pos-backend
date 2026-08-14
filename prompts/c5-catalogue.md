@@ -23,7 +23,10 @@ Corresponds to `backend-plan.md` C5, and to `requirements.md` §9 (the contract)
   lock order, and why it has one.
 - `com.pos.util.QrCodes` — the payload's shape, and the fallback SKU derived from the same
   sequence value.
-- `com.pos.dao.VariantDao` — every read `JOIN FETCH`es the product; `insert` flushes
+- `com.pos.dao.VariantDao` — every read ad-hoc joins the product (`JOIN ProductPojo p ON
+  p.id = v.productId`, returning a `VariantWithProduct(variant, product)` tuple —
+  peer-review Phase 2 replaced the original `JOIN FETCH v.product`, since
+  `VariantPojo.product` is no longer a navigable association); `insert` flushes
   deliberately.
 - `com.pos.exception.ApiExceptionHandler` — now maps a unique-index violation onto the same
   400 the service's pre-check produces.
@@ -117,7 +120,10 @@ adds a unique constraint a request can trip.**
 Every variant response carries the parent's name (`"Amul Taaza Toned Milk — 500 ml"`), GST
 slab and HSN code — including the by-product list, where the mock returned bare rows. One
 shape per resource, and a scan must not need a second round trip while a customer waits at
-a till. Hence `JOIN FETCH` on every read: left lazy, a 34-row list is 35 statements.
+a till. Hence a join on every read: left unjoined, a 34-row list is 35 statements. (Written
+as `JOIN FETCH` at the time; peer-review Phase 2 swapped it for an ad-hoc `JOIN ... ON`
+returning a tuple record once `VariantPojo.product` stopped being navigable — same single
+SQL join, same reasoning, see the `VariantDao` key-classes entry above.)
 
 ### The role rule lives in `SecurityConfig`, not on the handlers
 
@@ -177,6 +183,13 @@ in `VariantDao` is `JOIN FETCH v.product` and `ProductPojo` is filtered — Hibe
 queries through the join regardless. What reddens is exactly the two paths that join no
 product: `em.find` by id, and `VariantDao.skuExists`, whose count then spans every store and
 reports another tenant's SKU as taken.
+
+*(As tested at C5. Peer-review Phase 2 later swapped `JOIN FETCH v.product` for an ad-hoc
+`JOIN ProductPojo p ON p.id = v.productId` — see the `VariantDao` key-classes entry above —
+without re-running this specific mutation suite; the reasoning still holds, since both sides
+of an ordinary JPQL join stay independently `@Filter`ed regardless of `FETCH`, confirmed
+directly for the equivalent join in `ReturnLineDao.returnedQuantitiesByVariant` when that
+pattern was extended to a filter-only join in the same effort.)*
 
 Two consequences for C6 and C7:
 

@@ -435,9 +435,23 @@ Rules for this package:
   emits MySQL's native `ENUM` type, which `hbm2ddl.auto=update` can never extend.
   There's no global setting for it; `SchemaSqlTest` fails the build if one is
   forgotten (C2).
-- **Associations are `LAZY`, including `tenant`.** Nothing navigates
-  `product.getTenant()` — scoping happens on the column — and `EAGER` would make
-  every list query an N+1. Safe only because DTOs are mapped in-transaction.
+- **No entity navigates a relationship. There are no `@ManyToOne`/`@OneToMany`
+  fields with a getter or setter left in `com.pos.pojo`** (peer-review Phase 2,
+  a full retroactive sweep across all 9 mapped entities). A relationship is a
+  plain `Long` id field (`tenantId`, `productId`, `orderId`, ...) plus a
+  **DDL-only shadow association**: a second, no-accessor `@ManyToOne` on the same
+  column, `insertable = false, updatable = false`, that exists purely so
+  Hibernate's schema generation still emits the named `@ForeignKey` — the
+  database-enforced constraint every relationship still has, unchanged. Since
+  every entity here uses field access (`@Id` is placed on the field), Hibernate
+  never needs an accessor for the shadow either; with none exposed, nothing
+  outside the entity file can reach it. Want the related row? Call the DAO —
+  `TenantDao.find(getTenantId())`, or the entity's own DAO for a list/search read
+  (`VariantDao.findWithProduct` etc. return a small record tuple, e.g.
+  `VariantWithProduct(variant, product)`, from an ad-hoc `JOIN ... ON` rather than
+  a `JOIN FETCH`ed path). See
+  [database/constraints-and-indexes.md](./database/constraints-and-indexes.md#foreign-keys)
+  for the mechanism in full and why it beats hand-maintained DDL.
 - **Regenerate `schema.sql` in the same change as the entity**
   (`mvn test -Dpos.schema.write=true`). The build fails on drift, so it isn't
   optional (C2).

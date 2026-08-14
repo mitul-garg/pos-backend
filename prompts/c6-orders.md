@@ -22,8 +22,14 @@ JWT. Corresponds to `backend-plan.md` C6, and to `requirements.md` §9 (the cont
   hard stock check the mock had no ledger to enforce.
 - `com.pos.dao.VariantDao#decrementStock` — the atomic conditional update. **Read this
   before writing anything else that mutates stock.**
-- `com.pos.dao.OrderDao` — persistence, and the reasoning for *not* `JOIN FETCH`ing lines
-  under pagination.
+- `com.pos.dao.OrderDao` — order persistence, and the reasoning for *not* fetch-joining
+  lines under pagination (a to-many collection can't be fetch-joined under
+  `setFirstResult`/`setMaxResults` without Hibernate silently paginating in memory).
+  `com.pos.dao.OrderLineDao` — split out in peer-review Phase 2 once
+  `PosOrderPojo.lines`/`OrderLinePojo.order` stopped being a navigable
+  `@OneToMany`/`@ManyToOne` pair: `findByOrder`/`findByOrders` (the batched read the
+  pagination reasoning above still applies to), `insertAll`, `deleteByOrder` — the
+  explicit writes that replaced the old `cascade = ALL, orphanRemoval = true` collection.
 - `com.pos.model.OrderForm` / `OrderLineForm` / `PaymentForm` — the input DTOs, and what
   they deliberately don't carry.
 
@@ -151,9 +157,15 @@ Nothing new — C4's filter and C5's write-scoping rules both apply unchanged:
 - **Writes stamp the tenant from the session**, never the body: `OrderService.create`
   reads `AuthService.currentSession().getTenantId()`, exactly like `ProductService`.
 - **`OrderLinePojo` inherits its order's tenant**, the same rule a variant inherits its
-  product's — never re-read from the session inside `rebuildLines`.
-- **The cashier is stamped from the session too**, via `AppUserDao.reference`, never from
-  a body field — `OrderForm` has no such field to begin with.
+  product's — never re-read from the session inside `OrderService.buildLines` (renamed
+  from `rebuildLines` when peer-review Phase 2 split it in two — see the `OrderLineDao`
+  key-classes entry above).
+- **The cashier is stamped from the session too**, directly as an id
+  (`order.setCashierId(session.getId())`) — never from a body field, since `OrderForm`
+  has no such field to begin with. Went through `AppUserDao.reference(...)` before
+  peer-review Phase 2 made `PosOrderPojo.cashier` a plain id; nothing needed the entity
+  once the setter went scalar, so `OrderService` dropped the `AppUserDao` dependency
+  entirely.
 - **`decrementStock`'s bulk statement is the one write that isn't filtered**, and the
   reasoning for why that's still safe is above.
 - New cases belong in `TenantIsolationIT`: create, get-by-id, list, hold/patch, pay — all

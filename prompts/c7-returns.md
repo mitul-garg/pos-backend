@@ -18,8 +18,14 @@ restore, per-tenant return numbers. Corresponds to `backend-plan.md` C7, and to
   `returnService.js`. Read this before touching return math or the returnable-quantity
   check: it is where a request line gets bounded against what the *original order*
   says was purchased, not against anything the client asserts.
-- `com.pos.dao.ReturnDao` — persistence, and `returnedQuantitiesByVariant`, the
-  aggregate both `lookupOrder` and `create` read.
+- `com.pos.dao.ReturnDao` — `SalesReturnPojo` persistence (find/list/count/insert).
+  `com.pos.dao.ReturnLineDao` — split out in peer-review Phase 2 once
+  `SalesReturnPojo.lines`/`ReturnLinePojo.salesReturn` stopped being a navigable
+  `@OneToMany`/`@ManyToOne` pair: `findByReturn`/`findByReturns`, `insertAll` (no
+  delete — a return is insert-only), and `returnedQuantitiesByVariant`, the aggregate
+  both `lookupOrder` and `create` read (moved here from `ReturnDao` since it's
+  fundamentally a query over `ReturnLinePojo`'s own rows, joined onto
+  `SalesReturnPojo` only to reach `originalOrderId`).
 - `com.pos.dao.OrderDao#findForUpdate` — the pessimistic lock a return takes on its
   original order before trusting that aggregate. **Read this before writing anything
   else that reads-then-writes against an order.**
@@ -104,12 +110,16 @@ trick needed in the handler registration.
 
 ### A return inherits its tenant from the order, not the session
 
-`SalesReturn.tenant` is stamped from `order.getTenant()`, mirroring the entity's own
-Javadoc ("a return inherits its tenant from the original order rather than
+`SalesReturn.tenantId` is stamped from `order.getTenantId()`, mirroring the entity's
+own Javadoc ("a return inherits its tenant from the original order rather than
 re-reading the session"). In practice the two are the same value — `order` was only
 reachable in the first place through `OrderDao.findForUpdate`, which is filtered —
 but the *rule* is the inheritance, the same distinction `OrderLinePojo` draws from its
-parent order rather than re-reading the session per line.
+parent order rather than re-reading the session per line. (Both sides of that
+statement were still entities reading `.getTenant()` off one another at the time this
+was written; peer-review Phase 2 made every one of them a plain id — see
+`constraints-and-indexes.md`'s "Not Java-navigable, but still real constraints"
+section — without changing which value inherits from which.)
 
 ### Refund math is `Pricing.computeOrderTotals`, not a second method
 

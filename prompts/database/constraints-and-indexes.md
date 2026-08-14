@@ -187,6 +187,51 @@ declarations become inert: nothing errors, but orphaned rows become possible and
 the integrity has to move into the service layer. Worth re-checking at deploy time
 rather than assuming the assumption held.
 
+### Not Java-navigable, but still real constraints (peer-review Phase 2)
+
+**Every entity in `com.pos.pojo` had its `@ManyToOne`/`@OneToMany` fields removed**
+— a full retroactive sweep, not just new code going forward. `product.getTenant()`,
+`order.getLines()`, `variant.getProduct()` and every equivalent across all 9 mapped
+entities no longer exist. None of that touched this table's actual content: every
+constraint above — name, parent/child, `ON DELETE` behavior — is exactly as it was,
+because the mechanism that keeps a Java-level relationship from existing is
+deliberately DDL-only.
+
+**The mechanism, once per relationship:** the real, writable field becomes a plain
+`Long` (`tenantId`, `productId`, `orderId`, ...), and a *second*, no-accessor
+`@ManyToOne` sits alongside it on the identical column —
+`@JoinColumn(insertable = false, updatable = false, foreignKey = @ForeignKey(name =
+"fk_..."))`. Hibernate's schema generation reads a mapping's join-column/
+foreign-key metadata to emit the DDL regardless of whether that mapping
+participates in reads or writes, so this shadow field still produces the exact same
+`alter table ... add constraint fk_... foreign key ... references ...` — `@OnDelete
+(action = OnDeleteAction.CASCADE)` included, confirmed unchanged for
+`fk_order_line_pos_order` and `fk_return_line_sales_return`. Every entity here uses
+field access (`@Id` is placed on the field, not a getter), so Hibernate never needs
+an accessor for the shadow field either — with none exposed, nothing outside the
+entity file can reach it. Unreachability is compiler-enforced, not a discipline
+rule to remember.
+
+**Reading the related row now means an explicit `DAO` call**, never a lazy
+getter: `TenantDao.find(getTenantId())` for a single row a caller actually needs,
+or the owning entity's own DAO for a list/search read that used to `JOIN FETCH` a
+parent — `VariantDao.findWithProduct`/`findByProduct`/`search` etc. return a small
+package-visible record tuple (`VariantWithProduct(VariantPojo variant, ProductPojo
+product)`) built from an ad-hoc `JOIN ProductPojo p ON p.id = v.productId` instead,
+same single SQL join, same one round trip. A bidirectional parent/child pair whose
+child rows used to be written via cascade (`PosOrderPojo.lines`,
+`SalesReturnPojo.lines`) now goes through the child's own DAO instead
+(`OrderLineDao`/`ReturnLineDao`: `insertAll`, `findByOrder`/`findByReturn`, and for
+the order side — which supports editing a held cart, unlike an insert-only return —
+`deleteByOrder`).
+
+**Why DDL-only rather than the alternative** (hand-maintaining the 16 FK
+constraints as raw `ALTER TABLE` statements outside `schema.sql`): it keeps every
+existing automated safety net intact — `SchemaSqlTest`'s drift check, the
+generated `schema.sql`, and the stable `fk_*` names other tests already depend on
+by literal string — while genuinely achieving "no relationship navigation in
+application code," verified by the compiler rather than review discipline.
+
 ### Deleting a product/variant referenced by order or return history (peer-review Phase 1)
 
 **Not reachable, checked at both layers.** `ProductDao`/`VariantDao` expose no
