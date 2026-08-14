@@ -562,6 +562,48 @@ Rules for this package:
   **method-scoped** — `GET /api/products` is open to both roles and `POST` is not —
   so the rules cannot be collapsed into one path pattern.
 
+## Logging
+
+_(Peer-review Phase 2 audit, 2026-08: confirmed the codebase was already consistent —
+this section writes the pattern down so it stays that way, not a record of a cleanup.)_
+
+- **slf4j + Log4j2, not Logback.** `../requirements.md` §1 names Log4j2 explicitly;
+  `pom.xml`'s dependency block spells out why: `slf4j-api` is the facade,
+  `log4j-slf4j2-impl` the binding, `log4j-core` the engine that reads `log4j2.xml`.
+  Any note (including earlier drafts of `../../review/peer-review.md`) that says
+  "logback" is misremembering — don't add a Logback dependency to "fix" that.
+- **One declaration shape, copied verbatim:**
+  `private static final Logger log = LoggerFactory.getLogger(ThisClass.class);`,
+  field named `log` (lowercase), always `org.slf4j.Logger`/`LoggerFactory`. Every
+  current logging class (`AuthService`, `ApiExceptionHandler`, `AbandonedTenantCleanupJob`,
+  `TenantRegistrationService`, `DevSeeder`, `JwtTokenService`, `GoogleRecaptchaVerifier`,
+  `LoggingEmailSender`, `OpenApiGenerator`) follows this; match it rather than inventing
+  a per-class variant.
+- **No `System.out`/`System.err`/`printStackTrace` anywhere in `src/`** (checked
+  repo-wide as of this audit) — route everything through `log`, including tools like
+  `OpenApiGenerator` that run standalone at build time.
+- **Levels:** DEBUG for an ordinary, expected rejection (wrong password, expired
+  token, deactivated account, suspended tenant — the normal outcome of someone
+  trying and failing, not a system problem) · WARN for something that shouldn't be
+  reachable without tampering (a JWT claim disagreeing with its own row) · ERROR
+  for the unmapped/unexpected case, always with the exception object so the stack
+  trace lands in the log (see "API and errors" above — this is the same line that
+  backs the generic `"Something went wrong"` 500 body) · INFO for a notable state
+  change worth a permanent record even in production (a login, a scheduled job's
+  cleanup run, dev-seeding).
+- **A caught exception that never reaches `ApiExceptionHandler` needs its own log
+  line at the point it's handled, or the event leaves no trace at all.** The
+  `@ControllerAdvice` only sees what the `DispatcherServlet` dispatches to it;
+  anything resolved earlier — a filter's own `catch`, same as
+  `JwtAuthenticationFilter`'s `InvalidCredentialsException`/`ForbiddenException`
+  handling — bypasses it entirely. `AuthService.requireUsable()` is the reference
+  case: its 403s log at the throw site (in the service, not the filter) precisely
+  because one of its two callers (`resolveSession`, on every authenticated request)
+  is caught by the filter and never reaches the advice, while the other
+  (`login`) does and would otherwise double up — which is fine, matching how
+  `login`'s own `InvalidCredentialsException` branches already log a specific
+  reason before the generic advice logs its own generic line.
+
 ## Testing
 
 - **Not every test needs a database.** 66 of the current 196 run with none —

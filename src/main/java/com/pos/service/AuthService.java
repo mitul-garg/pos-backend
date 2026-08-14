@@ -221,9 +221,21 @@ public class AuthService {
     /**
      * The three 403s. All are specific, and all are safe only where this is called —
      * after the password, or behind a token that proves one was given.
+     *
+     * <p><b>Logged here, not left to {@code ApiExceptionHandler}'s generic catch-all</b>
+     * (peer-review Phase 2 logging audit): when this fires from {@link #login}, the
+     * generic handler does still see it and logs its own "Forbidden: ..." line — but
+     * when it fires from {@link #resolveSession}, {@code JwtAuthenticationFilter} catches
+     * {@link ForbiddenException} itself and responds directly, so the handler never runs.
+     * Without a log line here, a live session getting cut mid-shift (an account
+     * deactivated, a tenant suspended, out from under an open tab) left no trace
+     * anywhere — the one rejection shape in this class that didn't log, next to siblings
+     * three lines above ({@link #resolveSession}'s own {@code InvalidCredentialsException}
+     * branches) that already did.
      */
     private void requireUsable(AppUserPojo user, TenantPojo tenant) {
         if (!user.isActive()) {
+            log.debug("Rejecting user {}: account deactivated", user.getId());
             throw new ForbiddenException(DEACTIVATED_MESSAGE);
         }
         // The reserved platform row has no lifecycle: it cannot be suspended (C8) or
@@ -237,9 +249,11 @@ public class AuthService {
         // falling into "suspended" -- the fix for one is "check your email", not
         // "contact the platform".
         if (tenant.getStatus() == TenantStatus.PENDING_VERIFICATION) {
+            log.debug("Rejecting user {}: tenant {} pending verification", user.getId(), tenant.getId());
             throw new ForbiddenException(PENDING_VERIFICATION_MESSAGE);
         }
         if (tenant.getStatus() != TenantStatus.ACTIVE) {
+            log.debug("Rejecting user {}: tenant {} suspended", user.getId(), tenant.getId());
             throw new ForbiddenException(SUSPENDED_MESSAGE);
         }
     }
