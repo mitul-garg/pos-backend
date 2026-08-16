@@ -56,6 +56,7 @@
         created_at datetime(6) not null,
         description varchar(500),
         hsn_code varchar(16),
+        image_updated_at datetime(6),
         name varchar(200) not null,
         tax_rate_percent decimal(5,2) not null,
         tenant_id bigint not null,

@@ -257,10 +257,20 @@ src/
 
 **Products**
 
-- `GET /api/products?search=&category=&page=`, `GET /api/products/{id}`
+- `GET /api/products?search=&category=&page=`, `GET /api/products/{id}` — both carry
+  `imageUrl` (peer-review Phase 3), a freshly-minted signed GCS read URL, or `null` if
+  the product has no image. Never stored; see §12
 - `POST /api/products`, `PUT /api/products/{id}`, `DELETE /api/products/{id}` (soft —
   cascades `isActive` to every variant of the product, both directions; peer-review
   Phase 3, see §12)
+- `POST /api/products/{id}/image-upload-url` — body `{ contentType }` → a signed GCS
+  `PUT` URL plus the exact headers the upload request must carry (peer-review Phase 3,
+  see §12). `ADMIN` only; the backend never touches the file bytes
+- `PUT /api/products/{id}/image` — confirms an upload actually completed (also how a
+  replacement is confirmed — one product has exactly one fixed object path).
+  `ADMIN` only
+- `DELETE /api/products/{id}/image` — deletes the GCS object itself, not just the
+  reference; idempotent. `ADMIN` only
 
 **Variants**
 
@@ -419,6 +429,49 @@ After each phase: run the app, confirm the behavior manually, pause for review. 
   `AbandonedTenantCleanupServiceIT` got its own file. `mvn test`: 441/441. See
   `backend/prompts/database/constraints-and-indexes.md`'s "The product/variant active-status
   sync" section for the full mechanism.
+- **Product images via GCS, backend half (peer-review Phase 3):** the image bytes never
+  transit the backend — `POST /api/products/{id}/image-upload-url` mints a short-lived
+  signed GCS `PUT` URL scoped to a fixed, deterministic object path
+  (`{tenantId}/{productId}/image`), the frontend PUTs directly to GCS, then
+  `PUT /api/products/{id}/image` stamps `ProductPojo.imageUpdatedAt` (nullable —
+  `NULL` is the whole "no image" signal, there is no separate boolean or stored
+  path/URL column) once the upload has actually completed. `GET`/list responses'
+  `imageUrl` field is a signed **read** URL minted fresh by `ProductService.toData`
+  on every response, never stored (a stored one would eventually go stale).
+  `DELETE /api/products/{id}/image` deletes the GCS object synchronously in the same
+  request — the resolved design decision over leaving it orphaned. One image per
+  product means a *replacement* upload is a plain GCS overwrite at the same path, no
+  separate delete needed. All three endpoints are `ADMIN`-only.
+  `com.pos.util.images.GcsImageSigner` hand-rolls GCS's V4 URL-signing algorithm
+  against `google-auth-library-oauth2-http` rather than the full
+  `google-cloud-storage` SDK — verified via `mvn dependency:tree` that the SDK pulls
+  in the full gRPC stack, OpenTelemetry's SDK, OpenCensus and a transitive Cloud
+  Monitoring client, wildly disproportionate for "sign a URL and delete a blob" on
+  the 1GB deployment VM. Signing is local RSA-SHA256 (`ServiceAccountCredentials.sign`),
+  zero network calls per signature — the reason this design uses a downloaded signing
+  key over the VM's attached identity via IAM `signBlob` (iac/requirements.md
+  decision #21): safe to mint a signed URL on every row of a paginated products list
+  without reintroducing the N+1-shaped cost Phase 1 eliminated for orders/returns.
+  Feature-flagged off by default (`pos.images.enabled`, same shape as
+  `pos.recaptcha.enabled`/`pos.mail.enabled`) — `NoopImageSigner` throws rather than
+  faking success if ever reached, since (unlike a logged email or an always-pass
+  captcha check) there's no harmless local substitute for "upload to a bucket that
+  doesn't exist"; the real, clean rejection is `ProductService`'s own
+  `pos.images.enabled` check, ordered *after* the existence/tenant check and request-
+  shape validation so a cross-tenant id still answers its usual 404 and a bad
+  content-type still answers its usual 400, regardless of whether images are enabled
+  on this deployment at all. Manually verified end-to-end against the real live
+  bucket (a signed PUT succeeded and was genuinely rejected by GCS itself on a wrong
+  `Content-Type` or an oversized body, not merely client-side; a signed GET
+  round-tripped real content while an unsigned GET got 403; delete removed the
+  object and was safely idempotent) before writing the automated
+  `ProductImageIT`/`GcsImageSignerTest`/`NoopImageSignerTest`/`ImagesConfigTest` —
+  the real GCS round trip is structurally unreachable from `mvn test` and stays
+  manually verified only, the same boundary `GoogleRecaptchaVerifierTest` draws for
+  the real Google network call. `mvn test`: 465/465. Frontend upload UI not built
+  yet. See `backend/prompts/c5-catalogue.md`'s "Product images" section,
+  `backend/prompts/database/{schema,er-diagram}.md`, `iac/prompts/06-product-images.md`,
+  and `review/peer-review.md`'s Phase 3 item for the full cross-repo design.
 - **Logging audit came back clean, with one real gap fixed (peer-review Phase 2):** the codebase already used slf4j + **Log4j2** (not Logback — see the "Stack" §1 note above) consistently everywhere it logged, with one identical `Logger`-declaration shape across all nine classes that log, and zero `System.out`/`System.err`/`printStackTrace` anywhere in `src/`. The one inconsistency found: `AuthService.requireUsable()`'s three 403 branches (deactivated user, pending-verification tenant, suspended tenant) threw with no log line at all, unlike every sibling rejection in the same class — and because `JwtAuthenticationFilter` catches `ForbiddenException` itself and responds directly when this fires from `resolveSession()` (a live session cut mid-shift), that path never reaches `ApiExceptionHandler`'s own generic log line either, so the event left no trace anywhere. Fixed by logging at DEBUG at each throw site, matching the log-then-throw shape `resolveSession()`'s own `InvalidCredentialsException` branches already used three lines above. Manually verified against a real running app (deactivated a live cashier session mid-shift, suspended a live tenant admin's session mid-shift, confirmed both new DEBUG lines in the console). No new automated test — a logging-only change with no behavior/response difference, and existing IT coverage already exercises all three `requireUsable()` branches for status code/message. `mvn test`: 434/434. See `backend/prompts/CONVENTIONS.md`'s new "Logging" section for the full convention.
 
 **Still open / future scope:** weight-based selling (`KG`/`LITRE`), discounts/promotions, **multi-store under one tenant** (the org→stores hierarchy deferred from Phase 8) and multi-terminal, a `MANAGER` tier or refund-approval thresholds, and putting a QR on receipts to speed up returns.

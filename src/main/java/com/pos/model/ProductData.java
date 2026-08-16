@@ -37,9 +37,18 @@ public class ProductData {
 
     private final Instant createdAt;
 
+    /**
+     * A signed GCS read URL, minted fresh on every response by {@code ProductService.toData}
+     * (peer-review Phase 3) — never stored, since a stored signed URL would eventually go
+     * stale. {@code null} means the product has no image, the same signal
+     * {@code ProductPojo.imageUpdatedAt} carries server-side — there is no separate
+     * boolean on the wire for it, this field alone is both.
+     */
+    private final String imageUrl;
+
     public ProductData(Long id, Long tenantId, String name, String brand, String category,
                        String description, String hsnCode, BigDecimal taxRatePercent,
-                       boolean active, Instant createdAt) {
+                       boolean active, Instant createdAt, String imageUrl) {
         this.id = id;
         this.tenantId = tenantId;
         this.name = name;
@@ -50,6 +59,7 @@ public class ProductData {
         this.taxRatePercent = taxRatePercent;
         this.active = active;
         this.createdAt = createdAt;
+        this.imageUrl = imageUrl;
     }
 
     public Long getId() {
@@ -90,5 +100,9 @@ public class ProductData {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public String getImageUrl() {
+        return imageUrl;
     }
 }

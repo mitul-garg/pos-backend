@@ -109,6 +109,19 @@ public class ProductPojo {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    /**
+     * Peer-review Phase 3 (product images). {@code null} means "no image" — the
+     * whole presence/absence signal, not merely a display detail. The image itself
+     * is never a column: it lives in GCS at a path deterministic from
+     * {@code tenantId}/{@code id} ({@code ProductService.imageObjectPath}), so
+     * replacing it is a plain object overwrite at the same path, not a delete+insert
+     * needing a stored URL/path here at all. Stamped by {@code ProductService.confirmImage}
+     * once the frontend's direct-to-GCS upload completes, cleared by
+     * {@code ProductService.deleteImage}.
+     */
+    @Column(name = "image_updated_at")
+    private Instant imageUpdatedAt;
+
     public Long getId() {
         return id;
     }
@@ -187,5 +200,13 @@ public class ProductPojo {
 
     public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public Instant getImageUpdatedAt() {
+        return imageUpdatedAt;
+    }
+
+    public void setImageUpdatedAt(Instant imageUpdatedAt) {
+        this.imageUpdatedAt = imageUpdatedAt;
     }
 }

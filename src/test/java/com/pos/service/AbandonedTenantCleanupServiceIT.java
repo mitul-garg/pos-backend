@@ -3,6 +3,7 @@ package com.pos.service;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 
+import com.pos.config.ImagesConfig;
 import com.pos.config.MailConfig;
 import com.pos.config.PersistenceConfig;
 import com.pos.config.RecaptchaConfig;
@@ -50,7 +51,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 @ExtendWith(SpringExtension.class)
 @ContextConfiguration(classes = {
         RootConfig.class, PersistenceConfig.class, SecurityConfig.class, MailConfig.class,
-        RecaptchaConfig.class })
+        RecaptchaConfig.class, ImagesConfig.class })
 @TestPropertySource("classpath:application-test.properties")
 @Transactional
 @DisplayName("AbandonedTenantCleanupService.cleanUp()")

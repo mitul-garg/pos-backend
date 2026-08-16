@@ -3,6 +3,7 @@ package com.pos.controller;
 import java.util.List;
 
 import com.jayway.jsonpath.JsonPath;
+import com.pos.config.ImagesConfig;
 import com.pos.config.MailConfig;
 import com.pos.config.OpenApiConfig;
 import com.pos.config.PersistenceConfig;
@@ -78,7 +79,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebAppConfiguration
 @ContextConfiguration(classes = {
         RootConfig.class, PersistenceConfig.class, SecurityConfig.class, MailConfig.class,
-        RecaptchaConfig.class,
+        RecaptchaConfig.class, ImagesConfig.class,
         WebConfig.class, OpenApiConfig.class })
 @TestPropertySource("classpath:application-test.properties")
 @Transactional

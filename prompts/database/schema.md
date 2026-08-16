@@ -84,6 +84,7 @@ The parent concept ("Amul Milk"). Not the thing that gets scanned — see `varia
 | `tax_rate_percent` | `DECIMAL(5,2)` | no | GST slab: 0 / 5 / 12 / 18 / 28. `DECIMAL` not `INT`, so a half-percent slab wouldn't need a schema change |
 | `is_active` | `BOOLEAN` | no | Default `TRUE`. Soft delete |
 | `created_at` | `DATETIME(6)` | no | |
+| `image_updated_at` | `DATETIME(6)` | yes | Peer-review Phase 3 (product images). `NULL` means "no image" — the whole presence/absence signal. The image itself is never a column: it lives in GCS at `{tenantId}/{productId}/image`, deterministic from this row's own ids, so a replacement is a plain object overwrite at the same path rather than a new row/path needing to be stored here |
 
 Tax lives on the **product**, not the variant — every variant of a product shares
 its GST slab.

@@ -8,6 +8,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.jayway.jsonpath.JsonPath;
+import com.pos.config.ImagesConfig;
 import com.pos.config.OpenApiConfig;
 import com.pos.config.PersistenceConfig;
 import com.pos.config.RootConfig;
@@ -98,7 +99,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ExtendWith(SpringExtension.class)
 @WebAppConfiguration
 @ContextConfiguration(classes = {
-        RootConfig.class, PersistenceConfig.class, SecurityConfig.class,
+        RootConfig.class, PersistenceConfig.class, SecurityConfig.class, ImagesConfig.class,
         TenantRegistrationIT.TestMailConfig.class, TenantRegistrationIT.TestRecaptchaConfig.class,
         WebConfig.class, OpenApiConfig.class })
 @TestPropertySource("classpath:application-test.properties")

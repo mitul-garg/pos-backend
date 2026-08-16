@@ -137,6 +137,42 @@ section for the four rules, the zero-variant exemption, and why it's a bulk `UPD
 cascade annotation — this project has none of those left, per the "Not
 Java-navigable" section right above it.
 
+### Product images (peer-review Phase 3)
+
+Three new `ADMIN`-only endpoints (`POST .../image-upload-url`, `PUT .../image`,
+`DELETE .../image`) and one new nullable column, `ProductPojo.imageUpdatedAt` —
+`NULL` means no image. The image bytes never transit the backend: `mintImageUploadUrl`
+mints a short-lived signed GCS `PUT` URL scoped to a fixed, deterministic object path
+(`{tenantId}/{productId}/image`, `ProductService.imageObjectPath`), the frontend PUTs
+directly to GCS, then `PUT .../image` (`confirmImage`) stamps the timestamp once that
+upload has actually completed. `ProductService.toData` mints a fresh signed **read**
+URL on every response when the timestamp is set — never stored, since a stored signed
+URL would eventually go stale.
+
+One image per product means "replace" is a plain GCS object overwrite at the same
+path (no old object to separately delete), and "remove" (`DELETE .../image`) deletes
+the GCS object synchronously in the same request rather than leaving it orphaned.
+`GcsImageSigner`/`NoopImageSigner`/`ImagesConfig` (`com.pos.util.images`,
+`com.pos.config`) are the reCAPTCHA/mail-shaped enabled/disabled pair — see those
+classes' own Javadoc, and `iac/prompts/06-product-images.md` for the infra half
+(bucket, signing key delivery, why local RSA signing over IAM `signBlob`).
+
+**Check order in all three service methods matters, and is deliberate**: existence/
+tenant (404) → request-shape validation, e.g. content-type (400, cheap and
+config-independent) → `pos.images.enabled` (400) → the actual GCS call. Existence
+first is what lets a cross-tenant id answer its usual 404 regardless of whether images
+are enabled at all on this deployment — the same reasoning every other by-id method in
+this class already follows, not a new rule for this feature. It also happens to be
+what makes tenant isolation for these three endpoints testable by `ProductImageIT`
+without a real GCS key, since `pos.images.enabled=false` in every test environment
+would otherwise mask a 404 behind a blanket 400.
+
+`ProductImageIT` proves auth/role gating, tenant isolation, and request validation —
+not the real signing/upload/read/delete round trip, which is structurally unreachable
+from `mvn test` (`NoopImageSigner` throws by design) and was instead verified manually
+against the real live bucket. See the peer-review commit message for exactly what that
+covered.
+
 ### The role rule lives in `SecurityConfig`, not on the handlers
 
 Catalogue management is an `ADMIN`'s (§13.2). The matchers are **method-scoped**, so

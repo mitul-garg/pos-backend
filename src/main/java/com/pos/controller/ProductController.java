@@ -2,10 +2,12 @@ package com.pos.controller;
 
 import java.util.List;
 
+import com.pos.model.ImageUploadUrlForm;
 import com.pos.model.PageData;
 import com.pos.model.ProductData;
 import com.pos.model.ProductForm;
 import com.pos.service.ProductService;
+import com.pos.util.images.SignedUpload;
 import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -109,5 +111,37 @@ public class ProductController {
     @DeleteMapping("/{id}")
     public ProductData deactivate(@PathVariable Long id) {
         return productService.deactivate(id);
+    }
+
+    @Operation(summary = "Mint a signed image upload URL",
+               description = "ADMIN only. Peer-review Phase 3. The backend never touches "
+                       + "the file bytes: this returns a short-lived signed `PUT` URL (plus "
+                       + "the exact headers the upload request must carry) that the frontend "
+                       + "uses to send the image bytes directly to GCS. Call `PUT "
+                       + "/api/products/{id}/image` afterward to confirm the upload actually "
+                       + "completed. 400 if `contentType` isn't one of the allowed image types.")
+    @PostMapping("/{id}/image-upload-url")
+    public SignedUpload mintImageUploadUrl(@PathVariable Long id, @RequestBody ImageUploadUrlForm form) {
+        return productService.mintImageUploadUrl(id, form.getContentType());
+    }
+
+    @Operation(summary = "Confirm a product image upload",
+               description = "ADMIN only. Call after the frontend's direct-to-GCS `PUT` (via "
+                       + "the URL from `image-upload-url`) has completed — this is what makes "
+                       + "a fresh `GET`/list response's `imageUrl` start reflecting it. Also "
+                       + "how a replacement image is confirmed, since one product has exactly "
+                       + "one fixed object path.")
+    @PutMapping("/{id}/image")
+    public ProductData confirmImage(@PathVariable Long id) {
+        return productService.confirmImage(id);
+    }
+
+    @Operation(summary = "Delete a product's image",
+               description = "ADMIN only. Deletes the GCS object itself, not just the "
+                       + "reference — idempotent, a product with no image is a no-op that "
+                       + "answers 200 rather than 404.")
+    @DeleteMapping("/{id}/image")
+    public ProductData deleteImage(@PathVariable Long id) {
+        return productService.deleteImage(id);
     }
 }

@@ -1,5 +1,6 @@
 package com.pos.service.tenantregistration;
 
+import com.pos.config.ImagesConfig;
 import com.pos.config.PersistenceConfig;
 import com.pos.config.RecaptchaConfig;
 import com.pos.config.RootConfig;
@@ -53,7 +54,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 @ExtendWith(SpringExtension.class)
 @ContextConfiguration(classes = {
-        RootConfig.class, PersistenceConfig.class, SecurityConfig.class, RecaptchaConfig.class,
+        RootConfig.class, PersistenceConfig.class, SecurityConfig.class, RecaptchaConfig.class, ImagesConfig.class,
         TenantRegistrationCommitOrderingIT.TestMailConfig.class })
 @TestPropertySource("classpath:application-test.properties")
 @DisplayName("TenantRegistrationService -- the write commits independently of the email send")

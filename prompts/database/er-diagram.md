@@ -68,6 +68,7 @@ erDiagram
         varchar hsn_code
         decimal tax_rate_percent "GST slab"
         boolean is_active "soft delete"
+        datetime image_updated_at "nullable, peer-review Phase 3 - see note below"
     }
 
     VARIANT {
@@ -172,3 +173,11 @@ expresses it by inheriting rather than re-reading the session.
 **Payment is embedded in `POS_ORDER`, not a separate table.** v1 is a single
 payment covering the full amount, with no split tender (`requirements.md` §3/§12).
 If split tender ever arrives, this is the join to extract.
+
+**`PRODUCT.image_updated_at` has no corresponding column for the image itself —
+there's nothing to draw an arrow to.** The image lives in GCS, outside this
+database entirely (`iac/prompts/06-product-images.md`), at a path deterministic
+from `tenant_id`/`id` rather than a stored path/URL — `NULL` here means "no
+image", non-`NULL` means "one exists, ask `ProductService` for a fresh signed URL
+to it". This is the one place in the schema where presence of a value, not its
+content, is the whole signal.

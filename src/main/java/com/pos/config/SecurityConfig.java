@@ -237,6 +237,13 @@ public class SecurityConfig {
                 AntPathRequestMatcher.antMatcher(HttpMethod.POST, "/api/products"),
                 AntPathRequestMatcher.antMatcher(HttpMethod.PUT, "/api/products/*"),
                 AntPathRequestMatcher.antMatcher(HttpMethod.DELETE, "/api/products/*"),
+                // Product images (peer-review Phase 3). Same single-star reasoning as the
+                // variants comment below: "/api/products/*/image-upload-url" and
+                // "/api/products/*/image" match the sub-resource, not "/api/products/{id}",
+                // which the PUT/DELETE rules above already cover with their own verbs.
+                AntPathRequestMatcher.antMatcher(HttpMethod.POST, "/api/products/*/image-upload-url"),
+                AntPathRequestMatcher.antMatcher(HttpMethod.PUT, "/api/products/*/image"),
+                AntPathRequestMatcher.antMatcher(HttpMethod.DELETE, "/api/products/*/image"),
                 // Variants. The single-star pattern matters: "/api/products/*/variants"
                 // matches the sub-resource and NOT "/api/products/{id}", which the PUT
                 // rule above already covers with its own verb.

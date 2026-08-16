@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import java.time.Instant;
+
 import com.pos.config.AppProperties;
 import com.pos.dao.ProductDao;
 import com.pos.dao.VariantDao;
@@ -16,6 +18,9 @@ import com.pos.model.ProductData;
 import com.pos.model.ProductForm;
 import com.pos.pojo.ProductPojo;
 import com.pos.util.MaxLength;
+import com.pos.util.images.GcsImageSigner;
+import com.pos.util.images.ImageSigner;
+import com.pos.util.images.SignedUpload;
 import com.pos.util.tenancy.TenantContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -65,10 +70,17 @@ public class ProductService {
      */
     static final String TOO_MANY_PRODUCTS = "This store has reached its product limit";
 
+    /** Peer-review Phase 3: product images are not enabled on this deployment. */
+    static final String IMAGES_NOT_ENABLED = "Product images are not enabled on this deployment";
+
+    static final String CONTENT_TYPE_INVALID =
+            "Image must be one of: " + String.join(", ", GcsImageSigner.ALLOWED_CONTENT_TYPES);
+
     private final ProductDao productDao;
     private final VariantDao variantDao;
     private final AuthService authService;
     private final AppProperties appProperties;
+    private final ImageSigner imageSigner;
 
     /**
      * Constructor injection, for the reason recorded on {@code AuthService}: a servlet-
@@ -77,15 +89,17 @@ public class ProductService {
      *
      * <p>{@code VariantDao} joined this list in peer-review Phase 3, for the
      * product/variant active-status sync's cascade-down half — see {@link #deactivate}
-     * and {@link #update}.
+     * and {@link #update}. {@code ImageSigner} joined the same phase, for the product-images
+     * feature — see {@link #mintImageUploadUrl}/{@link #confirmImage}/{@link #deleteImage}.
      */
     @Autowired
     public ProductService(ProductDao productDao, VariantDao variantDao, AuthService authService,
-                          AppProperties appProperties) {
+                          AppProperties appProperties, ImageSigner imageSigner) {
         this.productDao = productDao;
         this.variantDao = variantDao;
         this.authService = authService;
         this.appProperties = appProperties;
+        this.imageSigner = imageSigner;
     }
 
     @Transactional(readOnly = true)
@@ -268,6 +282,129 @@ public class ProductService {
     }
 
     /**
+     * {@code POST /api/products/{id}/image-upload-url} (peer-review Phase 3). ADMIN only.
+     * Backend never touches the file bytes — this mints a short-lived signed {@code PUT}
+     * URL scoped to this product's one fixed object path
+     * ({@link #imageObjectPath}), after the checks that make it safe to hand out: this
+     * id belongs to the caller's own tenant (the {@code find}/404 below, same as every
+     * other by-id method here, and checked <i>first</i> — same order every other method
+     * uses, and what lets a cross-tenant id answer its usual 404 regardless of whether
+     * images are enabled at all, rather than leaking "this deployment has images off"
+     * ahead of "you can't see this row"), and {@code contentType} is one of the allowed
+     * image types — GCS itself then enforces both that and the size ceiling via signed
+     * headers ({@code GcsImageSigner}'s own Javadoc), not merely this check.
+     *
+     * <p>Doesn't touch {@code imageUpdatedAt} — minting a URL isn't the same as a
+     * successful upload. {@link #confirmImage} is what stamps it, once the frontend's
+     * direct-to-GCS {@code PUT} has actually completed.
+     *
+     * <p><b>Check order</b>: existence/tenant (404) → request shape (400, pure and
+     * config-independent) → feature enabled (400) → the actual signing call (the one
+     * step needing a real, deployed signer) — cheapest and most request-specific first,
+     * deployment configuration last. Content-type before the enabled-gate specifically
+     * is what lets an automated test prove the validation without a real GCS key —
+     * {@code pos.images.enabled=false} in every test environment would otherwise mask
+     * it behind the "not enabled" 400 every time.
+     */
+    @Transactional(readOnly = true)
+    public SignedUpload mintImageUploadUrl(Long id, String contentType) {
+        TenantContext.requireTenant();
+
+        ProductPojo product = productDao.find(id);
+        if (product == null) {
+            throw new NotFoundException(NOT_FOUND);
+        }
+        if (contentType == null || !GcsImageSigner.ALLOWED_CONTENT_TYPES.contains(contentType)) {
+            throw ValidationException.field("contentType", CONTENT_TYPE_INVALID);
+        }
+        requireImagesEnabled();
+        return imageSigner.signUploadUrl(imageObjectPath(product), contentType);
+    }
+
+    /**
+     * {@code PUT /api/products/{id}/image} (peer-review Phase 3). ADMIN only. Marks the
+     * product as having an image, once the frontend's direct-to-GCS upload (via the signed
+     * URL {@link #mintImageUploadUrl} issued) has actually completed — this is what a
+     * fresh {@code GET}/list response's {@code imageUrl} starts reflecting.
+     *
+     * <p><b>Doesn't verify the object actually exists in GCS before confirming</b> — a
+     * deliberate v1 gap, not an oversight: a well-behaved frontend only calls this after
+     * its own {@code PUT} succeeds, and the failure mode of skipping that check (a client
+     * confirms without uploading) is a broken image icon, not anything unsafe. Revisit
+     * with an {@code ImageSigner} existence check if that ever proves a real problem.
+     *
+     * <p>One fixed object path per product ({@link #imageObjectPath}) means this is also
+     * how a <i>replacement</i> image is confirmed — the new {@code PUT} simply overwrote
+     * the same GCS object, so there is no old object to separately delete the way
+     * {@link #deleteImage} has to.
+     */
+    @Transactional
+    public ProductData confirmImage(Long id) {
+        TenantContext.requireTenant();
+
+        ProductPojo product = productDao.find(id);
+        if (product == null) {
+            throw new NotFoundException(NOT_FOUND);
+        }
+        requireImagesEnabled();
+        product.setImageUpdatedAt(Instant.now());
+        return toData(product);
+    }
+
+    /**
+     * {@code DELETE /api/products/{id}/image} (peer-review Phase 3). ADMIN only. Deletes
+     * the GCS object synchronously, in this same request — the resolved design decision
+     * (review/peer-review.md) over leaving it orphaned, so a removed image doesn't
+     * silently waste storage forever with nothing to reclaim it.
+     *
+     * <p>Idempotent, the same shape {@link #deactivate} already uses: a product with no
+     * image is a no-op that answers 200, not a 404 or a pointless GCS call —
+     * {@code imageUpdatedAt == null} is checked here rather than delegated to
+     * {@code ImageSigner.delete}'s own already-idempotent-on-a-missing-object behavior,
+     * since there is no object to even attempt deleting.
+     */
+    @Transactional
+    public ProductData deleteImage(Long id) {
+        TenantContext.requireTenant();
+
+        ProductPojo product = productDao.find(id);
+        if (product == null) {
+            throw new NotFoundException(NOT_FOUND);
+        }
+        requireImagesEnabled();
+        if (product.getImageUpdatedAt() != null) {
+            imageSigner.delete(imageObjectPath(product));
+            product.setImageUpdatedAt(null);
+        }
+        return toData(product);
+    }
+
+    /**
+     * A bare {@code ValidationException}, matching {@link #TOO_MANY_PRODUCTS}'s shape —
+     * no single submitted field is at fault when the deployment itself doesn't have this
+     * feature turned on. {@code NoopImageSigner} is the fail-loudly backstop if this check
+     * is ever bypassed; this is the actual, clean, user-facing rejection.
+     */
+    private void requireImagesEnabled() {
+        if (!appProperties.isImagesEnabled()) {
+            throw new ValidationException(IMAGES_NOT_ENABLED);
+        }
+    }
+
+    /**
+     * {@code {tenantId}/{productId}/image} — fixed and deterministic, deliberately not
+     * stored anywhere (iac/prompts/06-product-images.md, review/peer-review.md). One
+     * image per product means a replacement upload targets this exact same path, so
+     * "replace" is a plain GCS overwrite with no separate delete step, and "confirm"
+     * never needs to know a filename or extension GCS wasn't told about — the object's
+     * {@code Content-Type} (set by the signed upload itself) is what a browser actually
+     * uses to render it, not the path.
+     */
+    private String imageObjectPath(ProductPojo product) {
+        return product.getTenantId() + "/" + product.getId() + "/image";
+    }
+
+    /**
      * The port of {@code validateProduct()} in {@code domain/validators.js}, field for
      * field and message for message — plus the length bounds the mock had no schema to
      * answer to (peer-review Phase 1). Every bound matches the column it's headed for
@@ -300,7 +437,20 @@ public class ProductService {
         }
     }
 
+    /**
+     * The read URL is minted here, not stored — the same "fresh on every response" rule
+     * {@link #mintImageUploadUrl}'s Javadoc explains for uploads applies to reads too.
+     *
+     * <p><b>Guarded by {@code pos.images.enabled}, not just {@code imageUpdatedAt != null}</b>
+     * — {@code NoopImageSigner} throws (deliberately, its own Javadoc explains why), so a
+     * product carrying an image from before the feature was disabled would break every
+     * list/get response for that product if this skipped the check. Disabled just means
+     * {@code imageUrl} goes back to {@code null}, not that the product API breaks.
+     */
     private ProductData toData(ProductPojo product) {
+        String imageUrl = (product.getImageUpdatedAt() != null && appProperties.isImagesEnabled())
+                ? imageSigner.signReadUrl(imageObjectPath(product))
+                : null;
         return new ProductData(
                 product.getId(),
                 product.getTenantId(),
@@ -311,7 +461,8 @@ public class ProductService {
                 product.getHsnCode(),
                 product.getTaxRatePercent(),
                 product.isActive(),
-                product.getCreatedAt());
+                product.getCreatedAt(),
+                imageUrl);
     }
 
     /**
