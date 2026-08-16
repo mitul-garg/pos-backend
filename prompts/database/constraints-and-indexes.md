@@ -236,9 +236,10 @@ application code," verified by the compiler rather than review discipline.
 
 **Not reachable, checked at both layers.** `ProductDao`/`VariantDao` expose no
 `delete()` method — `DELETE /api/products/{id}` and `DELETE /api/variants/{id}` are
-both `deactivate()`, which flips `is_active` and nothing else (see
-`ProductService`/`VariantService`). So there is no code path that issues a SQL
-`DELETE` against `product` or `variant` at all today.
+both `deactivate()`, which flips `is_active` (see `ProductService`/`VariantService`)
+and, as of peer-review Phase 3, cascades that flip to the other side of the
+relationship too — see "The product/variant active-status sync" below. So there is
+no code path that issues a SQL `DELETE` against `product` or `variant` at all today.
 
 Even if one existed, `fk_order_line_variant`, `fk_return_line_variant` and
 `fk_variant_product` carry no `ON DELETE` clause — MySQL's default is
@@ -251,6 +252,39 @@ history and must never silently disappear because a catalogue row did.
 Revisit only if a `delete()`/hard-delete path is ever added to either DAO — at
 that point this section needs a real answer for "what happens to the FK
 violation", not just a description of why it can't happen yet.
+
+### The product/variant active-status sync (peer-review Phase 3)
+
+**Supersedes this file's own earlier note that a product/variant deactivation
+"flips `is_active` and nothing else."** The user decided, after this section was
+first written, that `is_active` should stay in sync across the relationship rather
+than the two sides drifting independently — found by manually testing the Phase 2
+`opacity-60` fix on the mock frontend and confirmed against the real backend before
+any code changed (`review/peer-review.md`'s Phase 3 item has the full spec and the
+manual/automated verification record). Four rules, all in `ProductService`/
+`VariantService`, none of them a schema or FK change:
+
+- Deactivating a product cascades down — every one of its variants deactivates too
+  (`VariantDao.setActiveByProduct`, a bulk `UPDATE`, not a per-row loop).
+- Reactivating a product cascades down the same way, and **unconditionally** — every
+  variant ends up active regardless of what each one was doing on its own beforehand,
+  not "restore each variant's prior state."
+- Deactivating a product's last active variant auto-deactivates the product.
+- Reactivating any one variant of an inactive product auto-reactivates the product
+  (and only the product — a sibling variant that's still inactive stays that way).
+
+A product with zero variants is exempt from the last two ("sync-up") rules by
+construction, not by a special-cased check: those rules only ever run as a side
+effect of a variant-level toggle, and a zero-variant product has no variant to
+toggle. The two "cascade-down" rules still apply to it — cascading to zero variants
+is a no-op via the same bulk statement, not a branch.
+
+**This still doesn't reach for a hard delete or a cascade annotation.** The FK/
+`ON DELETE` analysis above is unchanged — nothing here issues a `DELETE`, and the
+"Not Java-navigable" section's DAO-call shape (not `@ManyToOne`/collection
+navigation) is exactly how each direction reads the other side: `ProductService`
+calls a new `VariantDao` bulk method, `VariantService` calls `ProductDao.find()` on
+the parent it already has the id for.
 
 ## `SchemaConstraintsIT` — the test that guards this file
 

@@ -254,6 +254,24 @@ public class VariantDao {
     }
 
     /**
+     * The cascade-down half of the peer-review Phase 3 product/variant active-status
+     * sync — {@code ProductService.deactivate}/{@code update} carry every one of a
+     * product's variants with it rather than leaving them individually stuck on the
+     * old state. A product with no variants makes this a no-op, not a special case.
+     *
+     * <p>Bulk JPQL, like {@link #decrementStock}, and therefore not scoped by the
+     * tenant filter; safe for the identical reason — every caller reaches this with a
+     * {@code productId} already resolved through a filtered read earlier in the same
+     * transaction.
+     */
+    public void setActiveByProduct(Long productId, boolean active) {
+        em.createQuery("UPDATE VariantPojo v SET v.active = :active WHERE v.productId = :productId")
+                .setParameter("active", active)
+                .setParameter("productId", productId)
+                .executeUpdate();
+    }
+
+    /**
      * Manual-add search for the counter: active variants of active products, by product
      * name or brand, or the variant's own SKU or label.
      *

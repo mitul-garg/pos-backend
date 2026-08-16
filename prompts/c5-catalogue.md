@@ -125,6 +125,18 @@ as `JOIN FETCH` at the time; peer-review Phase 2 swapped it for an ad-hoc `JOIN 
 returning a tuple record once `VariantPojo.product` stopped being navigable — same single
 SQL join, same reasoning, see the `VariantDao` key-classes entry above.)
 
+### Deactivate/reactivate cascade between a product and its variants (peer-review Phase 3)
+
+`ProductService.deactivate`/`update` and `VariantService.deactivate`/`update` keep
+`isActive` in sync across the relationship — deactivating a product deactivates every
+variant, deactivating a product's last active variant deactivates the product, and
+reactivating cascades the same way in both directions. Not documented here in full;
+see `database/constraints-and-indexes.md`'s "The product/variant active-status sync"
+section for the four rules, the zero-variant exemption, and why it's a bulk `UPDATE`
+(`VariantDao.setActiveByProduct`) plus a count-before-flip check rather than a
+cascade annotation — this project has none of those left, per the "Not
+Java-navigable" section right above it.
+
 ### The role rule lives in `SecurityConfig`, not on the handlers
 
 Catalogue management is an `ADMIN`'s (§13.2). The matchers are **method-scoped**, so

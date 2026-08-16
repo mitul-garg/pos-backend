@@ -258,13 +258,17 @@ src/
 **Products**
 
 - `GET /api/products?search=&category=&page=`, `GET /api/products/{id}`
-- `POST /api/products`, `PUT /api/products/{id}`, `DELETE /api/products/{id}` (soft)
+- `POST /api/products`, `PUT /api/products/{id}`, `DELETE /api/products/{id}` (soft —
+  cascades `isActive` to every variant of the product, both directions; peer-review
+  Phase 3, see §12)
 
 **Variants**
 
 - `GET /api/products/{productId}/variants`
 - `POST /api/products/{productId}/variants` (server generates & returns the QR value)
-- `PUT /api/variants/{id}`, `DELETE /api/variants/{id}`
+- `PUT /api/variants/{id}`, `DELETE /api/variants/{id}` (deactivating a product's last
+  active variant, or reactivating any one variant of an inactive product, cascades back
+  up to the product — peer-review Phase 3, see §12)
 - `POST /api/variants/{id}/qr-code` (re-issue the code — added in backend C5). The frontend's `variantService.regenerateQrCode(id)` always needed a server endpoint, since §6 puts code generation on the server; this section simply never named one. A `POST` rather than a `PUT` because it *generates* rather than accepting a value, and because it is not idempotent: calling it twice consumes two sequence values. **The previous code stops resolving immediately**, so any label already printed with it is dead — which is why it is an explicit operation rather than an editable `qrCode` field.
 - `GET /api/variants/lookup?qrCode={code}` → resolves a scan to one variant (or 404)
 - `GET /api/variants/search?q={term}` → manual-add search on the checkout screen (by product name/brand or variant SKU/label), returns enriched active variants. Added in Phase 4 as the operator-friendly form of "type/paste a code manually" (Section 5.2) — no one memorises raw QR strings. Mock-implemented now (`variantService.search`); a real endpoint follows with the backend.
@@ -386,6 +390,35 @@ After each phase: run the app, confirm the behavior manually, pause for review. 
 - **Catalogue search (`LIKE '%term%'`) indexing strategy is documented, not implemented (peer-review Phase 1):** fine at today's scale (bounded to one tenant's rows by the filter, and the project's own no-pager ground rule), but a leading wildcard can't use any B-tree index and will be the first thing to slow down as a single tenant's catalogue grows past a few thousand SKUs. The strategy — MySQL `FULLTEXT` on `product(name, brand)` and `variant(sku, variant_label)` — is written up rather than built, because it isn't a drop-in swap: it changes substring matching to word/prefix matching (a UX decision), and it can't be expressed through this project's entity-annotation-driven schema pipeline the way every other index here is, so adopting it means either a one-off DDL step outside `schema.sql` regeneration or introducing a migration tool for the first time. See `backend/prompts/database/constraints-and-indexes.md`'s "Catalogue search indexing strategy" section for the full writeup and the revisit trigger.
 - **No entity in `com.pos.pojo` navigates a relationship (peer-review Phase 2):** every `@ManyToOne`/`@OneToMany` — `product.getTenant()`, `order.getLines()`, `variant.getProduct()`, all of it — was removed in a full retroactive sweep across all 9 mapped entities, not just new code going forward. The item as originally raised in the review ("entities carrying zero FK constraints") was mis-stated: investigation found every relationship was already correctly mapped at the database level. The actual, opposite intent, confirmed with the user: minimize Java-level object-graph navigation while keeping every FK constraint exactly as it was, continuing this project's existing "hand-written DAOs, no lazy-navigable object graph" philosophy one layer further in. **Mechanism:** the real, writable field becomes a plain `Long` id; a second, no-accessor `@ManyToOne` sits on the identical column (`insertable = false, updatable = false`) purely so Hibernate's schema generation still emits the named `@ForeignKey` — a "DDL-only shadow association." Since every entity here uses field access, Hibernate needs no accessor for the shadow either, so it's unreachable from outside the entity file by construction, not by convention. A caller that needs the related row now makes an explicit DAO call — a single-row `find`, or (for a list/search read that used to `JOIN FETCH` a parent) an ad-hoc `JOIN ... ON` returning a small record tuple instead of an enriched entity, same single SQL join as before. Two bidirectional cascade collections (`PosOrderPojo.lines`, `SalesReturnPojo.lines`) became explicit writes through a new DAO per line entity (`OrderLineDao`, `ReturnLineDao`) instead of `cascade = ALL, orphanRemoval = true`. Every FK constraint's name, parent/child and `ON DELETE` behavior is unchanged — confirmed via `schema.sql` diffs after every entity, `add constraint` lines identical throughout. See `backend/prompts/CONVENTIONS.md`'s Persistence section and `backend/prompts/database/constraints-and-indexes.md`'s "Not Java-navigable, but still real constraints" section for the mechanism in full.
 
+- **Product/variant `isActive` is kept in sync, both directions (peer-review Phase 3):**
+  reverses the "deactivating a product doesn't cascade to its variants" half of the Phase 1
+  product-deletion investigation above — found while manually verifying the Phase 2
+  `opacity-60` fix on the mock frontend (2026-08-16), and confirmed the real backend matched
+  the mock's no-sync behavior too before any code changed. Four rules, all in
+  `ProductService`/`VariantService`, no schema change: deactivating a product cascades down
+  to every variant; reactivating a product cascades down too, unconditionally (every variant
+  ends up active, not "restore each one's own prior state" — full symmetry with
+  deactivate's cascade); deactivating a product's last active variant auto-deactivates the
+  product; reactivating any one variant of an inactive product auto-reactivates the product
+  alone (a sibling that's still inactive stays that way). A product with zero variants is
+  exempt from the last two ("sync-up") rules by construction — they only ever run as a side
+  effect of a variant-level toggle, and a zero-variant product has none to toggle — not by a
+  special-cased check; the two cascade-down rules still apply to it as a no-op. New
+  `VariantDao.setActiveByProduct` (a bulk `UPDATE`, the cascade-down half); the cascade-up
+  half counts active variants **before** mutating the one being toggled, the same
+  "count-before-flip" shape `UserService.deactivate`'s last-admin guard already uses, so it's
+  not an off-by-one. Both the dedicated `DELETE` and the merge-patch `{"isActive": false}`
+  path on `PUT` cascade identically — the frontend only ever reaches deactivation through
+  `DELETE`, but the two mean the same thing on the wire and the backend treats them alike.
+  Manually verified end-to-end against a real running app (curl: all four rules, the
+  zero-variant exemption, and both the `DELETE` and merge-patch paths on each side) before
+  writing the automated tests, per `backend/prompts/CONVENTIONS.md` §2. Automated: a
+  dedicated `ProductVariantActiveSyncIT` (7 cases) rather than folding into
+  `ProductWriteIT`/`VariantIT`, since this behavior is the two of them talking to each other
+  rather than a CRUD case belonging to either endpoint family alone — the same reasoning
+  `AbandonedTenantCleanupServiceIT` got its own file. `mvn test`: 441/441. See
+  `backend/prompts/database/constraints-and-indexes.md`'s "The product/variant active-status
+  sync" section for the full mechanism.
 - **Logging audit came back clean, with one real gap fixed (peer-review Phase 2):** the codebase already used slf4j + **Log4j2** (not Logback — see the "Stack" §1 note above) consistently everywhere it logged, with one identical `Logger`-declaration shape across all nine classes that log, and zero `System.out`/`System.err`/`printStackTrace` anywhere in `src/`. The one inconsistency found: `AuthService.requireUsable()`'s three 403 branches (deactivated user, pending-verification tenant, suspended tenant) threw with no log line at all, unlike every sibling rejection in the same class — and because `JwtAuthenticationFilter` catches `ForbiddenException` itself and responds directly when this fires from `resolveSession()` (a live session cut mid-shift), that path never reaches `ApiExceptionHandler`'s own generic log line either, so the event left no trace anywhere. Fixed by logging at DEBUG at each throw site, matching the log-then-throw shape `resolveSession()`'s own `InvalidCredentialsException` branches already used three lines above. Manually verified against a real running app (deactivated a live cashier session mid-shift, suspended a live tenant admin's session mid-shift, confirmed both new DEBUG lines in the console). No new automated test — a logging-only change with no behavior/response difference, and existing IT coverage already exercises all three `requireUsable()` branches for status code/message. `mvn test`: 434/434. See `backend/prompts/CONVENTIONS.md`'s new "Logging" section for the full convention.
 
 **Still open / future scope:** weight-based selling (`KG`/`LITRE`), discounts/promotions, **multi-store under one tenant** (the org→stores hierarchy deferred from Phase 8) and multi-terminal, a `MANAGER` tier or refund-approval thresholds, and putting a QR on receipts to speed up returns.

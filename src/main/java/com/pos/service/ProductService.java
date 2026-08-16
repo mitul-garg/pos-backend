@@ -8,6 +8,7 @@ import java.util.Map;
 
 import com.pos.config.AppProperties;
 import com.pos.dao.ProductDao;
+import com.pos.dao.VariantDao;
 import com.pos.exception.NotFoundException;
 import com.pos.exception.ValidationException;
 import com.pos.model.PageData;
@@ -65,6 +66,7 @@ public class ProductService {
     static final String TOO_MANY_PRODUCTS = "This store has reached its product limit";
 
     private final ProductDao productDao;
+    private final VariantDao variantDao;
     private final AuthService authService;
     private final AppProperties appProperties;
 
@@ -72,11 +74,16 @@ public class ProductService {
      * Constructor injection, for the reason recorded on {@code AuthService}: a servlet-
      * context-only test has to be able to stub this without dragging in a database, and
      * field injection is applied even to a hand-built {@code @Bean}.
+     *
+     * <p>{@code VariantDao} joined this list in peer-review Phase 3, for the
+     * product/variant active-status sync's cascade-down half — see {@link #deactivate}
+     * and {@link #update}.
      */
     @Autowired
-    public ProductService(ProductDao productDao, AuthService authService,
+    public ProductService(ProductDao productDao, VariantDao variantDao, AuthService authService,
                           AppProperties appProperties) {
         this.productDao = productDao;
+        this.variantDao = variantDao;
         this.authService = authService;
         this.appProperties = appProperties;
     }
@@ -186,6 +193,14 @@ public class ProductService {
      * <p>Validation runs against the <i>merged</i> result rather than the request, for the
      * same reason. There is no {@code save} call at the end: the row was loaded inside
      * this transaction, so Hibernate's dirty checking writes it at commit.
+     *
+     * <p><b>This is also the only way a product is reactivated</b> — there is no dedicated
+     * endpoint, only {@code {"isActive": true}} through here — and peer-review Phase 3
+     * cascades that down to every variant, the full symmetric counterpart to
+     * {@link #deactivate}'s own cascade: a product-only reactivation would otherwise leave
+     * every variant individually stuck inactive. A merge patch setting {@code isActive:
+     * false} here means the same thing as the {@code DELETE} endpoint and cascades
+     * identically, on the off chance a caller ever reaches deactivation this way instead.
      */
     @Transactional
     public ProductData update(Long id, ProductForm form) {
@@ -216,6 +231,10 @@ public class ProductService {
         product.setHsnCode(hsnCode);
         if (form.getActive() != null) {
             product.setActive(form.getActive());
+            // Peer-review Phase 3 product/variant active-status sync -- see this
+            // method's own Javadoc. Cascades to the new state regardless of what it
+            // was before, matching DELETE /{id}'s own idempotent cascade.
+            variantDao.setActiveByProduct(id, form.getActive());
         }
 
         return toData(product);
@@ -229,6 +248,11 @@ public class ProductService {
      *
      * <p>Idempotent: deactivating an already-inactive product is a no-op that answers 200,
      * not an error. Returns the row, as the mock does, so the client can update in place.
+     *
+     * <p><b>Cascades down</b> (peer-review Phase 3): every one of this product's variants
+     * deactivates with it, rather than staying individually active and sellable under a
+     * catalogue entry the storefront no longer lists. A no-op for a product with no
+     * variants, not a special case — see {@code VariantDao.setActiveByProduct}.
      */
     @Transactional
     public ProductData deactivate(Long id) {
@@ -239,6 +263,7 @@ public class ProductService {
             throw new NotFoundException(NOT_FOUND);
         }
         product.setActive(false);
+        variantDao.setActiveByProduct(id, false);
         return toData(product);
     }
 

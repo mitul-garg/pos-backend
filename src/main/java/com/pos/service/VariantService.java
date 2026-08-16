@@ -234,6 +234,14 @@ public class VariantService {
      * <p>{@code qrCode} is not patchable: {@link VariantForm} has no such field, because
      * the payload belongs to the tenant's sequence rather than to the caller. Re-issuing
      * one is {@link #regenerateQrCode}.
+     *
+     * <p><b>Cascades up</b> (peer-review Phase 3): reactivating one variant of an inactive
+     * product brings the product back too, the mirror of {@link #deactivate}'s own
+     * cascade-up. Deactivating a variant here (rather than through
+     * {@link #deactivate}) is checked the identical way. Both read the product's current
+     * state before deciding whether there is anything to flip, so reactivating a variant
+     * of an already-active product — the ordinary case — touches the product row not at
+     * all.
      */
     @Transactional
     public VariantData update(Long id, VariantForm form) {
@@ -243,6 +251,7 @@ public class VariantService {
         if (variant == null) {
             throw new NotFoundException(NOT_FOUND);
         }
+        ProductPojo product = productDao.find(variant.getProductId());
 
         BigDecimal mrp = form.getMrp() == null ? variant.getMrp() : form.getMrp();
         BigDecimal sellingPrice = form.getSellingPrice() == null
@@ -271,10 +280,22 @@ public class VariantService {
             variant.setUnitOfMeasure(form.getUnitOfMeasure());
         }
         if (form.getActive() != null) {
+            if (form.getActive() && !product.isActive()) {
+                // Cascade up: this variant was the reason (or one of the reasons) the
+                // product read inactive, or the product was set inactive directly --
+                // either way, reactivating any one variant brings it back.
+                product.setActive(true);
+            } else if (!form.getActive() && variant.isActive()
+                    && variantDao.countActiveByProduct(variant.getProductId()) <= 1) {
+                // Counted before the flip below, so this variant is still among the
+                // active ones being compared -- the same "count before mutating" shape
+                // UserService.deactivate's last-admin guard uses, not an off-by-one.
+                product.setActive(false);
+            }
             variant.setActive(form.getActive());
         }
 
-        return toData(variant, productDao.find(variant.getProductId()));
+        return toData(variant, product);
     }
 
     /**
@@ -285,6 +306,12 @@ public class VariantService {
      * sellable" rather than "unknown code", which is a different conversation to have with
      * a customer. Order lines snapshot their prices, so history does not depend on this
      * row either way — but a returns lookup still resolves against it.
+     *
+     * <p><b>Cascades up</b> (peer-review Phase 3): deactivating the last active variant of
+     * a product auto-deactivates the product too, rather than leaving a catalogue entry
+     * reading "Active" with nothing under it actually sellable. A product with zero
+     * variants never reaches this method at all, which is exactly the spec's zero-variant
+     * exemption — it isn't a separate check here.
      */
     @Transactional
     public VariantData deactivate(Long id) {
@@ -294,8 +321,18 @@ public class VariantService {
         if (variant == null) {
             throw new NotFoundException(NOT_FOUND);
         }
+        // Counted before the flip below, so this variant is still among the active
+        // ones being compared -- the same "count before mutating" shape
+        // UserService.deactivate's last-admin guard uses, not an off-by-one.
+        boolean lastActiveVariant = variant.isActive()
+                && variantDao.countActiveByProduct(variant.getProductId()) <= 1;
         variant.setActive(false);
-        return toData(variant, productDao.find(variant.getProductId()));
+
+        ProductPojo product = productDao.find(variant.getProductId());
+        if (lastActiveVariant) {
+            product.setActive(false);
+        }
+        return toData(variant, product);
     }
 
     /**
