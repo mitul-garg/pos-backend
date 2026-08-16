@@ -124,7 +124,7 @@ public class OrderService {
         Long effectiveCashierId = session.getRole() == Role.CASHIER ? session.getId() : cashierId;
 
         int safePage = Math.max(page, 1);
-        int safePageSize = Math.min(Math.max(pageSize, 1), 200);
+        int safePageSize = Math.min(Math.max(pageSize, 1), PageData.MAX_PAGE_SIZE);
 
         long total = orderDao.count(status, effectiveCashierId);
         List<PosOrderPojo> orders = orderDao.list(

@@ -148,7 +148,7 @@ public class ReturnService {
         Long effectiveProcessedBy = session.getRole() == Role.CASHIER ? session.getId() : processedBy;
 
         int safePage = Math.max(page, 1);
-        int safePageSize = Math.min(Math.max(pageSize, 1), 200);
+        int safePageSize = Math.min(Math.max(pageSize, 1), PageData.MAX_PAGE_SIZE);
 
         long total = returnDao.count(effectiveProcessedBy);
         List<SalesReturnPojo> returns =

@@ -41,13 +41,6 @@ public class ProductService {
     /** Matches the frontend's {@code 'Product not found'} exactly, so C9 needs no change. */
     static final String NOT_FOUND = "Product not found";
 
-    /**
-     * The frontend asks for 200 and renders everything (backend-plan.md section 11). The
-     * ceiling exists so a caller cannot ask for the whole table in one statement; it is
-     * above the largest request the client actually makes, so nothing is truncated today.
-     */
-    static final int MAX_PAGE_SIZE = 200;
-
     /** Verbatim from {@code domain/validators.js}, so both halves fail identically. */
     static final String NAME_REQUIRED = "Name is required";
 
@@ -96,7 +89,7 @@ public class ProductService {
         String term = searchTerm(search);
         String exactCategory = trimToNull(category);
         int safePage = Math.max(page, 1);
-        int safePageSize = Math.min(Math.max(pageSize, 1), MAX_PAGE_SIZE);
+        int safePageSize = Math.min(Math.max(pageSize, 1), PageData.MAX_PAGE_SIZE);
 
         long total = productDao.count(term, exactCategory, includeInactive);
         List<ProductData> items = productDao

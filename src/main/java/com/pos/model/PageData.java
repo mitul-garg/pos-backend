@@ -17,6 +17,16 @@ import java.util.List;
  */
 public class PageData<T> {
 
+    /**
+     * Peer-review Phase 2: the shared page-size ceiling every paginated {@code list()}
+     * clamps {@code pageSize} to, hoisted here after it had drifted into a named constant
+     * in one service and an inlined magic number in two others. The frontend asks for 200
+     * and renders everything (backend-plan.md section 11); the ceiling exists so a caller
+     * cannot ask for the whole table in one statement, and is above the largest request
+     * the client actually makes, so nothing is truncated today.
+     */
+    public static final int MAX_PAGE_SIZE = 200;
+
     private final List<T> items;
     private final long total;
     private final int page;
