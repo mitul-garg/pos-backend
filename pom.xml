@@ -45,6 +45,7 @@
     <jacoco.version>0.8.15</jacoco.version>
     <angus.mail.version>2.0.5</angus.mail.version>
     <jakarta.mail.version>2.1.3</jakarta.mail.version>
+    <google.auth.version>1.48.0</google.auth.version>
   </properties>
 
   <dependencies>
@@ -194,6 +195,35 @@
       <artifactId>angus-mail</artifactId>
       <version>${angus.mail.version}</version>
       <scope>runtime</scope>
+    </dependency>
+
+    <!--
+      Product images via GCS (peer-review Phase 3) — loads the signing service
+      account's JSON key and provides the RSA-signing primitive V4 signed URLs
+      need, plus OAuth2 token minting for the one plain REST call this feature
+      makes (deleting an object). Deliberately NOT com.google.cloud:google-cloud-
+      storage: that SDK's dependency tree (verified locally with `mvn
+      dependency:tree` before choosing) pulls in the full gRPC stack — including
+      xDS/service-mesh and grpc-alts — plus OpenTelemetry's SDK, OpenCensus, and
+      even a transitive Cloud Monitoring client, wildly disproportionate for
+      "sign a URL and delete a blob" on a 1GB VM already tuned tight
+      (iac/prompts/02-compute-and-deploy.md). This library's own tree is just
+      guava + a thin google-http-client + gson — no gRPC, no protobuf. The V4
+      signing algorithm's canonical-request construction is hand-rolled in
+      GcsImageSigner against this library's ServiceAccountCredentials.sign(),
+      the same "reach for a library only once hand-rolling stops being simple"
+      instinct GoogleRecaptchaVerifier's Javadoc names — this library supplies
+      the one primitive (RSA-SHA256 signing with a securely-parsed key) that
+      would be unwise to hand-roll, while the actual canonicalization logic
+      (well documented by Google, mechanical once written) stays in our code.
+      Local signing also has zero per-request network cost, unlike signing via
+      the IAM Credentials API — see iac/requirements.md decision #21 for why
+      that mattered to this design.
+    -->
+    <dependency>
+      <groupId>com.google.auth</groupId>
+      <artifactId>google-auth-library-oauth2-http</artifactId>
+      <version>${google.auth.version}</version>
     </dependency>
 
     <!-- JSON. Spring ships no mapper; this is what MappingJackson2HttpMessageConverter needs. -->

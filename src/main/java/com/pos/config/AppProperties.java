@@ -141,6 +141,26 @@ public class AppProperties {
     @Value("${pos.job.abandonedTenant.intervalMinutes}")
     private long abandonedTenantCleanupIntervalMinutes;
 
+    // --- Product images via GCS (peer-review Phase 3) -----------------------------
+
+    @Value("${pos.images.enabled}")
+    private boolean imagesEnabled;
+
+    @Value("${pos.images.bucket}")
+    private String imagesBucket;
+
+    @Value("${pos.images.signerKeyPath}")
+    private String imagesSignerKeyPath;
+
+    @Value("${pos.images.maxSizeBytes}")
+    private long imagesMaxSizeBytes;
+
+    @Value("${pos.images.uploadUrlTtlMinutes}")
+    private int imagesUploadUrlTtlMinutes;
+
+    @Value("${pos.images.readUrlTtlMinutes}")
+    private int imagesReadUrlTtlMinutes;
+
     public String getDbUrl() {
         return dbUrl;
     }
@@ -267,5 +287,29 @@ public class AppProperties {
 
     public long getAbandonedTenantCleanupIntervalMinutes() {
         return abandonedTenantCleanupIntervalMinutes;
+    }
+
+    public boolean isImagesEnabled() {
+        return imagesEnabled;
+    }
+
+    public String getImagesBucket() {
+        return imagesBucket;
+    }
+
+    public String getImagesSignerKeyPath() {
+        return imagesSignerKeyPath;
+    }
+
+    public long getImagesMaxSizeBytes() {
+        return imagesMaxSizeBytes;
+    }
+
+    public int getImagesUploadUrlTtlMinutes() {
+        return imagesUploadUrlTtlMinutes;
+    }
+
+    public int getImagesReadUrlTtlMinutes() {
+        return imagesReadUrlTtlMinutes;
     }
 }
